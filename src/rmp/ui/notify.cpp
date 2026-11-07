@@ -267,9 +267,17 @@ void lay_out_and_draw() {
 
 } // namespace
 
-void notify(std::string_view text) { notify(text, NotifyOptions{}); }
+namespace {
+void notify_of(std::string_view text, const NotifyOptions &o);
+} // namespace
 
-void notify(std::string_view text, const NotifyOptions &o) {
+void notify(const rmp::Text &text) { notify(text, NotifyOptions{}); }
+
+void notify(const rmp::Text &text, const NotifyOptions &o) { notify_of(text.str(), o); }
+
+namespace {
+// The notice of a text already in the current language.
+void notify_of(std::string_view text, const NotifyOptions &o) {
     if (text.empty()) {
         RMP_REPORT_ONCE("UI: rmp::ui::notify() with no text; there is nothing to show");
         return;
@@ -285,6 +293,7 @@ void notify(std::string_view text, const NotifyOptions &o) {
     }
     push(text, o.seconds, o.color);
 }
+} // namespace
 
 namespace detail {
 

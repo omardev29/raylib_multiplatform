@@ -130,6 +130,25 @@ std::string_view font_name() { return detail::global_font_name(); }
 namespace detail {
 
 namespace {
+struct {
+    std::string applied; // the language font in use; empty: none
+    std::string before; // the font it replaced, to go back to
+} language_font;
+} // namespace
+
+void use_language_font(std::string_view file) {
+    if (file == language_font.applied) return;
+    if (language_font.applied.empty())
+        language_font.before = std::string(global_font_name());
+    language_font.applied = std::string(file);
+    set_global_font(file.empty() ? std::string_view(language_font.before) : file);
+}
+
+} // namespace detail
+
+namespace detail {
+
+namespace {
 
 // --- resolving a look -------------------------------------------------------
 
@@ -559,6 +578,7 @@ void begin_pass_looks() {
 
 void begin_frame_looks() {
     ++looks.frame;
+    rich_begin_frame();
     looks.draws.clear();
     looks.texts.clear();
     // Forget what has not been declared for a while: a screen that is gone.
@@ -710,6 +730,10 @@ void set_sound_player(rmp::Callback<std::string_view, float> play) {
 }
 
 bool has_sound_player() { return static_cast<bool>(player.play); }
+
+void play_sound(const SoundName &sound, float volume) {
+    if (!sound.empty() && player.play) player.play(sound.view(), volume);
+}
 
 void emit(EventKind kind, WidgetKind widget, std::string_view name) {
     const bool scoped = !looks.stack.empty();

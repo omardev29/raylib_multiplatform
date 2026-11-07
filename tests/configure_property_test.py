@@ -719,6 +719,14 @@ class BuildFilesTest(unittest.TestCase):
             value, literal = configure.setting(cfg, key), defines[name]
             if render is configure._c_string:
                 self.assertEqual(c_string(literal), value.encode("utf-8"), name)
+            elif render is configure._c_list:
+                # [lang] languages: the codes, a comma between them.
+                self.assertEqual(c_string(literal), ",".join(value).encode("utf-8"), name)
+            elif render is configure._c_fonts:
+                # [lang] fonts: code=file, a semicolon between them.
+                self.assertEqual(c_string(literal),
+                                 ";".join(f"{k}={v}" for k, v in value.items()).encode("utf-8"),
+                                 name)
             elif render is configure._c_float:
                 self.assertRegex(literal, rf"\A-?(?:{C_FLOAT.pattern})\Z", name)
                 self.assertEqual(float(literal[:-1]), float(value), name)
@@ -732,8 +740,12 @@ class BuildFilesTest(unittest.TestCase):
                 # A mode, by its place in STRETCH_MODES: src/rmp/stretch.cpp
                 # reads the number as rmp::app::Stretch.
                 self.assertEqual(literal, str(configure.STRETCH_MODES.index(value)), name)
-            else:
+            elif render is configure._c_bool:
                 self.assertEqual(literal, "1" if value else "0", name)
+            else:
+                # A renderer this test does not know: [lang] languages, a list,
+                # was read as a bool here until it had a branch of its own.
+                self.fail(f"{name}: written by {render.__name__}, which this test does not read")
 
     @example(cfg=dict(base_config(), window=dict(base_config()["window"], title="Café")))
     @given(changed_configs())
@@ -906,6 +918,10 @@ class ToolsReadBackTest(unittest.TestCase):
                 continue
             name, key, render = entry
             value = configure.setting(cfg, key)
+            if render is configure._c_list:
+                render, value = configure._c_string, ",".join(value)
+            elif render is configure._c_fonts:
+                render, value = configure._c_string, ";".join(f"{k}={v}" for k, v in value.items())
             if render is configure._c_string:
                 data = value.encode("utf-8") + b"\0"
                 checks.append(f"static_assert(sizeof({name}) == {len(data)} && "
@@ -918,8 +934,10 @@ class ToolsReadBackTest(unittest.TestCase):
             elif render is configure._c_stretch:
                 checks.append(f"static_assert({name} == "
                               f"{configure.STRETCH_MODES.index(value)}, \"{name}\");")
-            else:
+            elif render in (configure._c_bool, configure._c_int):
                 checks.append(f"static_assert({name} == {int(value)}, \"{name}\");")
+            else:
+                self.fail(f"{name}: written by {render.__name__}, which this test does not read")
         (self.dir / "check.cpp").write_text(
             '#include "config.h"\n'
             "constexpr bool same(const char *a, const char *b, unsigned long n) {\n"
@@ -1343,6 +1361,14 @@ def documents(draw) -> tuple[str, dict]:
         above = draw(st.lists(COMMENT, max_size=2))
         lines += [f"# {c}" for c in above] + [f"[{section}]"]
         owed[section] = "\n".join(c.rstrip() for c in above).strip()
+        # A table the game fills ([ios.settings]) says what it is under its
+        # header, in a block a blank line ends: its comment, when none is
+        # above it.
+        under = draw(st.lists(COMMENT, max_size=2))
+        if under:
+            lines += [f"# {c}" for c in under] + [""]
+            if not owed[section]:
+                owed[section] = "\n".join(c.rstrip() for c in under).strip()
         keys = draw(st.lists(st.text(alphabet="abcxyz_-019", min_size=1, max_size=5), unique=True,
                              max_size=5))
         run = ""

@@ -59,6 +59,7 @@ Notes for whoever maintains the framework: how the build, the resource pack, the
 │       ├── behaviors.cpp     #   the CATALOGUE: TopDown, Platformer, Runner, Ball, Spawner...
 │       ├── behaviors_world.cpp #   ...Area, Hitbox, Collectible, Shooter, Orbit, Animator, Draggable
 │       ├── behaviors_ai.cpp  #   ...Patrol, find_path() and Pathfind, Chase, StateMachine
+│       ├── behaviors_talk.cpp #  ...Talker: a conversation an object starts
 │       ├── behavior_internal.h
 │       ├── input.cpp         #   rmp::input -- actions, the device seam, routing against the UI
 │       ├── ui_internal.h     #   the UI's hooks the app, the scene stack and rmp::input call
@@ -81,11 +82,24 @@ Notes for whoever maintains the framework: how the build, the resource pack, the
 │       ├── tiled_impl.cpp    #   compiles cute_tiled once
 │       ├── audio.cpp         #   rmp::audio -- lazy device, voices, the music stream
 │       ├── audio_internal.h
+│       ├── text.cpp          #   rmp::Text and rmp::lang -- the tables, plurals, the system language
+│       ├── text_internal.h
 │       ├── value.cpp         #   rmp::Value -- the tree a save holds, and its Ref
 │       ├── save.cpp          #   rmp::save -- the file format, sealing, where saves go
 │       ├── save_internal.h
 │       ├── cjson_impl.c      #   compiles cJSON once, as C
 │       ├── json_internal.h   #   cJSON owned, and read in the "C" locale (saves and LDtk)
+│       ├── number_internal.h #   numbers as text in the "C" locale, the shortest that reads back
+│       ├── dialogue/         #   rmp::Dialogue -- Yarn Spinner 3, ported to C++
+│       │   ├── yarn.h        #     the tree, the program, the machine
+│       │   ├── yarn_parse.cpp #    .yarn -> the tree, a line at a time
+│       │   ├── yarn_compile.cpp #  the tree -> instructions: types, saliency, once, visits
+│       │   ├── yarn_value.cpp #    Yarn's values, as C# prints them
+│       │   ├── yarn_vm.cpp   #     the machine: lines, options, commands, functions
+│       │   ├── yarn_markup.cpp #   [markup] -> text and attributes; select, plural, ordinal
+│       │   ├── yarn_bytes.cpp #    a program as bytes and back, for the embedded build
+│       │   ├── dialogue.cpp  #     rmp::Dialogue and load_dialogue()
+│       │   └── dialogue_internal.h #  the embedded table, a script from a string
 │       └── ui/               #   rmp::ui
 │           ├── clay_impl.cpp #     compiles Clay once
 │           ├── internal.h    #     the only place Clay is allowed to exist
@@ -104,6 +118,8 @@ Notes for whoever maintains the framework: how the build, the resource pack, the
 │           ├── style.cpp     #     variants, sizes, transitions
 │           ├── look.cpp      #     Style resolved, pictures, skins, shadows, motion, events
 │           ├── kept.cpp      #     the widgets you keep: Button, Panel, Slider... show()
+│           ├── rich.cpp      #     rich_text(): Yarn markup, laid out and drawn a letter at a time
+│           ├── dialogue_ui.cpp #   DialogueBox, DialogueBubble, DialogueStage
 │           ├── sound.cpp     #     SoundName: the one link from the UI to rmp::audio
 │           ├── render.cpp    #     draw commands -> raylib calls, records, nine-slices
 │           └── theme.cpp     #     the dark and light themes
@@ -119,6 +135,8 @@ Notes for whoever maintains the framework: how the build, the resource pack, the
 │       ├── tilemap.h         #   rmp::Tilemap -- a level designed in LDtk (or Tiled)
 │       ├── audio.h           #   rmp::audio -- effects and music by name, three buses
 │       ├── save.h            #   rmp::Value and rmp::save -- saving the game
+│       ├── text.h            #   rmp::Text and rmp::lang -- the game in more than one language
+│       ├── dialogue.h        #   rmp::Dialogue -- conversations written in Yarn
 │       ├── random.h          #   rmp::random -- seeded, reproducible
 │       ├── ads.h             #   rmp::ads -- interstitial and rewarded ads; no-ops off Android
 │       ├── math.h            #   vectors, rectangles, colours (raymath, raylib-cpp)
@@ -1399,8 +1417,11 @@ would force software rendering on every player.
 The gate is the **ratio** on every target, because llvmpipe, ANGLE-on-Metal, SwiftShader and
 mobile GPUs disagree about text antialiasing and texture filtering. The hash is asserted **too**,
 but only where it is deterministic: the targets that render through raylib's own software
-rasteriser (`PLATFORM=Memory` locally, the BSDs and macOS in CI) all produce `af22be47`, and
-`tools/render_check.sh` fails on anything else. DRM renders through OpenGL ES on llvmpipe and
+rasteriser (`PLATFORM=Memory` locally, the BSDs and macOS in CI) all produce `a5fc1872`, and
+`tools/render_check.sh` fails on anything else. It is deterministic because a smoke run
+(`RAY_TEST_MAX_FRAMES`) steps every frame exactly 1/60 s, as the e2e driver does: with the
+machine's clock the fifth frame caught the theme's appearing fade wherever that machine's frames
+had taken it -- finished on a Linux runner, barely begun on a macOS one. DRM renders through OpenGL ES on llvmpipe and
 gives a different hash with the same pixel count and ratio; that one is compared against its
 own golden and must not be "fixed" by copying one over the other.
 

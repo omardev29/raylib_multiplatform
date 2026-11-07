@@ -386,6 +386,45 @@ here so that nobody "fixes" one back.
   object that has one; the behaviors a level designer places have
   `B::from(const MapObject &)` reading fixed field names, written above each in
   `rmp/behavior.h`.
+- **A window out of sight costs nothing, and pausing on focus is the game's
+  choice** (Omar, 2026-11-01). A minimized desktop window draws nothing and
+  sleeps between frames while the world, the music and the clock go on -- no
+  `#if`: the web and the phones pause a hidden app themselves. `[window]
+  pause_unfocused` (off by default) stops the scenes, the clock and the sound
+  while the window has no focus, keeps the last picture, gives the top scene
+  `_suspend()`/`_resume()`, and the first step back is 0.
+- **Every text the framework draws is an `rmp::Text`, and a literal translates
+  itself** (Omar, 2026-11-01). `rmp/text.h`: the literal's words are its key in
+  `resources/lang.tsv` (a column per language) and `resources/lang/<code>.tsv`
+  (one per language), merged; a string made at runtime is shown as it is, and a
+  value that changes goes in a `{placeholder}`; plurals are CLDR's, `|` between
+  the forms; the language is the system's, `rmp::lang::set()`'s (saved) or
+  `[lang] default`, es-MX falling back to es. A widget's identity is the key,
+  never the translation. `rmp text scan` adds rows and never deletes one;
+  `rmp text check` holds the tables to `[lang] languages`. A font per language
+  in `[lang] fonts`. The window's title is not translated. Right-to-left and
+  complex shaping are out.
+- **Dialogue is Yarn Spinner 3, in .yarn files, compiled by the framework's own
+  C++** (Omar, 2026-11-01 and 2026-11-06). `rmp/dialogue.h`: a port of the
+  official compiler and machine (MIT), held to Yarn Spinner's own test cases
+  (`tests/dialogue/yarn/`; what does not pass yet is in
+  `tests/dialogue/yarn_unsupported.txt`, a list that only shrinks). No dialogue
+  written in C++, no JSON or TSV dialogue; Ink comes in through
+  `tools/ink_to_yarn.py`. A line's `#line:` id is its translation key. No Python
+  at runtime: `[dialogue] build` compiles at load ("runtime") or into the game
+  with `rmp_yarnc` ("embedded", desktop builds), "auto" for debug and release.
+  The presenters are rmp::ui widgets (DialogueBox, DialogueBubble,
+  DialogueStage), and `rmp::behavior::Talker` starts a conversation.
+- **Android's release hides what it does not export, and collects what
+  nobody reaches** (Omar, 2026-11-07). raymob links all of `src/` into one
+  shared library, and a shared library keeps every symbol it exports: with
+  default visibility a game that never loads a dialogue carried the Yarn
+  compiler, +25 % of each ABI. The release compiles the game and raylib with
+  `-fvisibility=hidden` and sections, and links with `--gc-sections`
+  (`raymob/app/src/main/cpp/CMakeLists.txt`); what Java or the system looks
+  up by name says `JNIEXPORT` (`ANativeActivity_onCreate`, raymob's
+  callbacks), which keeps it exported. arm64-v8a went from 3091080 bytes to
+  1108688, measured with the image's NDK r28.
 - **`src/main.cpp` is a dozen lines and ends at `RMP_GAME(MainMenuScene);`**
   -- phase 4 did that, and it stays that way. The user's game lives in
   `src/scenes/` and `src/objects/`; new mechanics go to `examples/`, never here.
@@ -1196,13 +1235,18 @@ Each of these was a real bug, found by reproducing rather than by reading.
 - **`TakeScreenshot` needs `rlDrawRenderBatchActive()` first**, or the file is
   blank. It also mangles absolute paths.
 - **DRM renders a different hash, and that is correct.** `linux-x64-glibc-drm`
-  gives a hash of its own where every other target gives `af22be47`, because
+  gives a hash of its own where every other target gives `a5fc1872`, because
   it rasterises through OpenGL ES on llvmpipe and the golden hash comes from
   raylib's own software renderer. The pixel count and the coverage ratio are
-  identical (`pixels=102752 ratio=0.28542`), which is what says the geometry is
+  identical (`pixels=97702 ratio=0.27139`), which is what says the geometry is
   the same and only the shading differs. Do not "fix" it by copying one hash
   over the other. (The text is measured the way it is drawn since Stage E's
-  P7, which moved both hashes; `drm-x64-run` prints DRM's.)
+  P7, which moved both hashes; `drm-x64-run` prints DRM's.) And a smoke run
+  steps every frame exactly 1/60 s (`app.cpp`, as the e2e driver does): with
+  the machine's clock, the fifth frame -- the one hashed -- caught the
+  theme's appearing fade wherever that machine had got to, and macOS, whose
+  frames took next to nothing, drew another picture (`b526ae51`) from
+  Plan 2's styles on until 2026-11-07.
 - **CI can run DRM, on a kernel display that does not exist.** `vkms` is
   mainline Virtual Kernel Mode Setting: a DRM device with a CRTC, an encoder and
   a connector and no hardware behind them. Two things it needs, and both were

@@ -1,0 +1,2 @@
+# Yarn Spinner test cases our compiler does not pass yet, a file and why.
+# A list that only shrinks: tests/yarn_plan_test.cpp fails on a line that passes.

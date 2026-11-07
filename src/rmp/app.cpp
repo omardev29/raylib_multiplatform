@@ -10,8 +10,10 @@
 #include <rmp/app.h>
 
 #include "audio_internal.h"
+#include "dialogue/dialogue_internal.h"
 #include "internal.h"
 #include "scene_internal.h"
+#include "text_internal.h"
 #include "ui_internal.h"
 
 #include <raylib.h>
@@ -268,6 +270,10 @@ void begin_run() {
     // the game's. Told before anything is loaded, so an example with its own
     // resources/ reads its own. See resources_root() in internal.h.
     rmp::assets::detail::set_resources_root(RMP_RESOURCES_PATH);
+#if defined(RMP_DIALOGUE_EMBEDDED)
+    // The game's .yarn, compiled when it was built ([dialogue] build).
+    rmp::dialogue::detail::set_embedded(rmp::dialogue::detail::embedded_programs());
+#endif
     // The one place rmp::random is seeded, and the reason it is HERE: a unit
     // test never comes through the entry point, so a headless run keeps the
     // fixed default seed and stays reproducible, while a shipped game gets a
@@ -363,6 +369,12 @@ bool keep_running() {
 // sample in the same frame compares every key with itself, and every
 // just_pressed() of that frame is gone. tests/input_play.cpp plays both.
 void begin_frame() {
+    // The window first: minimized or out of focus decides what this frame
+    // does, and a pause has to hold the clock before the step is taken.
+    begin_pace();
+    // The language's tables again, when a watched one changed.
+    rmp::lang::detail::begin_frame();
+    rmp::ui::detail::use_language_font(rmp::lang::detail::font_for(rmp::lang::current()));
     rmp::input::detail::begin_frame();
     // And the UI's frame, for a game with its own frame hook: one UI frame
     // around however many begin()/end() pairs it draws. See ui_internal.h.
@@ -445,6 +457,8 @@ void begin_stop() {
 // device has closed is a free on a torn-down mixer. It is not on the GPU, so
 // the window being gone does not matter to it.
 void end_stop() {
+    // A debug build's texts the tables lack, for `rmp text scan`.
+    rmp::lang::detail::write_seen();
     rmp::audio::detail::close_device();
     rmp::assets::shutdown();
     // The UI is gone: a warning from here on is said in the log only.
@@ -493,6 +507,14 @@ void start(std::unique_ptr<rmp::Scene> first) {
     // sets it.
     std::string asked;
     if (SmokeTest_maxFrames > 0) {
+        // And every frame of it exactly 1/60 s, as the e2e driver steps them:
+        // the frame the render check hashes is the fifth, and with the
+        // machine's own clock it showed a panel as far into its appearing
+        // fade as that machine was fast -- done on a Linux runner, whose
+        // frames under ASan are clamped long ones, and barely begun on a
+        // macOS runner, whose frames took next to no time. One picture
+        // everywhere, or the hash is a measurement of the runner.
+        set_fixed_delta(1.0f / 60);
         // NOLINTNEXTLINE(custom-rmp-raw-pointer): what getenv() hands back, copied at once
         const char *env = std::getenv("RAY_TEST_WINDOW");
         if (env != nullptr) asked = env;
@@ -506,24 +528,13 @@ void start(std::unique_ptr<rmp::Scene> first) {
     rmp::scenes::detail::start(std::move(first));
 }
 
-// One turn of the loop, and the order is the contract. It is documented in
-// next_architecture/03-app-and-scenes.md and checked in tests/scene_test.cpp,
-// because every interesting property of a scene stack is an ordering property.
-void frame(float delta) {
-    // 1. The frame boundary. Once, whatever the stack looks like: the scroll
-    //    advances and the animation clock ticks exactly one frame's worth even
-    //    when three scenes describe UI.
-    //
-    //    The devices were sampled before this, by the runner -- begin_frame()
-    //    above, which every runner calls whether the hook is this function or
-    //    a game's own. Sampling once is what stops two scenes in the same
-    //    frame from disagreeing about what is held down; sampling here as well
-    //    would lose every press of the frame.
-    rmp::ui::detail::begin_frame();
+// How long a frame sleeps while the window is minimized (the world still
+// moves, at 30 steps a second), and while it is paused (it only shows).
+constexpr double MINIMIZED_FRAME = 1.0 / 30;
+constexpr double PAUSED_FRAME = 1.0 / 10;
 
-    // 2. Update, bottom upwards, skipping what the scene above freezes.
-    rmp::scenes::detail::update(delta);
-
+// Steps 3 to 6 of frame(): the frame drawn, and the UI's frame closed.
+void draw_frame() {
     // 3/4. Draw. The clear colour comes from the lowest scene that is still
     //      visible, which is what makes a full-screen loading scene work with
     //      one field and no policy.
@@ -546,6 +557,42 @@ void frame(float delta) {
     // 6.
     EndDrawing();
     rmp::ui::detail::end_frame();
+    frame_drawn();
+}
+
+// One turn of the loop, and the order is the contract. It is documented in
+// next_architecture/03-app-and-scenes.md and checked in tests/scene_test.cpp,
+// because every interesting property of a scene stack is an ordering property.
+void frame(float delta) {
+    // 1. The frame boundary. Once, whatever the stack looks like: the scroll
+    //    advances and the animation clock ticks exactly one frame's worth even
+    //    when three scenes describe UI.
+    //
+    //    The devices were sampled before this, by the runner -- begin_frame()
+    //    above, which every runner calls whether the hook is this function or
+    //    a game's own. Sampling once is what stops two scenes in the same
+    //    frame from disagreeing about what is held down; sampling here as well
+    //    would lose every press of the frame.
+    rmp::ui::detail::begin_frame();
+
+    // 2. Update, bottom upwards, skipping what the scene above freezes --
+    //    unless the window is out of focus under [window] pause_unfocused.
+    const Pace now = pace();
+    if (now.update) rmp::scenes::detail::update(delta);
+
+    if (now.draw) {
+        draw_frame();
+        // Paused: the same picture again, a few times a second, so a window
+        // uncovered on a desktop with no compositor is not left blank.
+        if (!now.update) frame_skipped(PAUSED_FRAME);
+    } else {
+        // Minimized: nothing to see, so nothing drawn and no vsync to wait
+        // for. raylib polls the window's events in EndDrawing(), which does
+        // not run -- without this the window never hears it was restored.
+        PollInputEvents();
+        rmp::ui::detail::end_frame();
+        frame_skipped(now.update ? MINIMIZED_FRAME : PAUSED_FRAME);
+    }
 
     // 7. Deferred work, once nothing is mid-frame: scenes queued by change(),
     //    push(), replace() and pop() are applied here and nowhere else.

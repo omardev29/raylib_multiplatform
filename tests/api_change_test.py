@@ -426,11 +426,13 @@ class RealTreeTest(unittest.TestCase):
             self.assertIn(key, read)
 
     def test_the_free_form_tables_are_the_ones_configure_py_passes_through(self):
-        """deep_merge() takes such a table as written, `v if here == "..."`;
+        """deep_merge() takes such a table as written, `v if here in (...)`;
         a second one there is a second table whose keys are the game's."""
         configure = load_tool("configure")
         source = (TOOLS / "configure.py").read_text()
-        through = re.findall(r'\bv if here == "([\w.]+)" else deep_merge\(', source)
+        passes = re.findall(r'\bv if here in \(([^)]*)\) else deep_merge\(', source)
+        self.assertEqual(len(passes), 1, "one place passes tables through")
+        through = re.findall(r'"([\w.]+)"', passes[0])
         self.assertEqual(through, list(api.FREE_FORM))
         for table in through:
             section, key = table.split(".")

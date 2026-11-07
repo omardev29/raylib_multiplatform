@@ -57,6 +57,7 @@ constexpr int VOICES = 4;
 
 struct Voice {
     ::Sound sound{};
+    bool paused = false; // by pause_all(), and only that
     std::uint64_t started = 0; // the play it last started for; 0 = never
     float volume = 1.0f; // this play's own volume, before the SFX bus
 };
@@ -77,6 +78,7 @@ struct Track {
     std::vector<unsigned char> bytes;
     ::Music music{};
     bool loaded = false;
+    bool paused = false; // by pause_all(), and only that
 };
 
 struct State {
@@ -98,6 +100,7 @@ struct State {
     Track track;
     std::vector<std::string> missing_music; // asked for, and nothing playable
     std::uint64_t plays = 0;
+    bool paused_all = false;
 };
 
 State &state() {
@@ -292,6 +295,40 @@ void update() {
     UpdateMusicStream(s.track.music);
 }
 
+void pause_all() {
+    State &s = state();
+    if (s.paused_all) return;
+    s.paused_all = true;
+    if (!s.ready) return;
+    for (Effect &e : s.effects) {
+        for (int i = 0; i < e.voice_count; ++i) {
+            Voice &v = e.voices[static_cast<std::size_t>(i)];
+            v.paused = IsSoundPlaying(v.sound);
+            if (v.paused) PauseSound(v.sound);
+        }
+    }
+    s.track.paused = s.track.loaded && IsMusicStreamPlaying(s.track.music);
+    if (s.track.paused) PauseMusicStream(s.track.music);
+}
+
+void resume_all() {
+    State &s = state();
+    if (!s.paused_all) return;
+    s.paused_all = false;
+    if (!s.ready) return;
+    for (Effect &e : s.effects) {
+        for (int i = 0; i < e.voice_count; ++i) {
+            Voice &v = e.voices[static_cast<std::size_t>(i)];
+            if (v.paused) ResumeSound(v.sound);
+            v.paused = false;
+        }
+    }
+    if (s.track.paused && s.track.loaded) ResumeMusicStream(s.track.music);
+    s.track.paused = false;
+}
+
+bool paused_all() { return state().paused_all; }
+
 void shutdown() {
     State &s = state();
     if (s.ready) {
@@ -326,6 +363,7 @@ void reset_for_tests() {
     s.effects.clear();
     s.missing_music.clear();
     s.track = Track{};
+    s.paused_all = false;
     s.master = RMP_AUDIO_MASTER;
     s.music = RMP_AUDIO_MUSIC;
     s.sfx = RMP_AUDIO_SFX;

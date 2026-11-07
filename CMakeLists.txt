@@ -784,6 +784,64 @@ else()
   target_compile_definitions(rmp PUBLIC RMP_PRODUCTION_BUILD=0)
 endif()
 target_link_libraries(rmp PUBLIC raylib_static)
+# rmp_yarnc: the framework's Yarn compiler, built for the machine that builds,
+# to compile a game's .yarn into it at build time ([dialogue] build). Only
+# where that machine is the target too: a cross build compiles at runtime.
+if(NOT CMAKE_CROSSCOMPILING AND NOT EMSCRIPTEN AND NOT ANDROID AND NOT IOS)
+  file(GLOB _yarnc_sources CONFIGURE_DEPENDS
+       "${CMAKE_CURRENT_SOURCE_DIR}/src/rmp/dialogue/yarn_parse.cpp"
+       "${CMAKE_CURRENT_SOURCE_DIR}/src/rmp/dialogue/yarn_compile.cpp"
+       "${CMAKE_CURRENT_SOURCE_DIR}/src/rmp/dialogue/yarn_value.cpp"
+       "${CMAKE_CURRENT_SOURCE_DIR}/src/rmp/dialogue/yarn_bytes.cpp")
+  add_executable(rmp_yarnc "${CMAKE_CURRENT_SOURCE_DIR}/tools/rmp_yarnc.cpp" ${_yarnc_sources})
+  set_property(TARGET rmp_yarnc PROPERTY CXX_STANDARD 20)
+  set_property(TARGET rmp_yarnc PROPERTY EXCLUDE_FROM_ALL TRUE)
+  target_include_directories(rmp_yarnc PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/include")
+  target_include_directories(rmp_yarnc SYSTEM PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/raylib/src" "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty")
+  rmp_apply_compile_flags(rmp_yarnc)
+  rmp_apply_link_flags(rmp_yarnc)
+  rmp_apply_warnings(rmp_yarnc)
+endif()
+
+# A game's .yarn scripts compiled into it, when [dialogue] build says so:
+# "embedded", or "auto" in a release. The generated file is the table
+# rmp::assets::load_dialogue() looks in before resources/.
+function(rmp_embed_dialogue NAME RES_DIR)
+  set(_mode "${TEMPLATE_DIALOGUE_BUILD}")
+  if(_mode STREQUAL "auto")
+    if(PRODUCTION_BUILD)
+      set(_mode "embedded")
+    else()
+      set(_mode "runtime")
+    endif()
+  endif()
+  if(NOT _mode STREQUAL "embedded" OR NOT TARGET rmp_yarnc)
+    return()
+  endif()
+  file(GLOB_RECURSE _yarn RELATIVE "${RES_DIR}" CONFIGURE_DEPENDS "${RES_DIR}/*.yarn")
+  if(NOT _yarn)
+    return()
+  endif()
+  set(_scripts "")
+  foreach(_f IN LISTS _yarn)
+    list(APPEND _scripts "${RES_DIR}/${_f}")
+  endforeach()
+  set(_out "${CMAKE_CURRENT_BINARY_DIR}/generated/${NAME}_dialogue.cpp")
+  add_custom_command(OUTPUT "${_out}"
+    COMMAND rmp_yarnc "${_out}" "${RES_DIR}" ${_yarn}
+    DEPENDS rmp_yarnc ${_scripts}
+    COMMENT "rmp_yarnc: compiling ${NAME}'s dialogue into it"
+    VERBATIM)
+  target_sources(${NAME} PRIVATE "${_out}")
+  target_include_directories(${NAME} PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src/rmp")
+  target_compile_definitions(${NAME} PRIVATE RMP_DIALOGUE_EMBEDDED=1)
+endfunction()
+
+# The player's language, which src/rmp/text.cpp asks CoreFoundation for.
+if(APPLE)
+  target_link_libraries(rmp PUBLIC "-framework CoreFoundation")
+endif()
 if(NOT PRODUCTION_BUILD)
   target_link_libraries(rmp PUBLIC raymoblib)
 endif()
@@ -926,6 +984,9 @@ function(rmp_add_game NAME DIR)
 
   rmp_game_resources("${DIR}" _res _res_dir)
   target_compile_definitions(${NAME} PRIVATE RMP_RESOURCES_PATH="${_res}")
+  if(NOT _plain_c)
+    rmp_embed_dialogue(${NAME} "${_res_dir}")
+  endif()
   if(_plain_c)
     if(PRODUCTION_BUILD)
       target_compile_definitions(${NAME} PRIVATE RMP_PRODUCTION_BUILD=1)

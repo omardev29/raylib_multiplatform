@@ -1,0 +1,3 @@
+# libFuzzer flags for fuzz_yarn, one a line: tools/fuzz.sh run and merge pass them.
+# Yarn test cases are under 8 KB but one; past that the runs only slow down.
+-max_len=8192

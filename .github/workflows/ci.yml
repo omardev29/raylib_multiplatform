@@ -297,6 +297,22 @@ jobs:
           RMP_REQUIRE_CPPCHECK: "1"
         run: python3 -m unittest discover -s tests -p 'configure_test.py' -v
 
+      # The game's translation tables against [lang] languages: a text a
+      # shipped language lacks, a lost placeholder, a plural with the wrong
+      # number of forms. Nothing to hold when the game has no tables.
+      - name: The translation tables
+        run: python3 tools/text_tool.py check
+
+      # rmp text's scanner and checker, each mistake planted and seen.
+      - name: rmp text, scanner and checker
+        if: needs.config.outputs.framework == 'true'
+        run: python3 -m unittest discover -s tests -p 'text_tool_test.py' -v
+
+      # tools/ink_to_yarn.py: an Ink story converted, and what is not, said.
+      - name: Ink to Yarn
+        if: needs.config.outputs.framework == 'true'
+        run: python3 -m unittest discover -s tests -p 'ink_to_yarn_test.py' -v
+
       # `rmp` itself: every command's page, the push and deploy refusals
       # against a real git, the launchers under every shell the image has.
       - name: rmp itself

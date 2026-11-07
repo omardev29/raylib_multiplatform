@@ -80,6 +80,13 @@ void update();
 // any raw Sound the hook unloads itself -- a sound unloaded after its device
 // has closed is a free on a torn-down mixer. And only if the framework opened
 // the device: a game that opened it closes it.
+// Every effect voice that is playing, and the music, paused -- and back where
+// they were. What pause_all() did not pause, resume_all() does not start.
+// For [window] pause_unfocused. A raw ::Sound the game plays itself is its own.
+void pause_all();
+void resume_all();
+bool paused_all();
+
 void shutdown();
 void close_device();
 

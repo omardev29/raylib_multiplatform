@@ -12,6 +12,10 @@
 #include <rmp/ui.h>
 
 #include "clay.h"
+
+namespace rmp::yarn {
+struct Marked; // ../dialogue/yarn.h: a text with its markup parsed
+} // namespace rmp::yarn
 #include "../ui_internal.h" // the hooks the app, the scenes and rmp::input call
 
 #include <array>
@@ -675,6 +679,12 @@ Clay_Dimensions measure_with_raylib(Clay_StringSlice text, Clay_TextElementConfi
 // font of its own making -- baking one needs a GL context.
 Clay_Dimensions measure_text(const ::Font &face, Clay_StringSlice text, float font_size);
 
+// A piece of text as the UI measures it, at a size in pixels that need not be
+// whole: through the measure provider (a test's stub, headless), and with the
+// real one exactly as measure_with_raylib() measures, the face's missing
+// letters asked for. Rich text lays its letters out with it.
+Clay_Dimensions measure_piece(Clay_StringSlice text, std::uint16_t font_id, float size);
+
 // The space render.cpp draws between two letters of a text `font_size` pixels
 // tall, and the one every measurement counts.
 inline float letter_spacing(float font_size) { return font_size / 10.0f; }
@@ -1001,6 +1011,28 @@ struct Extra {
     rmp::Ref<Edges> edges; // filled in, when given
     rmp::Ref<uint32_t> element; // the element's id, when given
     std::string_view id{}; // a kept widget's own id, for the ones with no label
+    // What the label says in the current language, when it is not the label
+    // itself: the label is the widget's identity, and this is what is drawn.
+    std::optional<std::string_view> shown{};
+};
+
+// The label to draw: the translation, or the label.
+inline std::string_view drawn(std::string_view label, const Extra &x) {
+    return x.shown ? *x.shown : label;
+}
+
+// An rmp::Text at a widget's door: `key` is the identity the widget keeps
+// across languages, `shown` what it draws now.
+struct Said {
+    std::string key;
+    std::string shown;
+    explicit Said(const rmp::Text &t) : key(t.id()), shown(t.str()) {}
+    // The Extra that draws it.
+    [[nodiscard]] Extra extra() const {
+        Extra x;
+        x.shown = shown;
+        return x;
+    }
 };
 bool button_with(std::string_view label, const ButtonOptions &o, const Extra &x);
 void text_with(std::string_view s, const TextOptions &o, const Extra &x);
@@ -1027,6 +1059,17 @@ bool text_input_with(std::string_view label, std::string &value,
                      const TextInputOptions &o, const Extra &x);
 void progress_with(float fraction, const ProgressOptions &o, rmp::Ref<const Picture> fill,
                    const Extra &x);
+
+// --- rich.cpp: rich_text() ----------------------------------------------------
+// The records of this frame's rich texts go with the frame; the effects' clock
+// advances by the UI's frame time. render.cpp hands a CUSTOM command to
+// draw_rich(), and a presenter lays out what it already parsed with rich_with().
+void rich_begin_frame();
+// A sound by name, as the presenters' blips and voices play it.
+void play_sound(const SoundName &sound, float volume);
+void draw_rich(const Clay_RenderCommand &cmd, float alpha);
+void rich_with(const rmp::yarn::Marked &marked, const RichTextOptions &o,
+               std::string_view label);
 
 // --- context.cpp: fonts by id -------------------------------------------------
 // 0 is the global font; every other id is a file a Style named, registered the

@@ -321,6 +321,48 @@ TEST_SUITE("audio: device") {
         CHECK(rmp::audio::detail::music_time() >= before); // not back at 0
     }
 
+    TEST_CASE("pause_all() silences what rings, and resume_all() brings back only that") {
+        // [window] pause_unfocused: a window without focus is a quiet one.
+        const Device device;
+        if (!device.ok) return;
+        rmp::audio::music("long", true);
+        rmp::audio::play("long", { .volume = 1.0f });
+        wait(0.05);
+        (void)take();
+        wait(0.1);
+        REQUIRE(take().total() > 0);
+        rmp::audio::detail::pause_all();
+        rmp::audio::detail::pause_all(); // twice is once
+        CHECK(rmp::audio::detail::paused_all());
+        CHECK_FALSE(rmp::audio::music_playing());
+        wait(0.05); // what the mixer already had
+        (void)take();
+        wait(0.1);
+        CHECK(take().total() == 0);
+        const float held = rmp::audio::detail::music_time();
+        rmp::audio::detail::resume_all();
+        rmp::audio::detail::resume_all();
+        CHECK_FALSE(rmp::audio::detail::paused_all());
+        CHECK(rmp::audio::music_playing());
+        CHECK(rmp::audio::detail::music_time() >= held); // from where it stood
+        wait(0.05);
+        (void)take();
+        wait(0.1);
+        CHECK(take().total() > 0);
+    }
+
+    TEST_CASE("pause_all() with nothing playing resumes nothing") {
+        const Device device;
+        if (!device.ok) return;
+        wait(0.2); // warm_up()'s tone is over
+        rmp::audio::detail::pause_all();
+        rmp::audio::detail::resume_all();
+        CHECK_FALSE(rmp::audio::music_playing());
+        (void)take();
+        wait(0.1);
+        CHECK(take().total() == 0);
+    }
+
     TEST_CASE("a device the game opened itself is the game's to close") {
         rmp::audio::detail::reset_for_tests();
         InitAudioDevice();

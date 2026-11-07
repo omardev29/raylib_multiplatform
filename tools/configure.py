@@ -481,7 +481,8 @@ DEFAULTS: dict = {
     # had. The framework's own .toml -- and every game `rmp new` makes from
     # it -- says "letterbox".
     "window": {"title": "Raylib is Multiplatform!", "width": 800, "height": 450,
-               "orientation": "landscape", "vsync": True, "fps": 0, "stretch": "none"},
+               "orientation": "landscape", "vsync": True, "fps": 0, "stretch": "none",
+               "pause_unfocused": False},
     "app": {"max_delta": 0.05},
     "targets": {"enabled": ["all"], "disabled": []},
     "android": {
@@ -516,6 +517,9 @@ DEFAULTS: dict = {
                         "linux-x64-glibc-drm", "linux-riscv64-glibc"], "disabled": [],
             "max_size_mb": 600},
     "linux": {"backend": "glfw", "wayland": False, "glibc": "2.28"},
+    "dialogue": {"build": "auto"},
+    "lang": {"default": "en", "file": "lang.tsv", "folder": "lang", "collect": True,
+             "languages": [], "fonts": {}},
     "ui": {"theme": "dark", "font": "", "font_size": 20, "scale": 0,
            "max_elements": 512},
     "dev": {"compiler": "clang", "c_compiler": "same", "linker": "auto", "strict": False,
@@ -544,7 +548,7 @@ EXAMPLE_ID_PREFIX = "com.example."
 # any extension.
 RESERVED_NAMES = {
     "rmp", "raylib", "raylib_static", "raymoblib", "rres_pack", "unit_test",
-    "ui_layout_test", "ui_render_test", "platformer_play", "input_play", "assembler",
+    "ui_layout_test", "ui_render_test", "platformer_play", "input_play", "assembler", "rmp_yarnc",
     "pack_resources", "unpack_resources", "game_test", "sanitizer_canary",
     "rmp_e2e_driver", "console_canary", "tcc_runtime", "tcc_fixup_lint",
 }
@@ -577,8 +581,10 @@ def deep_merge(base: dict, over: dict, path: str = "") -> dict:
                 f"Write it as a section: a line [{here}] with its keys under it.",
                 (path, k))
         if isinstance(base[k], dict) and isinstance(v, dict):
-            # [ios.settings] is a free-form passthrough; do not police its keys.
-            out[k] = v if here == "ios.settings" else deep_merge(base[k], v, here)
+            # [ios.settings] is a free-form passthrough and [lang.fonts] is keyed
+            # by language code: neither has a fixed set of keys to hold the file
+            # to. tools/api_change.py's FREE_FORM names the same two.
+            out[k] = v if here in ("ios.settings", "lang.fonts") else deep_merge(base[k], v, here)
         else:
             out[k] = v
     return out
@@ -851,6 +857,8 @@ def validate(cfg: dict, strict_release: bool) -> None:
     validate_audio(cfg)
     validate_save(cfg)
     validate_ui(cfg)
+    validate_lang(cfg)
+    validate_dialogue(cfg)
     validate_targets(cfg, strict_release)
 
 
@@ -1031,6 +1039,10 @@ def validate_window(cfg: dict) -> None:
     vsync = cfg["window"]["vsync"]
     if not isinstance(vsync, bool):
         raise ConfigError(f"[window] vsync = {vsync!r} is a switch: true or false.")
+    pause = cfg["window"]["pause_unfocused"]
+    if not isinstance(pause, bool):
+        raise ConfigError(
+            f"[window] pause_unfocused = {pause!r} is a switch: true or false.")
     fps = cfg["window"]["fps"]
     if isinstance(fps, bool) or not isinstance(fps, int):
         raise ConfigError(
@@ -1592,6 +1604,103 @@ def validate_ui(cfg: dict) -> None:
                           "on every platform including phones.")
 
 
+DIALOGUE_BUILDS = ("auto", "runtime", "embedded")
+
+
+def validate_dialogue(cfg: dict) -> None:
+    """[dialogue] build: where the .yarn scripts are compiled."""
+    one_of(cfg["dialogue"]["build"], DIALOGUE_BUILDS, "[dialogue] build",
+           "\"runtime\" compiles a script when the game loads it, \"embedded\" when the game "
+           "is built,\n  \"auto\" the first in a debug build and the second in a release.")
+
+
+LANG_CODE = re.compile(r"^[a-z]{2,3}(-[A-Za-z0-9]{2,8})*$")
+
+
+def lang_columns(resources: Path, file: str, folder: str) -> list[str]:
+    """The languages the game's tables have: the columns of [lang] file after
+    key and context, and one per file of [lang] folder. Empty when neither is
+    there."""
+    found: list[str] = []
+    table = resources / file if file else None
+    if table is not None and table.is_file():
+        for line in table.read_text(encoding="utf-8", errors="replace").splitlines():
+            if not line.strip() or line.startswith("#"):
+                continue
+            found += [c.strip() for c in line.split("\t")[2:] if c.strip()]
+            break
+    where = resources / folder if folder else None
+    if where is not None and where.is_dir():
+        found += sorted(f.stem for f in where.glob("*.tsv"))
+    return list(dict.fromkeys(found))
+
+
+def validate_lang(cfg: dict, resources: Path | None = None) -> None:
+    """[lang]: the default language, the tables, the languages a game ships and
+    a font per language."""
+    lang = cfg["lang"]
+    if not isinstance(lang["default"], str):
+        raise ConfigError(f"[lang] default = {lang['default']!r} must be a code, like \"en\".")
+    if not isinstance(lang["file"], str):
+        raise ConfigError(f"[lang] file = {lang['file']!r} must be a file name, or \"\".")
+    if not isinstance(lang["folder"], str):
+        raise ConfigError(f"[lang] folder = {lang['folder']!r} must be a folder name, or \"\".")
+    if not LANG_CODE.match(lang["default"]):
+        raise ConfigError(f"[lang] default = {lang['default']!r} is not a language code.\n"
+                          "Write it like \"en\", \"es\" or \"pt-BR\".")
+    for key in ("file", "folder"):
+        value = lang[key]
+        if value.startswith("/") or ".." in value.split("/") or "\\" in value or "\0" in value:
+            raise ConfigError(f"[lang] {key} = {value!r} has to be a path inside resources/.")
+    if not isinstance(lang["collect"], bool):
+        raise ConfigError(f"[lang] collect = {lang['collect']!r} is a switch: true or false.")
+    languages = lang["languages"]
+    if not isinstance(languages, list):
+        raise ConfigError(f"[lang] languages = {languages!r} must be a list of codes, "
+                          "like [\"en\", \"es\"], or [] for every language the tables have.")
+    seen = set()
+    for code in languages:
+        if not isinstance(code, str) or not LANG_CODE.match(code):
+            raise ConfigError(f"[lang] languages: {code!r} is not a language code.\n"
+                              "Write it like \"en\", \"es\" or \"pt-BR\".")
+        if code in seen:
+            raise ConfigError(f"[lang] languages names {code!r} twice.")
+        seen.add(code)
+    if languages and lang["default"] not in languages:
+        raise ConfigError(f"[lang] default = {lang['default']!r} is not in [lang] languages "
+                          f"{languages!r}: the fallback has to be a language the game ships.")
+    fonts = lang["fonts"]
+    if not isinstance(fonts, dict):
+        raise ConfigError(f"[lang] fonts = {fonts!r} must be a table of language = font file,\n"
+                          "like fonts = { ja = \"jp.ttf\" }.")
+    for code, font in fonts.items():
+        if not LANG_CODE.match(code):
+            raise ConfigError(f"[lang] fonts: {code!r} is not a language code.")
+        if languages and code not in languages:
+            raise ConfigError(f"[lang] fonts names {code!r}, which is not in [lang] languages.")
+        if not isinstance(font, str) or not font or ";" in font or "=" in font:
+            raise ConfigError(f"[lang] fonts.{code} = {font!r} must be the name of a font file "
+                              "in resources/.")
+    if languages:
+        where = resources if resources is not None else REPO / "resources"
+        have = lang_columns(where, lang["file"], lang["folder"])
+        if have:
+            missing = [c for c in languages if c not in have]
+            if missing:
+                raise ConfigError(f"[lang] languages lists {missing!r}, and the tables in resources/ "
+                                  f"have no column or file for {'it' if len(missing) == 1 else 'them'}"
+                                  f" (they have {have!r}).\nAdd the column to {lang['file']} or a "
+                                  f"file {lang['folder']}/<code>.tsv, or take it off the list.")
+
+
+def _c_list(value: list) -> str:
+    return _c_string(",".join(value))
+
+
+def _c_fonts(value: dict) -> str:
+    return _c_string(";".join(f"{k}={v}" for k, v in value.items()))
+
+
 def validate_targets(cfg: dict, strict_release: bool) -> None:
     """[targets]: what is built, and what a release of it must not carry."""
     appid = cfg["android"]["application_id"]
@@ -1852,6 +1961,8 @@ void UnloadSound(Sound sound) {{ (void)sound; }}
 void UnloadSoundAlias(Sound alias) {{ (void)alias; }}
 void PlaySound(Sound sound) {{ (void)sound; }}
 bool IsSoundPlaying(Sound sound) {{ (void)sound; return false; }}
+void PauseSound(Sound sound) {{ (void)sound; }}
+void ResumeSound(Sound sound) {{ (void)sound; }}
 void SetSoundVolume(Sound sound, float volume) {{ (void)sound; (void)volume; }}
 void SetSoundPitch(Sound sound, float pitch) {{ (void)sound; (void)pitch; }}
 void SetSoundPan(Sound sound, float pan) {{ (void)sound; (void)pan; }}
@@ -1866,6 +1977,8 @@ Music LoadMusicStreamFromMemory(const char *fileType, const unsigned char *data,
 void UnloadMusicStream(Music music) {{ (void)music; }}
 void PlayMusicStream(Music music) {{ (void)music; }}
 void StopMusicStream(Music music) {{ (void)music; }}
+void PauseMusicStream(Music music) {{ (void)music; }}
+void ResumeMusicStream(Music music) {{ (void)music; }}
 void UpdateMusicStream(Music music) {{ (void)music; }}
 bool IsMusicStreamPlaying(Music music) {{ (void)music; return false; }}
 float GetMusicTimePlayed(Music music) {{ (void)music; return 0.0f; }}
@@ -1912,6 +2025,7 @@ set(TEMPLATE_WEB_BACKEND "{cfg["web"]["backend"]}")
 set(TEMPLATE_WINDOWS_BACKEND "{cfg["windows"]["backend"]}")
 set(TEMPLATE_LINUX_BACKEND "{cfg["linux"]["backend"]}")
 set(TEMPLATE_LINUX_WAYLAND {"ON" if cfg["linux"]["wayland"] else "OFF"})
+set(TEMPLATE_DIALOGUE_BUILD "{cfg["dialogue"]["build"]}")
 """)
 
     # The game's name for the web's save folder, handed to cmake/web/rmp_web.js
@@ -2218,6 +2332,9 @@ APP_DEFINES = [
     "   ignore FPS: the browser and the display link pace the frame there.",
     ("RMP_WINDOW_VSYNC", "window.vsync", _c_bool),
     ("RMP_WINDOW_FPS", "window.fps", _c_int),
+    "[window] pause_unfocused: 1 stops the scenes, the clock and the sound while\n"
+    "   the window is out of focus; 0 (the default) keeps the game running.",
+    ("RMP_WINDOW_PAUSE_UNFOCUSED", "window.pause_unfocused", _c_bool),
     "[window] stretch, the mode rmp::app::stretch() starts in: 0 NONE, 1 LETTERBOX,\n"
     "   2 EXPAND -- the order of rmp::app::Stretch.",
     ("RMP_WINDOW_STRETCH", "window.stretch", _c_stretch),
@@ -2235,6 +2352,17 @@ APP_DEFINES = [
     ("RMP_UI_FONT_SIZE", "ui.font_size", _c_int),
     ("RMP_UI_SCALE", "ui.scale", _c_float),
     ("RMP_UI_MAX_ELEMENTS", "ui.max_elements", _c_int),
+    "[lang]. DEFAULT is the language every other falls back to; FILE the table with\n"
+    "   a column per language and FOLDER the folder of one table per language, both\n"
+    "   in resources/. COLLECT 1 writes, in a debug build, the texts shown that the\n"
+    "   tables lack. LANGUAGES is the list a game ships (\"\" for every one the\n"
+    "   tables have), FONTS a font per language: \"ja=jp.ttf;ko=ko.ttf\".",
+    ("RMP_LANG_DEFAULT", "lang.default", _c_string),
+    ("RMP_LANG_FILE", "lang.file", _c_string),
+    ("RMP_LANG_FOLDER", "lang.folder", _c_string),
+    ("RMP_LANG_COLLECT", "lang.collect", _c_bool),
+    ("RMP_LANG_LANGUAGES", "lang.languages", _c_list),
+    ("RMP_LANG_FONTS", "lang.fonts", _c_fonts),
     "[input]. The fraction of an analogue stick's travel that reads as zero.\n"
     "   rmp::input::set_deadzone() changes it at runtime — a settings screen.",
     ("RMP_INPUT_DEADZONE", "input.deadzone", _c_float),
@@ -2558,6 +2686,8 @@ targets:
         embed: true
       - framework: ../thirdparty/raylib-ios/deps/ANGLE/libGLESv2.xcframework
         embed: true
+      # The player's language: src/rmp/text.cpp asks CoreFoundation.
+      - sdk: CoreFoundation.framework
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: {yaml_scalar(ios['bundle_id'])}
@@ -2705,6 +2835,8 @@ def licenses_text(cfg: dict, family: str, rows=None) -> str:
     ]
     missing = []
     for row in license_db.rows_for(rows, family):
+        if license_db.left_out(row, REPO):
+            continue  # a game in plain C: the framework's C++ is not in it
         component = REPO / row["path"]
         text = license_db.notice_text(component, row["evidence"], row.families)
         if text is None and row["evidence"].startswith("part-of:"):
@@ -3182,9 +3314,22 @@ def toml_comments(path: Path) -> dict[str, str]:
     section = ""
     above: list[str] = []
     run = ""            # the block above a run of keys written one after another
+    # A table the game fills ([ios.settings]) has no key of its own to carry
+    # a comment: a block written under its header, before any key and ended
+    # by a blank line (or the end of the file), is its -- when nothing above
+    # the header said anything. A block that runs into the next header is
+    # that header's, as everywhere.
+    fresh = ""
+
+    def under_header():
+        if fresh and above and not out.get(fresh):
+            out[fresh] = "\n".join(above).strip()
+
     for raw in path.read_text(encoding="utf-8").splitlines():
         line = raw.strip()
         if not line:
+            under_header()
+            fresh = ""
             above, run = [], ""
             continue
         if line.startswith("#"):
@@ -3196,11 +3341,13 @@ def toml_comments(path: Path) -> dict[str, str]:
         m = re.match(r"\[([^\]]+)\]", line)
         if m:
             section = m.group(1).strip()
+            fresh = section
             out.setdefault(section, "\n".join(above).strip())
             above, run = [], ""
             continue
         m = re.match(r"([A-Za-z0-9_\-]+)\s*=", line)
         if m:
+            fresh = ""
             key = f"{section}.{m.group(1)}" if section else m.group(1)
             trailing = ""
             hash_at = _comment_start(line)
@@ -3210,6 +3357,7 @@ def toml_comments(path: Path) -> dict[str, str]:
                 run = "\n".join(above).strip("\n")
             out[key] = "\n".join(x for x in (run, trailing) if x)
         above = []
+    under_header()
     return out
 
 
@@ -3234,10 +3382,13 @@ def schema() -> list[dict]:
     def walk(prefix: str, table: dict):
         for key, value in table.items():
             full = f"{prefix}.{key}" if prefix else key
-            if isinstance(value, dict):
+            # A table with keys of its own is walked; an empty one is a table
+            # the game fills ([ios.settings], [lang] fonts), a key of its own.
+            if isinstance(value, dict) and value:
                 walk(full, value)
                 continue
-            kind = ("bool" if isinstance(value, bool) else "int" if isinstance(value, int)
+            kind = ("table" if isinstance(value, dict)
+                    else "bool" if isinstance(value, bool) else "int" if isinstance(value, int)
                     else "float" if isinstance(value, float) else "string" if isinstance(value, str)
                     else "list" if isinstance(value, list) else type(value).__name__)
             row = {"key": full, "default": value, "type": kind, "comment": comments.get(full, "")}

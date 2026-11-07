@@ -62,6 +62,7 @@
 // covers: rmp::behavior::Chase::from(const MapObject &)
 // covers: rmp::behavior::Orbit::from(const MapObject &)
 // covers: rmp::behavior::Shooter::from(const MapObject &)
+// covers: rmp::behavior::Talker::from(const MapObject &)
 // covers: rmp::behavior::Hitbox::from(const MapObject &)
 // covers: rmp::behavior::Collectible::from(const MapObject &)
 // covers: rmp::Tilemap::draw(Rectangle) const
@@ -672,6 +673,10 @@ TEST_SUITE("property: behaviors, second part") {
                     RC_ASSERT(h.knockback == o.property_float("knockback", 0));
                     RC_ASSERT(b::Collectible::from(o).magnet ==
                               o.property_float("magnet", 0));
+                    const b::Talker t = b::Talker::from(o);
+                    RC_ASSERT(t.node == o.property_string("node", "Start"));
+                    RC_ASSERT(t.range == o.property_float("range", b::Talker{}.range));
+                    RC_ASSERT(t.once == o.property_bool("once", false));
                 }
             });
     }

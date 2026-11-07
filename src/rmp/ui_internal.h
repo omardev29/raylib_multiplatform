@@ -95,4 +95,8 @@ void draw_notices();
 // src/rmp/internal.h): a framework warning, on screen. It only queues.
 void show_report(std::string_view line);
 
+// The font [lang] fonts names for the current language ("" for none): the
+// UI switches to it, and back to the font it had when the language has none.
+void use_language_font(std::string_view file);
+
 } // namespace rmp::ui::detail

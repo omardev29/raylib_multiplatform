@@ -30,6 +30,7 @@ import hashlib
 import contextlib
 import copy
 import re
+import shutil
 import importlib.util
 import io
 import json
@@ -2224,6 +2225,132 @@ class ConfigureErrorLocationTest(unittest.TestCase):
                     f"this rejection cannot be pointed at:\n  {caught.exception}")
 
 
+class ConfigureDialogueTest(unittest.TestCase):
+    """[dialogue] build: its three values, every wrong one, and where it goes."""
+
+    def test_default_and_values(self):
+        self.assertEqual(cfgmod.DEFAULTS["dialogue"]["build"], "auto")
+        for build in ("auto", "runtime", "embedded"):
+            with self.subTest(build=build), quiet():
+                cfgmod.validate(base_config(dialogue={"build": build}), False)
+
+    def test_wrong_values_are_refused(self):
+        for bad in ("", "Embedded", "aot", 1, True, None, ["runtime"]):
+            with self.subTest(build=bad):
+                with self.assertRaises(cfgmod.ConfigError) as caught, quiet():
+                    cfgmod.validate(base_config(dialogue={"build": bad}), False)
+                self.assertIn("[dialogue] build", str(caught.exception))
+
+    def test_it_reaches_cmake_and_the_toml_says_it(self):
+        gen = (REPO / "tools" / "configure.py").read_text()
+        self.assertIn('set(TEMPLATE_DIALOGUE_BUILD', gen)
+        cmake = (REPO / "CMakeLists.txt").read_text()
+        self.assertIn("TEMPLATE_DIALOGUE_BUILD", cmake)
+        self.assertIn("RMP_DIALOGUE_EMBEDDED", (REPO / "src/rmp/app.cpp").read_text())
+        toml = (REPO / "raylib_multiplatform.toml").read_text()
+        self.assertRegex(toml[toml.index("\n[dialogue]"):], r"\nbuild = \"auto\"\n")
+
+
+class ConfigureLangTest(unittest.TestCase):
+    """[lang]: every key, every wrong value and type, the combinations that
+    cannot work, and the header it reaches."""
+
+    def validate(self, resources=None, **lang):
+        cfg = base_config(lang=lang)
+        with quiet():
+            cfgmod.validate(cfg, False)
+            if resources is not None:
+                cfgmod.validate_lang(cfg, resources)
+
+    def reject(self, said, resources=None, **lang):
+        cfg = base_config(lang=lang)
+        with self.assertRaises(cfgmod.ConfigError) as caught, quiet():
+            cfgmod.validate(cfg, False)
+            cfgmod.validate_lang(cfg, resources)
+        self.assertIn(said, str(caught.exception))
+        return str(caught.exception)
+
+    def test_the_defaults(self):
+        lang = cfgmod.DEFAULTS["lang"]
+        self.assertEqual(lang["default"], "en")
+        self.assertEqual(lang["file"], "lang.tsv")
+        self.assertEqual(lang["folder"], "lang")
+        self.assertIs(lang["collect"], True)
+        self.assertEqual(lang["languages"], [])
+        self.assertEqual(lang["fonts"], {})
+        self.validate()
+
+    def test_good_values(self):
+        self.validate(default="pt-BR", languages=["pt-BR", "en", "ja"],
+                      fonts={"ja": "jp.ttf"}, file="", folder="", collect=False)
+
+    def test_default_is_a_code(self):
+        for bad in ("", "English", "EN", "e", "es_MX", 1, None, ["en"]):
+            with self.subTest(default=bad):
+                self.reject("[lang] default", default=bad)
+
+    def test_paths_stay_inside_resources(self):
+        for key in ("file", "folder"):
+            for bad in ("/etc/lang.tsv", "../lang.tsv", "a\\b", 3, None):
+                with self.subTest(key=key, bad=bad):
+                    self.reject(f"[lang] {key}", **{key: bad})
+
+    def test_collect_is_a_switch(self):
+        for bad in ("yes", 1, None, []):
+            with self.subTest(collect=bad):
+                self.reject("[lang] collect", collect=bad)
+
+    def test_languages_is_a_list_of_codes_without_repeats(self):
+        self.reject("must be a list", languages="en")
+        self.reject("must be a list", languages={"en": 1})
+        for bad in ("", "Spanish", 3, None, ["en"]):
+            with self.subTest(code=bad):
+                self.reject("is not a language code", languages=["en", bad])
+        self.reject("twice", languages=["en", "es", "en"])
+
+    def test_the_default_has_to_be_shipped(self):
+        self.reject("is not in [lang] languages", default="en", languages=["es", "ja"])
+
+    def test_fonts_are_files_by_code(self):
+        self.reject("must be a table", fonts="jp.ttf")
+        self.reject("is not a language code", fonts={"Japanese": "jp.ttf"})
+        self.reject("must be the name of a font file", fonts={"ja": ""})
+        self.reject("must be the name of a font file", fonts={"ja": 3})
+        self.reject("must be the name of a font file", fonts={"ja": "a;b"})
+        self.reject("not in [lang] languages", languages=["en"], fonts={"ja": "jp.ttf"})
+
+    def test_a_listed_language_the_tables_lack_fails_with_what_they_have(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            res = Path(tmp)
+            (res / "lang.tsv").write_text("key\tcontext\ten\tes\nPlay\t\tPlay\tJugar\n")
+            (res / "lang").mkdir()
+            (res / "lang" / "de.tsv").write_text("key\tcontext\ttext\n")
+            self.validate(resources=res, languages=["en", "es", "de"])
+            said = self.reject("have no column or file", resources=res,
+                               languages=["en", "es", "ja"])
+            self.assertIn("'ja'", said)
+            self.assertIn("'de'", said)
+            # No tables at all: nothing to hold the list to yet.
+            empty = res / "empty"
+            empty.mkdir()
+            self.validate(resources=empty, languages=["en", "ja"])
+
+    def test_it_reaches_the_header(self):
+        with generated_header(base_config(lang={"languages": ["en", "es"],
+                                                "fonts": {"ja": "jp.ttf"},
+                                                "collect": False})) as header:
+            self.assertRegex(header, r'#define RMP_LANG_LANGUAGES +"en,es"\n')
+            self.assertRegex(header, r'#define RMP_LANG_FONTS +"ja=jp.ttf"\n')
+            self.assertRegex(header, r"#define RMP_LANG_COLLECT +0\n")
+            self.assertRegex(header, r'#define RMP_LANG_DEFAULT +"en"\n')
+
+    def test_the_toml_documents_every_key(self):
+        text = (REPO / "raylib_multiplatform.toml").read_text()
+        lang = text[text.index("\n[lang]"):text.index("\n[resources]")]
+        for key in cfgmod.DEFAULTS["lang"]:
+            self.assertRegex(lang, rf"\n{key} = ")
+
+
 class ConfigureWindowPacingTest(unittest.TestCase):
     """[window] vsync and fps: every value they can take, every one they cannot,
     the combination with [app] max_delta that cannot work, and the proof that
@@ -2265,6 +2392,19 @@ class ConfigureWindowPacingTest(unittest.TestCase):
             with self.subTest(vsync=bad):
                 self.reject("[window] vsync", vsync=bad)
 
+    def test_pause_unfocused_is_off_by_default(self):
+        self.assertIs(cfgmod.DEFAULTS["window"]["pause_unfocused"], False)
+
+    def test_pause_unfocused_takes_a_switch(self):
+        for pause in (True, False):
+            with self.subTest(pause=pause):
+                self.validate(pause_unfocused=pause)
+
+    def test_pause_unfocused_is_a_switch_and_nothing_else(self):
+        for bad in ("true", "no", 1, 0, 0.0, None, [False], {"on": True}, ""):
+            with self.subTest(pause=bad):
+                self.reject("[window] pause_unfocused", pause_unfocused=bad)
+
     def test_fps_is_a_whole_number(self):
         for bad in (True, False, "60", 60.0, 59.94, None, [60], {"fps": 60}):
             with self.subTest(fps=bad):
@@ -2303,6 +2443,17 @@ class ConfigureWindowPacingTest(unittest.TestCase):
         with generated_header(base_config()) as header:
             self.assertRegex(header, r"#define RMP_WINDOW_VSYNC +1\n")
             self.assertRegex(header, r"#define RMP_WINDOW_FPS +0\n")
+
+    def test_pause_unfocused_reaches_the_header_and_the_clock(self):
+        with generated_header(base_config(window={"pause_unfocused": True})) as header:
+            self.assertRegex(header, r"#define RMP_WINDOW_PAUSE_UNFOCUSED +1\n")
+        with generated_header(base_config()) as header:
+            self.assertRegex(header, r"#define RMP_WINDOW_PAUSE_UNFOCUSED +0\n")
+        text = (REPO / "raylib_multiplatform.toml").read_text()
+        window = text[text.index("\n[window]"):text.index("\n[app]")]
+        self.assertRegex(window, r"\npause_unfocused = false\n")
+        clock = (REPO / "src" / "rmp" / "clock.cpp").read_text()
+        self.assertIn("RMP_WINDOW_PAUSE_UNFOCUSED", clock)
 
     def test_the_toml_documents_both_in_window(self):
         text = (REPO / "raylib_multiplatform.toml").read_text()
@@ -3293,6 +3444,8 @@ class EveryOptionRefusesTheWrongTypeTest(unittest.TestCase):
         ("icon", "adaptive_background"): "no background colour",
         ("linux", "glibc"): "build against the host's glibc",
         ("ui", "font"): "raylib's built-in font",
+        ("lang", "file"): "no table with a column per language",
+        ("lang", "folder"): "no folder of one table per language",
         ("deploy", "credits_note"): "nothing to say while licenses = true",
         ("deploy", "itch", "user"): "itch.io deployment off",
         ("deploy", "itch", "game"): "itch.io deployment off",
@@ -3307,6 +3460,7 @@ class EveryOptionRefusesTheWrongTypeTest(unittest.TestCase):
     # Lists whose [] is a value. Every other list refuses [].
     EMPTY_LIST_MEANS = {
         ("targets", "disabled"): "nothing subtracted",
+        ("lang", "languages"): "every language the tables have",
         ("upx", "enabled"): "no compression",
         ("upx", "disabled"): "nothing subtracted",
         ("raylib", "disabled_modules"): "every module",
@@ -6988,7 +7142,7 @@ class LicenceGuardTest(unittest.TestCase):
         rows = ldb.load_rows(REPO)
         marked = {r["name"] for r in rows if r["modified"] in ("yes", "subset")}
         self.assertEqual(marked, {"raylib", "clay", "cute_tiled", "raylib-cpp", "raymob", "rlsw",
-                                  "RGFW", "tinyobj_loader_c"})
+                                  "RGFW", "tinyobj_loader_c", "yarnspinner"})
         for r in rows:
             if r["modified"] in ("yes", "subset"):
                 with self.subTest(component=r["name"]):
@@ -7129,6 +7283,34 @@ class ConfigureLicencesTest(unittest.TestCase):
             self.assertIs(cfgmod.gen_licenses(cfg, ["linux-x64-glibc", "android"]), False)
             cfg["project"]["name"] = "renamed"
             self.assertIs(cfgmod.gen_licenses(cfg, ["linux-x64-glibc", "android"]), True)
+
+    def test_a_game_in_plain_c_owes_no_notice_for_the_framework_cpp(self):
+        """The plain-C recipe removes src/rmp/, and with it the Yarn Spinner
+        port and its notice: LICENSES.txt must neither fail on the missing
+        file nor credit code the game does not contain. With src/rmp/ there,
+        the notice is in, and a missing one still fails."""
+        rows = [r for r in cfgmod.license_db.load_rows(REPO)
+                if r["name"] in ("raylib_multiplatform", "yarnspinner")]
+        self.assertEqual(len(rows), 2)
+        notice = REPO / "src" / "rmp" / "dialogue" / "LICENSE-YarnSpinner.md"
+        with tempfile.TemporaryDirectory() as tmp:
+            tree = Path(tmp)
+            shutil.copy(REPO / "LICENSE", tree / "LICENSE")
+            original = cfgmod.REPO
+            cfgmod.REPO = tree
+            try:
+                text = cfgmod.licenses_text(base_config(), "linux", rows)
+                self.assertNotIn("yarnspinner", text)
+                self.assertTrue(cfgmod.license_db.left_out(rows[1], tree))
+                self.assertFalse(cfgmod.license_db.left_out(rows[0], tree))
+                (tree / "src" / "rmp" / "dialogue").mkdir(parents=True)
+                self.assertFalse(cfgmod.license_db.left_out(rows[1], tree))
+                with self.assertRaises(cfgmod.ConfigError):
+                    cfgmod.licenses_text(base_config(), "linux", rows)
+                shutil.copy(notice, tree / "src" / "rmp" / "dialogue")
+                self.assertIn("yarnspinner", cfgmod.licenses_text(base_config(), "linux", rows))
+            finally:
+                cfgmod.REPO = original
 
     def test_write_says_whether_it_wrote(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -7283,6 +7465,7 @@ class DocumentedTreeTest(unittest.TestCase):
                "input.h": ["rmp::input"], "ui.h": ["rmp::ui"], "assets.h": ["rmp::assets"],
                "tilemap.h": ["rmp::Tilemap"], "audio.h": ["rmp::audio"], "save.h": ["rmp::save"],
                "random.h": ["rmp::random"], "ads.h": ["rmp::ads"],
+               "text.h": ["rmp::lang"], "dialogue.h": ["rmp::Dialogue"],
                "math.h": [], "config.h": []}  # math and config are not modules with a row
 
     def test_the_readme_namespace_table_names_every_module(self):
@@ -8050,6 +8233,11 @@ class ConfigureEveryRejectionFiresTest(unittest.TestCase):
     CASES = {
         "has to be a number between 0 and 1": ("audio", ("music",), "loud"),
         "[save] portable": ("save", ("portable",), "yes"),
+        "[lang] fonts": ("lang", ("fonts",), "jp.ttf"),
+        "[lang] default": ("lang", ("default",), 3),
+        "[lang] file": ("lang", ("file",), 3),
+        "[lang] folder": ("lang", ("folder",), 3),
+        "has to be a path inside resources/": ("lang", ("file",), "../lang.tsv"),
         "[save] encrypt": ("save", ("encrypt",), 1),
         "[save] version": ("save", ("version",), 0),
         "has to be between 0 and 1":  ("audio", ("sfx",), 2),
@@ -8286,6 +8474,20 @@ class ConfigTablesTest(unittest.TestCase):
             with self.subTest(define=name):
                 section, field = key.split(".", 1)
                 self.assertIn(field, cfgmod.DEFAULTS[section])
+
+    def test_a_table_the_game_fills_is_a_key_with_its_comment(self):
+        """[ios.settings] and [lang] fonts are empty tables the game fills:
+        walked like the others, they were no row at all, and the site's
+        link to [lang] fonts pointed at nothing. The comment of
+        [ios.settings] is the block under its header."""
+        rows = {r["key"]: r for r in cfgmod.schema()}
+        for key in ("ios.settings", "lang.fonts"):
+            with self.subTest(key=key):
+                self.assertEqual(rows[key]["type"], "table")
+                self.assertEqual(rows[key]["default"], {})
+        self.assertIn("Raw Xcode build settings", rows["ios.settings"]["comment"])
+        self.assertIn("fonts = { ja", rows["lang.fonts"]["comment"])
+        self.assertNotIn("ios", rows)  # a table with keys is still walked
 
     def test_every_key_has_its_comment_in_the_toml(self):
         rows = cfgmod.schema()

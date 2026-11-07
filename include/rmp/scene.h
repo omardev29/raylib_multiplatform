@@ -225,8 +225,10 @@ public:
     // in a way nobody enjoys debugging.
     virtual void _end() {}
 
-    // Something was pushed on top of this scene, and later came off again. The
-    // scene is still alive and still owns everything it owned.
+    // The scene stops being updated for a while, and later starts again: a
+    // scene was pushed on top of it and came off again, or -- for the scene on
+    // top, under [window] pause_unfocused -- the window lost its focus and got
+    // it back. The scene is still alive and still owns everything it owned.
     virtual void _suspend() {}
     virtual void _resume() {}
 

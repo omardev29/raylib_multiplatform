@@ -46,6 +46,9 @@
 // keep carries its callbacks as rmp::Callback (both rmp/object.h, which
 // includes rmp/assets.h). A forward declaration cannot hold a value.
 #include <rmp/object.h> // rmp::Sprite, rmp::Callback, and rmp/assets.h's handles by value
+// And rmp/text.h: every text the interface is handed is an rmp::Text, taken
+// by value in a kept widget's fields -- a literal is translated by itself.
+#include <rmp/text.h> // rmp::Text, rmp::TextArg, rmp::TextOptions
 
 // The standard library this header pays for, measured in tools/header_budget.txt:
 // <string_view> for every label, <string> for the text a text_input() edits,
@@ -63,6 +66,10 @@
 // rmp/config.h that does not define it, and matches the .toml's default.
 #define RMP_UI_FONT_SIZE 20
 #endif
+
+namespace rmp {
+class Dialogue; // rmp/dialogue.h: what the presenters below show
+} // namespace rmp
 
 namespace rmp::ui {
 
@@ -768,13 +775,35 @@ struct TextOptions {
     bool wrap = true; // break between words to fit; false = never broken to fit
 };
 
+// Text with markup, drawn a letter at a time: Yarn's markup, which a
+// dialogue line already carries --
+//
+//     rmp::ui::rich_text("A [wave]strange[/wave] [color=#ffcc00]light[/color]!");
+//
+//   [b]           bold                [color=#rrggbb] or [color=red]
+//   [size=30]     in design units     [wave] [shake] [rainbow]: moving letters
+//
+// Its `visible` letters, the rest held back: a typewriter counts them up.
+struct RichTextOptions {
+    float width = 0; // wrap at this many design units; 0 = the width it is given
+    detail::Sizing size{}; // a step, a number, or nothing for the theme's
+    ColorRole color = ColorRole::TEXT; // the colour of what no [color] paints
+    int visible = -1; // how many letters show; -1 = every one
+    std::string_view id{}; // as ButtonOptions::id: two with one text
+};
+void rich_text(const rmp::Text &text);
+void rich_text(const rmp::Text &text, const RichTextOptions &o);
+// How many letters a rich text has once its markup is gone: where a
+// typewriter stops.
+[[nodiscard]] int rich_text_length(const rmp::Text &text);
+
 // True on the frame it is pressed: the pointer released over it, or, while it
 // has the focus, Enter or the gamepad's accept button. Reads as it looks:
 //
 //     if (rmp::ui::button("Play")) play();
 //
-bool button(std::string_view label);
-bool button(std::string_view label, const ButtonOptions &o);
+bool button(const rmp::Text &label);
+bool button(const rmp::Text &label, const ButtonOptions &o);
 
 // How image_button() is sized, and whether it can be pressed. Sizes are in
 // design units.
@@ -800,8 +829,8 @@ bool image_button(const Picture &picture, const ImageButtonOptions &o);
 //
 //     rmp::ui::text(std::to_string(score));
 //
-void text(std::string_view s);
-void text(std::string_view s, const TextOptions &o);
+void text(const rmp::Text &s);
+void text(const rmp::Text &s, const TextOptions &o);
 
 // ---------------------------------------------------------------------------
 // Containers
@@ -1158,7 +1187,7 @@ struct TextInputOptions {
     bool enabled = true; // false = the theme's disabled colours; no typing, no focus
     // Shown in the theme's text_muted while the field is empty and does not have
     // the focus. It is copied, so a temporary is fine.
-    std::string_view placeholder{};
+    rmp::Text placeholder{};
     std::string_view id{}; // as ButtonOptions::id: for a shared label
     // The most CHARACTERS it holds -- what the player counts, so an "é" is one
     // and not the two bytes it takes. 0 = no limit. Typing stops at it, and a
@@ -1169,8 +1198,8 @@ struct TextInputOptions {
 
 // A box that flips `value` when it is clicked, or activated from the keyboard or
 // a gamepad while it has the focus. True on the frame it flipped.
-bool checkbox(std::string_view label, bool &value);
-bool checkbox(std::string_view label, bool &value, const CheckboxOptions &o);
+bool checkbox(const rmp::Text &label, bool &value);
+bool checkbox(const rmp::Text &label, bool &value, const CheckboxOptions &o);
 
 // A bar that sets `value` between min and max: dragged, or moved with left and
 // right while it has the focus, one `step` (or 5% of the range) per press, then
@@ -1179,8 +1208,8 @@ bool checkbox(std::string_view label, bool &value, const CheckboxOptions &o);
 // Nothing is drawn when max <= min -- nor when an end is NaN or an infinity,
 // which is said once. A value that is NaN is set to min, and a step that is not
 // a positive number is none, each said once.
-bool slider(std::string_view label, float &value, float min, float max);
-bool slider(std::string_view label, float &value, float min, float max,
+bool slider(const rmp::Text &label, float &value, float min, float max);
+bool slider(const rmp::Text &label, float &value, float min, float max,
             const SliderOptions &o);
 
 // `selected` is the index into `items`, and is kept inside it.
@@ -1194,14 +1223,14 @@ bool slider(std::string_view label, float &value, float min, float max,
 // Enter or A picks the one they are on, and Escape or B closes it without
 // changing anything. True on the frame `selected` changed. Nothing is drawn
 // for an empty list.
-bool dropdown(std::string_view label, int &selected,
+bool dropdown(const rmp::Text &label, int &selected,
               std::span<const std::string_view> items);
-bool dropdown(std::string_view label, int &selected,
+bool dropdown(const rmp::Text &label, int &selected,
               std::span<const std::string_view> items, const DropdownOptions &o);
-bool dropdown(std::string_view label, int &selected,
-              std::initializer_list<std::string_view> items);
-bool dropdown(std::string_view label, int &selected,
-              std::initializer_list<std::string_view> items, const DropdownOptions &o);
+bool dropdown(const rmp::Text &label, int &selected,
+              std::initializer_list<rmp::Text> items);
+bool dropdown(const rmp::Text &label, int &selected,
+              std::initializer_list<rmp::Text> items, const DropdownOptions &o);
 
 // Edits your string, in UTF-8 -- what the player types goes on the end, and
 // Backspace takes off the last character, never half of one -- and only while
@@ -1213,8 +1242,8 @@ bool dropdown(std::string_view label, int &selected,
 // or the A button (Space is typed), on Escape or the B button, and on a click
 // anywhere else; the focus stays on it. Tab, up and down move the focus on from
 // a field as from any other control, and take the keyboard with them.
-bool text_input(std::string_view label, std::string &value);
-bool text_input(std::string_view label, std::string &value, const TextInputOptions &o);
+bool text_input(const rmp::Text &label, std::string &value);
+bool text_input(const rmp::Text &label, std::string &value, const TextInputOptions &o);
 
 // ---------------------------------------------------------------------------
 // Over the world, over a control, over everything
@@ -1272,6 +1301,126 @@ template <class Body> void at(Vector2 world, Body &&body) {
     at(world, AtOptions{}, static_cast<Body &&>(body));
 }
 
+// ---------------------------------------------------------------------------
+// Dialogue presenters
+//
+// An rmp::Dialogue shown three ways, each a widget you keep and show() every
+// frame between begin() and end().
+//
+//     rmp::ui::DialogueBox box{ .portraits = { { .speaker = "Mika", .picture = mika } } };
+//     ...
+//     rmp::ui::begin();
+//     box.show(talk);   // the line, typed out; the choices; Enter or a click goes on
+//     rmp::ui::end();
+//
+//   DialogueBox     a box at the bottom of the screen, a portrait and a name
+//                   beside the line: the classic RPG.
+//   DialogueBubble  a bubble over the speaker's head, in the world.
+//   DialogueStage   big portraits that slide in at the sides, the speaker in
+//                   front and the rest dimmed: a visual novel.
+//
+// Everything they draw is rmp::ui, so a Theme, a Style, a Skin of nine-slices
+// or Aseprite slices dresses them. The line's markup ([wave], [color=]...)
+// moves and paints its letters; [speed=2]..[/speed] types faster and
+// [pause=0.4/] waits. Unhandled commands are passed (register them with
+// Dialogue::on_command()).
+// ---------------------------------------------------------------------------
+
+// A speaker's picture, and one for each mood a line's #mood:happy names.
+struct Portrait {
+    std::string speaker; // the name before the colon of a line: "Mika"
+    std::string mood{}; // empty: the picture for any mood without its own
+    Picture picture{}; // a texture, an atlas region, a sprite's frame or a nine-slice
+};
+
+// How a presenter types a line out, and goes on.
+struct DialogueFlow {
+    float letters_per_second = 45; // the typewriter; 0 = the whole line at once
+    SoundName blip{}; // a sound as the letters appear
+    int blip_every = 2; // letters between two blips
+    float auto_advance = 0; // seconds a whole line stays before it goes on; 0 = wait
+    bool skip_seen = false; // a line already read goes by at once
+    std::string voices{}; // a recorded line: the sound named voices + its id ("vo/hello")
+    float choice_seconds = 0; // a timed choice: seconds to choose; 0 = no timer
+    int default_choice = 0; // what a timed choice takes when the time is up
+};
+
+// What a presenter remembers from one frame to the next.
+struct DialogueMemory {
+    std::string line_id; // the line on screen
+    float shown = 0; // letters typed so far
+    int length = 0; // letters in the line
+    float waited = 0; // seconds since it was all shown, or of a [pause]
+    float choice_left = 0; // seconds left of a timed choice
+    int blips = 0; // blips played for this line
+    std::vector<std::pair<std::string, std::string>>
+        history; // speaker, line: read so far
+    std::vector<std::string> seen; // the ids of the lines read
+    std::vector<std::string> stage; // DialogueStage: who is on stage, left to right
+    bool showing_history = false; // toggle_history(): the backlog instead of the box
+};
+
+// The classic box: along the bottom of the screen, the speaker's portrait and
+// name beside the line, the choices as buttons under it.
+struct DialogueBox {
+    std::vector<Portrait> portraits{}; // by speaker, and by mood
+    DialogueFlow flow{}; // the typewriter, the blips, auto-advance, timed choices
+    float height = 0; // design units; 0 = as the line needs
+    bool pauses_world = true; // for rmp::behavior::Talker: the scene below waits
+    Style style{}; // the box
+    Style name_style{}; // the name plate
+    Style choice_style{}; // each choice
+    DialogueMemory ours; // its state between frames; yours to read
+
+    // Draws the line or the choices, and takes the player's answer. True
+    // while the dialogue has something to show.
+    bool show(rmp::Dialogue &dialogue);
+    void toggle_history(); // the lines read so far, in place of the box
+};
+
+// Who a bubble points at: a speaker by name, and the object that speaks.
+struct BubbleSpeaker {
+    std::string name; // the speaker of the lines it says
+    rmp::Handle<rmp::Object>
+        object{}; // what it is drawn over; empty: where the UI puts it
+    Vector2 offset{ 0, -18 }; // from the object's position, in world units
+};
+
+// A bubble over the speaker's head, in the world (rmp::ui::at()), the
+// choices in it too. The world goes on around it.
+struct DialogueBubble {
+    std::vector<BubbleSpeaker> speakers{}; // who says what, and over which object
+    DialogueFlow flow{}; // the typewriter, the blips, auto-advance, timed choices
+    float width = 220; // design units: the line wraps inside it
+    bool pauses_world = false; // the world goes on around a bubble
+    Style style{}; // the bubble
+    Style choice_style{}; // each choice
+    DialogueMemory ours; // its state between frames; yours to read
+
+    // Draws the line or the choices, and takes the player's answer. True
+    // while the dialogue has something to show.
+    bool show(rmp::Dialogue &dialogue);
+};
+
+// A visual novel's stage: big portraits of who is on it, the speaker in
+// front and the rest dimmed, and the line in a box under them.
+struct DialogueStage {
+    std::vector<Portrait> portraits{}; // by speaker, and by mood
+    DialogueFlow flow{}; // the typewriter, the blips, auto-advance, timed choices
+    float portrait_height = 300; // design units
+    bool pauses_world = true; // for rmp::behavior::Talker: the scene below waits
+    Style style{}; // the box under the portraits
+    Style name_style{}; // the name plate
+    Style choice_style{}; // each choice
+    Color dimmed =
+        CLITERAL(Color){ 120, 120, 130, 255 }; // the tint of who is not speaking
+    DialogueMemory ours; // its state between frames; yours to read
+
+    // Draws the stage, the line or the choices, and takes the player's
+    // answer. True while the dialogue has something to show.
+    bool show(rmp::Dialogue &dialogue);
+};
+
 // How tooltip() places its line, and how long it waits.
 struct TooltipOptions {
     Align side = Align::TOP_CENTER; // which side of the control it appears on
@@ -1289,8 +1438,8 @@ struct TooltipOptions {
 // The text is copied. One with no control before it in the frame is reported
 // once and shows nothing. An empty one shows nothing and is no mistake:
 // tooltip(item.description) for an item without one.
-void tooltip(std::string_view text);
-void tooltip(std::string_view text, const TooltipOptions &o);
+void tooltip(const rmp::Text &text);
+void tooltip(const rmp::Text &text, const TooltipOptions &o);
 
 // How long notify() keeps a message, and its colour.
 struct NotifyOptions {
@@ -1310,8 +1459,8 @@ struct NotifyOptions {
 // In a debug build the framework's own warnings arrive here too: a mistake it
 // reports once in the log (an action nobody defined, a widget outside
 // begin()/end()) is also said on screen, where it cannot scroll past.
-void notify(std::string_view text);
-void notify(std::string_view text, const NotifyOptions &o);
+void notify(const rmp::Text &text);
+void notify(const rmp::Text &text, const NotifyOptions &o);
 
 // ---------------------------------------------------------------------------
 // Input, and who gets it
@@ -1505,7 +1654,7 @@ struct KeptState {
 
 // A button: text, an icon, or both.
 struct Button {
-    std::string text; // the label; empty for an icon-only button
+    rmp::Text text; // the label; empty for an icon-only button
     Picture icon{}; // shown before the label, or alone
     // The icon's height in design units; 0 = the label's type size (or the
     // picture's own height when there is no label).
@@ -1542,7 +1691,7 @@ struct Button {
 // Text, as text() draws it, with a style of its own: a title in another font,
 // with an outline. Clickable when it has an on_click.
 struct Label {
-    std::string text; // what it says
+    rmp::Text text; // what it says
     ColorRole color = ColorRole::TEXT; // used when the style sets no text colour
     detail::Sizing size{}; // a step or design units, as TextOptions::size
     bool wrap = true; // break between words to fit; false = never broken
@@ -1619,7 +1768,7 @@ struct Panel {
 
 // A checkbox that holds its own value.
 struct Checkbox {
-    std::string text; // the label beside it
+    rmp::Text text; // the label beside it
     bool checked = false; // its value: ticked or not
     bool enabled = true; // false = drawn disabled; no press, no change, no focus
     std::string id{}; // as ButtonOptions::id: for a shared label
@@ -1640,7 +1789,7 @@ struct Checkbox {
 
 // A slider that holds its own value.
 struct Slider {
-    std::string text; // the label beside it
+    rmp::Text text; // the label beside it
     float value = 0; // its value, kept from min to max
     float min = 0; // the value at the left end
     float max = 1; // the value at the right end
@@ -1666,8 +1815,8 @@ struct Slider {
 
 // A dropdown that holds its items and its choice.
 struct Dropdown {
-    std::string text; // the label beside it
-    std::vector<std::string> items; // the choices, in order
+    rmp::Text text; // the label beside it
+    std::vector<rmp::Text> items; // the choices, in order
     int selected = 0; // the index of the one chosen
     float width = 0; // of the field, in design units; 0 = fill the space available
     bool enabled = true; // false = drawn disabled; no press, no change, no focus
@@ -1689,9 +1838,9 @@ struct Dropdown {
 
 // A text field that holds its own text.
 struct TextInput {
-    std::string text; // the label
+    rmp::Text text; // the label
     std::string value; // what is typed
-    std::string placeholder{}; // shown, muted, while it is empty
+    rmp::Text placeholder{}; // shown, muted, while it is empty
     int max_length = 0; // in characters; 0 = no limit
     float width = 0; // of the field, in design units; 0 = fill the space available
     bool enabled = true; // false = drawn disabled; no press, no change, no focus

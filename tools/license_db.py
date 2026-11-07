@@ -422,6 +422,13 @@ def pin_of(sources: list[Path], base: Path | None = None) -> str:
 # The rules
 # ---------------------------------------------------------------------------
 
+def left_out(row: Row, repo: Path = REPO) -> bool:
+    """A component that lives inside the framework's C++ (src/rmp/, the Yarn
+    Spinner port) in a tree that has none: a game in plain C removes src/rmp/,
+    so that code is not in its build and no notice is owed for it."""
+    return row["path"].startswith("src/rmp/") and not (repo / "src" / "rmp").is_dir()
+
+
 def check(rows: list[Row], pins: dict[str, str], repo: Path = REPO,
           root: Path | None = None, families: set[str] | None = None) -> tuple[list[str], list[str]]:
     """Every rule, against a tree. Returns (ok lines, failures). `root` is the
@@ -434,6 +441,7 @@ def check(rows: list[Row], pins: dict[str, str], repo: Path = REPO,
     fails: list[str] = []
     submodules = submodule_paths(repo)
 
+    rows = [r for r in rows if not left_out(r, repo)]
     _check_inventory(rows, root, repo, fails)
     # (2)-(5) per row.
     for row in rows:

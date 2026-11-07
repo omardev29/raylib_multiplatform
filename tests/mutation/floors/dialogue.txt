@@ -1,0 +1,10 @@
+# rmp::Dialogue: the Yarn compiler and machine (src/rmp/dialogue/), killed by
+# Yarn Spinner's own test plans, the API's tests and the dialogue properties.
+# New with them: unmeasured until the weekly run measures it, and from then it
+# only rises.
+kind     cxx
+sources  src/rmp/dialogue/yarn_parse.cpp src/rmp/dialogue/yarn_compile.cpp src/rmp/dialogue/yarn_value.cpp src/rmp/dialogue/yarn_vm.cpp src/rmp/dialogue/yarn_markup.cpp src/rmp/dialogue/yarn_bytes.cpp src/rmp/dialogue/dialogue.cpp
+tests    unit_test -sf=*yarn_plan_test.cpp
+tests    unit_test -sf=*dialogue_test.cpp
+tests    property_test -sf=*dialogue_prop.cpp
+floor    -

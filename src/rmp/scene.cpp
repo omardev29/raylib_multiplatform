@@ -173,6 +173,14 @@ void start(std::unique_ptr<Scene> first) {
 
 bool running() { return scene_stack.running; }
 
+void suspend_top() {
+    if (!scene_stack.items.empty()) scene_stack.items.back()->_suspend();
+}
+
+void resume_top() {
+    if (!scene_stack.items.empty()) scene_stack.items.back()->_resume();
+}
+
 void update(float delta) {
     if (scene_stack.items.empty()) return;
     const int lowest = lowest_participant([](const Scene &s) { return s.updates_below; });
