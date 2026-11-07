@@ -3315,7 +3315,10 @@ def toml_comments(path: Path) -> dict[str, str]:
     above: list[str] = []
     run = ""            # the block above a run of keys written one after another
     # A table the game fills ([ios.settings]) has no key of its own to carry
-    # a comment: what is written under its header, before any key, is its.
+    # a comment: a block written under its header, before any key and ended
+    # by a blank line (or the end of the file), is its -- when nothing above
+    # the header said anything. A block that runs into the next header is
+    # that header's, as everywhere.
     fresh = ""
 
     def under_header():
@@ -3337,7 +3340,6 @@ def toml_comments(path: Path) -> dict[str, str]:
             continue
         m = re.match(r"\[([^\]]+)\]", line)
         if m:
-            under_header()
             section = m.group(1).strip()
             fresh = section
             out.setdefault(section, "\n".join(above).strip())

@@ -43,7 +43,8 @@ for _codes, _n in ((("ja", "zh", "ko", "th", "vi", "id", "ms", "lo", "my", "km")
         PLURAL_COUNTS[_c] = _n
 
 LANG_CODE = re.compile(r"^[a-z]{2,3}(-[A-Za-z0-9]{2,8})*$")
-PLACEHOLDER = re.compile(r"(?<!\{)\{([A-Za-z_][A-Za-z0-9_]*)\}(?!\})")
+# {name} of an rmp::Text, {0} of a Yarn line.
+PLACEHOLDER = re.compile(r"(?<!\{)\{([A-Za-z_][A-Za-z0-9_]*|[0-9]+)\}(?!\})")
 YARN_LINE_ID = re.compile(r"#line:([A-Za-z0-9_.\-]+)")
 
 
@@ -226,10 +227,27 @@ def yarn_texts(root: Path) -> dict[str, str]:
             m = YARN_LINE_ID.search(line)
             if not m:
                 continue
-            text = line[:line.find("#")].strip()
-            text = re.sub(r"^(->|=>)\s*", "", text)
-            out[f"line:{m.group(1)}"] = text
+            out[f"line:{m.group(1)}"] = yarn_line_text(line)
     return out
+
+
+def yarn_line_text(line: str) -> str:
+    """What a Yarn line says, as its translation has to say it -- Yarn's own
+    string table's form: no #tags, no -> or =>, no <<if ...>> after an
+    option, and each {expression} numbered in order, {0}, {1}..., which is
+    what the machine fills. "{$gold}" in a cell would be shown as written."""
+    text = line[:line.find("#")] if "#" in line else line
+    text = text.strip()
+    text = re.sub(r"^(->|=>)\s*", "", text)
+    text = re.sub(r"\s*<<.*?>>\s*$", "", text)
+    count = 0
+
+    def numbered(_m):
+        nonlocal count
+        count += 1
+        return "{" + str(count - 1) + "}"
+
+    return re.sub(r"(?<!\\)\{[^{}]*\}", numbered, text).strip()
 
 
 # --- the tables -------------------------------------------------------------

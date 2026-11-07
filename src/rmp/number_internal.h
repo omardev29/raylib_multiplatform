@@ -7,7 +7,9 @@
 // ---------------------------------------------------------------------------
 
 #include <array>
+#include <charconv>
 #include <clocale>
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <string>
@@ -46,24 +48,51 @@ private:
 };
 
 // The shortest text that reads back as exactly `n` -- as a float when `single`
-// -- in the "C" numeric locale: the digits std::to_chars gives, the fewest
-// that read back, laid out as printf's %g lays them (1378324, where to_chars'
-// general writes 1.378324e+06; C# writes 1378324 too). Not to_chars itself: a
-// floating-point to_chars brings libc++'s Ryu tables into every static link,
-// and a number in a sentence cost the demo game 126 KB of its linux-x64
-// release (zig's libc++, 1510904 bytes against 1384760).
+// -- in the "C" numeric locale: the fewest significant digits that read back,
+// the digits std::to_chars gives, laid out as C# lays them out (Yarn's
+// numbers are C#'s): plainly while the exponent is from -4 to 6 for a float
+// and to 14 for a double -- 10, 0.0001, 1234567 -- and with an exponent past
+// that -- 1e-05, 1.2345679e+08. Not to_chars itself: a floating-point
+// to_chars brings libc++'s Ryu tables into every static link, and a number in
+// a sentence cost the demo game 126 KB of its linux-x64 release (zig's
+// libc++, 1510904 bytes against 1384760).
 inline std::string shortest_number(double n, bool single) {
     const CNumbers c_numbers;
-    std::array<char, 40> text{};
+    std::array<char, 48> text{};
+    if (!std::isfinite(n)) {
+        std::snprintf(text.data(), text.size(), "%g", n);
+        return text.data();
+    }
     const int most = single ? 9 : 17;
-    for (int digits = 1; digits <= most; ++digits) {
-        std::snprintf(text.data(), text.size(), "%.*g", digits, n);
+    int digits = most;
+    for (int d = 1; d <= most; ++d) {
+        std::snprintf(text.data(), text.size(), "%.*e", d - 1, n);
         const bool exact = single
             ? std::strtof(text.data(), nullptr) == static_cast<float>(n)
             : std::strtod(text.data(), nullptr) == n;
-        if (exact) break;
+        if (exact) {
+            digits = d;
+            break;
+        }
     }
-    return text.data();
+    // The exponent of the shortest form, which rounding can have moved.
+    std::snprintf(text.data(), text.size(), "%.*e", digits - 1, n);
+    std::string scientific = text.data();
+    int exponent = 0;
+    if (const std::size_t e = scientific.find('e'); e != std::string::npos) {
+        // e+08 or e-05: from_chars takes the minus and not the plus. (An
+        // integer from_chars, which brings no tables.)
+        const std::size_t from = scientific[e + 1] == '+' ? e + 2 : e + 1;
+        (void)std::from_chars(scientific.data() + from,
+                              scientific.data() + scientific.size(), exponent);
+    }
+    const int plain_below = single ? 7 : 15;
+    if (exponent >= -4 && exponent < plain_below) {
+        const int decimals = digits - 1 - exponent;
+        std::snprintf(text.data(), text.size(), "%.*f", decimals > 0 ? decimals : 0, n);
+        return text.data();
+    }
+    return scientific; // the fewest digits never end in a 0: nothing to trim
 }
 
 } // namespace rmp::detail

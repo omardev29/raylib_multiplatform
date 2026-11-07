@@ -164,10 +164,25 @@ TEST_SUITE("property: text") {
             CHECK(same(x));
             CHECK(same_float(static_cast<float>(x)));
         }
+        // Laid out as C# lays a number out (Yarn's are C#'s): plainly from
+        // 1e-4 to below 1e7 for a float and 1e15 for a double. 10 came out
+        // as 1e+01 when the layout was %g's at the fewest digits.
+        CHECK(rmp::detail::shortest_number(10, true) == "10");
+        CHECK(rmp::detail::shortest_number(100, false) == "100");
+        CHECK(rmp::detail::shortest_number(1234567, true) == "1234567");
+        CHECK(rmp::detail::shortest_number(1e7, true) == "1e+07");
+        CHECK(rmp::detail::shortest_number(123456789, true) == "1.2345679e+08");
         CHECK(rmp::detail::shortest_number(1378324, false) == "1378324");
+        CHECK(rmp::detail::shortest_number(123456789012345.0, false) ==
+              "123456789012345");
+        CHECK(rmp::detail::shortest_number(1e15, false) == "1e+15");
         CHECK(rmp::detail::shortest_number(0.1, false) == "0.1");
+        CHECK(rmp::detail::shortest_number(0.0001, false) == "0.0001");
+        CHECK(rmp::detail::shortest_number(0.00001, false) == "1e-05");
+        CHECK(rmp::detail::shortest_number(-2.5, false) == "-2.5");
         CHECK(rmp::detail::shortest_number(1e21, false) == "1e+21");
         CHECK(rmp::detail::shortest_number(0.1F, true) == "0.1");
+        CHECK(rmp::detail::shortest_number(0, false) == "0");
     }
 
     TEST_CASE("a literal of any length is its own key") {

@@ -1361,6 +1361,14 @@ def documents(draw) -> tuple[str, dict]:
         above = draw(st.lists(COMMENT, max_size=2))
         lines += [f"# {c}" for c in above] + [f"[{section}]"]
         owed[section] = "\n".join(c.rstrip() for c in above).strip()
+        # A table the game fills ([ios.settings]) says what it is under its
+        # header, in a block a blank line ends: its comment, when none is
+        # above it.
+        under = draw(st.lists(COMMENT, max_size=2))
+        if under:
+            lines += [f"# {c}" for c in under] + [""]
+            if not owed[section]:
+                owed[section] = "\n".join(c.rstrip() for c in under).strip()
         keys = draw(st.lists(st.text(alphabet="abcxyz_-019", min_size=1, max_size=5), unique=True,
                              max_size=5))
         run = ""

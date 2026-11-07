@@ -271,6 +271,11 @@ TEST_SUITE("text: the pieces") {
         CHECK(rmp::TextArg("n", -7L).text() == "-7");
         CHECK(rmp::TextArg("n", 2.5).text() == "2.5");
         CHECK(rmp::TextArg("n", 0.1f).text() == "0.1");
+        CHECK(rmp::TextArg("n", 1e20).text() == "1e+20");
+        CHECK(rmp::TextArg("n", 0.00001).text() == "1e-05");
+        CHECK(rmp::TextArg("n", std::numeric_limits<double>::infinity()).text() == "inf");
+        CHECK(rmp::TextArg("n", -std::numeric_limits<double>::infinity()).text() ==
+              "-inf");
         CHECK(rmp::TextArg("n", std::size_t{ 12 }).text() == "12");
         CHECK(rmp::TextArg("s", "word").text() == "word");
         CHECK_FALSE(rmp::TextArg("s", "word").numeric());

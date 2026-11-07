@@ -46,7 +46,7 @@ openbsd-x64            elf       894640         -  # measured at e2ea300
 openbsd-arm64          elf       894848         -  # measured at e2ea300
 netbsd-x64             elf      1004112         -  # measured at e2ea300
 web                    wasm      574669         -  # measured at 46b3c95
-android/arm64-v8a      so       3090072         -  # measured at 66aeb06
-android/armeabi-v7a    so       2317432         -  # measured at 66aeb06
-android/x86            so       3491720         -  # measured at 66aeb06
-android/x86_64         so       3415680         -  # measured at 66aeb06
+android/arm64-v8a      so       1107728         -  # measured at c53a430
+android/armeabi-v7a    so        817720         -  # measured at c53a430
+android/x86            so       1211840         -  # measured at c53a430
+android/x86_64         so       1213976         -  # measured at c53a430

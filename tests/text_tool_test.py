@@ -62,7 +62,9 @@ class ScanTest(unittest.TestCase):
         with tree({"src/main.cpp": GAME,
                    "resources/lang.tsv": "key\tcontext\ten\tes\nPlay\t\tPlay\tJugar\n"
                                          "Gone\t\tGone\tIdo\n",
-                   "resources/talk.yarn": "Mika: Hello there. #line:mika_hello\n",
+                   "resources/talk.yarn": "Mika: Hello there. #line:mika_hello\n"
+                                          "Mika: You have {$gold} gold, {$name}. #line:gold\n"
+                                          "-> Buy one <<if $gold >= 5>> #line:buy #tag\n",
                    "build/debug/lang_seen.tsv": "key\tcontext\nSeen at runtime\t\n"}) as tmp:
             root = Path(tmp)
             said = text_tool.scan(root)
@@ -78,6 +80,10 @@ class ScanTest(unittest.TestCase):
             self.assertEqual(rows[("Play", "")][unused], "")
             self.assertEqual(rows[("Open", "door")][en], "Open")
             self.assertEqual(rows[("line:mika_hello", "")][en], "Mika: Hello there.")
+            # As Yarn's own string table writes them: the expressions numbered,
+            # what the machine fills, and an option's condition left out.
+            self.assertEqual(rows[("line:gold", "")][en], "Mika: You have {0} gold, {1}.")
+            self.assertEqual(rows[("line:buy", "")][en], "Buy one")
             self.assertIn(("Seen at runtime", ""), rows)
             # Twice is the same table.
             before = (root / "resources/lang.tsv").read_text()
@@ -128,6 +134,13 @@ class CheckTest(unittest.TestCase):
         self.assertIn("placeholder: 'Hi {name}' in es lost {name}", got)
         self.assertIn("placeholder: 'Hi {name}' in ru lost {name}", got)
         self.assertIn("placeholder: 'Hi {name}' in ru has {nam}, which the text does not", got)
+
+    def test_a_yarn_line_that_lost_its_numbered_expression(self):
+        # A Yarn line's {0} is filled by the machine: a translation without it
+        # shows no gold at all.
+        got = self.problems("key\tcontext\ten\tes\tru\n"
+                            "line:gold\t\tYou have {0} gold.\tTienes oro.\tУ тебя {0} золота.\n")
+        self.assertEqual(got, ["placeholder: 'line:gold' in es lost {0}"])
 
     def test_the_wrong_number_of_plural_forms(self):
         got = self.problems("key\tcontext\ten\tes\tru\n"

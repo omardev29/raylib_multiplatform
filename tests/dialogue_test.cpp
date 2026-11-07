@@ -153,6 +153,19 @@ TEST_SUITE("dialogue: rmp::Dialogue") {
         CHECK(d.visits("Start") == 1);
     }
 
+    TEST_CASE_FIXTURE(Clean, "numbers in a line are written as C# writes them") {
+        // 10 gold came out as "1E+01 gold" when numbers were laid out as %g
+        // at their fewest digits.
+        rmp::Dialogue d = dd::compile_text("title: Start\n---\n"
+                                           "<<declare $gold = 10>>\n"
+                                           "{$gold} {$gold * 100} {$gold / 4} {1234567} "
+                                           "{123456789} {0.0001} {-0.5}\n===\n");
+        REQUIRE(d.loaded());
+        d.start();
+        REQUIRE(d.has_line());
+        CHECK(d.line().text == "10 1000 2.5 1234567 1.2345679E+08 0.0001 -0.5");
+    }
+
     TEST_CASE_FIXTURE(Clean, "a jump, and an option that cannot be chosen") {
         rmp::Dialogue d = dd::compile_text(SCRIPT);
         d.set_variable("$gold", 1);
