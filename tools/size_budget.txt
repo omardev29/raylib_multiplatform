@@ -41,7 +41,7 @@ windows-x64            pe       2375168         -  # measured at f6aa958
 windows-arm64          pe       1376768         -  # measured at e2ea300
 macos                  macho    2090696         -  # measured at 9bc4418
 freebsd-x64            elf       991456         -  # measured at 9bc4418
-freebsd-arm64          elf       732080         -  # measured at e2ea300
+freebsd-arm64          elf       888688         -  # measured at 9bc4418
 openbsd-x64            elf      1083064         -  # measured at 9bc4418
 openbsd-arm64          elf       894848         -  # measured at e2ea300
 netbsd-x64             elf      1176656         -  # measured at 9bc4418
