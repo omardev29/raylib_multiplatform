@@ -116,6 +116,21 @@ if(PRODUCTION_BUILD)
   # Release optimizations
   target_compile_options(${APP_LIB_NAME} PRIVATE -O3 -flto)
   target_compile_options(raylib PRIVATE -O3 -flto)
+
+  # A shared library keeps every symbol it exports, and the linker cannot drop
+  # what it exports: with default visibility, all of src/ -- the framework,
+  # the Yarn compiler and machine with it -- stayed in a game that never
+  # loads a dialogue, 25 % of each ABI's .so on PR-1 (Omar, 2026-11-07).
+  # Hidden by default, and the sections nobody reaches collected. What Java
+  # and the system look up by name stays exported because it says so:
+  # ANativeActivity_onCreate (native_app_glue) and raymob's Java_* callbacks
+  # are JNIEXPORT, which is default visibility, and raymoblib is compiled
+  # without these flags.
+  target_compile_options(${APP_LIB_NAME} PRIVATE
+      -fvisibility=hidden $<$<COMPILE_LANGUAGE:CXX>:-fvisibility-inlines-hidden>
+      -ffunction-sections -fdata-sections)
+  target_compile_options(raylib PRIVATE -fvisibility=hidden -ffunction-sections -fdata-sections)
+  target_link_options(${APP_LIB_NAME} PRIVATE -Wl,--gc-sections)
 else()
   # Debug optimizations
   target_compile_options(${APP_LIB_NAME} PRIVATE -O0)

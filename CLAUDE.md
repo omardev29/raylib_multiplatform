@@ -415,6 +415,16 @@ here so that nobody "fixes" one back.
   with `rmp_yarnc` ("embedded", desktop builds), "auto" for debug and release.
   The presenters are rmp::ui widgets (DialogueBox, DialogueBubble,
   DialogueStage), and `rmp::behavior::Talker` starts a conversation.
+- **Android's release hides what it does not export, and collects what
+  nobody reaches** (Omar, 2026-11-07). raymob links all of `src/` into one
+  shared library, and a shared library keeps every symbol it exports: with
+  default visibility a game that never loads a dialogue carried the Yarn
+  compiler, +25 % of each ABI. The release compiles the game and raylib with
+  `-fvisibility=hidden` and sections, and links with `--gc-sections`
+  (`raymob/app/src/main/cpp/CMakeLists.txt`); what Java or the system looks
+  up by name says `JNIEXPORT` (`ANativeActivity_onCreate`, raymob's
+  callbacks), which keeps it exported. arm64-v8a went from 3091080 bytes to
+  1108688, measured with the image's NDK r28.
 - **`src/main.cpp` is a dozen lines and ends at `RMP_GAME(MainMenuScene);`**
   -- phase 4 did that, and it stays that way. The user's game lives in
   `src/scenes/` and `src/objects/`; new mechanics go to `examples/`, never here.
@@ -1225,13 +1235,18 @@ Each of these was a real bug, found by reproducing rather than by reading.
 - **`TakeScreenshot` needs `rlDrawRenderBatchActive()` first**, or the file is
   blank. It also mangles absolute paths.
 - **DRM renders a different hash, and that is correct.** `linux-x64-glibc-drm`
-  gives a hash of its own where every other target gives `af22be47`, because
+  gives a hash of its own where every other target gives `a5fc1872`, because
   it rasterises through OpenGL ES on llvmpipe and the golden hash comes from
   raylib's own software renderer. The pixel count and the coverage ratio are
-  identical (`pixels=102752 ratio=0.28542`), which is what says the geometry is
+  identical (`pixels=97702 ratio=0.27139`), which is what says the geometry is
   the same and only the shading differs. Do not "fix" it by copying one hash
   over the other. (The text is measured the way it is drawn since Stage E's
-  P7, which moved both hashes; `drm-x64-run` prints DRM's.)
+  P7, which moved both hashes; `drm-x64-run` prints DRM's.) And a smoke run
+  steps every frame exactly 1/60 s (`app.cpp`, as the e2e driver does): with
+  the machine's clock, the fifth frame -- the one hashed -- caught the
+  theme's appearing fade wherever that machine had got to, and macOS, whose
+  frames took next to nothing, drew another picture (`b526ae51`) from
+  Plan 2's styles on until 2026-11-07.
 - **CI can run DRM, on a kernel display that does not exist.** `vkms` is
   mainline Virtual Kernel Mode Setting: a DRM device with a CRTC, an encoder and
   a connector and no hardware behind them. Two things it needs, and both were

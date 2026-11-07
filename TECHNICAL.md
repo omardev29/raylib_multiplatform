@@ -1417,8 +1417,11 @@ would force software rendering on every player.
 The gate is the **ratio** on every target, because llvmpipe, ANGLE-on-Metal, SwiftShader and
 mobile GPUs disagree about text antialiasing and texture filtering. The hash is asserted **too**,
 but only where it is deterministic: the targets that render through raylib's own software
-rasteriser (`PLATFORM=Memory` locally, the BSDs and macOS in CI) all produce `af22be47`, and
-`tools/render_check.sh` fails on anything else. DRM renders through OpenGL ES on llvmpipe and
+rasteriser (`PLATFORM=Memory` locally, the BSDs and macOS in CI) all produce `a5fc1872`, and
+`tools/render_check.sh` fails on anything else. It is deterministic because a smoke run
+(`RAY_TEST_MAX_FRAMES`) steps every frame exactly 1/60 s, as the e2e driver does: with the
+machine's clock the fifth frame caught the theme's appearing fade wherever that machine's frames
+had taken it -- finished on a Linux runner, barely begun on a macOS one. DRM renders through OpenGL ES on llvmpipe and
 gives a different hash with the same pixel count and ratio; that one is compared against its
 own golden and must not be "fixed" by copying one over the other.
 

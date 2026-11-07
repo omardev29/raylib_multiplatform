@@ -507,6 +507,14 @@ void start(std::unique_ptr<rmp::Scene> first) {
     // sets it.
     std::string asked;
     if (SmokeTest_maxFrames > 0) {
+        // And every frame of it exactly 1/60 s, as the e2e driver steps them:
+        // the frame the render check hashes is the fifth, and with the
+        // machine's own clock it showed a panel as far into its appearing
+        // fade as that machine was fast -- done on a Linux runner, whose
+        // frames under ASan are clamped long ones, and barely begun on a
+        // macOS runner, whose frames took next to no time. One picture
+        // everywhere, or the hash is a measurement of the runner.
+        set_fixed_delta(1.0f / 60);
         // NOLINTNEXTLINE(custom-rmp-raw-pointer): what getenv() hands back, copied at once
         const char *env = std::getenv("RAY_TEST_WINDOW");
         if (env != nullptr) asked = env;
