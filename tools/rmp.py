@@ -938,9 +938,16 @@ STAGES = [
                     "gates_red_test.py"])]),
     Stage("text", "every language [lang] ships has every text",
           [("run", ["{python}", "tools/text_tool.py", "check"])], scope="both"),
-    Stage("text-tool", "rmp text's scanner and checker, each mistake seen",
+    Stage("yarn", "every Yarn script compiles, and calls only what the C++ registers",
+          [("configure", []),
+           ("build", "rmp_yarnc"),
+           ("run", ["{python}", "tools/yarn_tool.py", "check", "--yarnc",
+                    "build/debug/rmp_yarnc"])], scope="both", when="**/resources/**/*.yarn"),
+    Stage("text-tool", "rmp text's and rmp yarn's tools, each mistake seen",
           [("run", ["{python}", "-m", "unittest", "discover", "-s", "tests", "-p",
                     "text_tool_test.py"]),
+           ("run", ["{python}", "-m", "unittest", "discover", "-s", "tests", "-p",
+                    "yarn_tool_test.py"]),
            ("run", ["{python}", "-m", "unittest", "discover", "-s", "tests", "-p",
                     "ink_to_yarn_test.py"])]),
     Stage("configure", "tools/configure.py, every rejection",
@@ -1363,6 +1370,20 @@ def cmd_pack(ctx, args):
     return OK
 
 
+def cmd_yarn(ctx, args):
+    if not args or args[0] not in ("check", "ysls") or (args[0] == "ysls" and len(args) > 1):
+        raise Usage("rmp yarn takes check [FILE.yarn ...] or ysls")
+    tool = ctx.root / "tools" / "yarn_tool.py"
+    if args[0] == "ysls":
+        ctx.run([ctx.python, tool, "ysls"])
+        return OK
+    configure(ctx, ctx.preset())
+    ctx.run(["cmake", "--build", "--preset", ctx.preset(), "--target", "rmp_yarnc"])
+    ctx.run([ctx.python, tool, "check", "--yarnc", ctx.exe(f"{ctx.build_dir()}/rmp_yarnc"),
+             *args[1:]])
+    return OK
+
+
 def cmd_text(ctx, args):
     if len(args) != 1 or args[0] not in ("scan", "check"):
         raise Usage("rmp text takes scan or check")
@@ -1662,7 +1683,7 @@ INCLUDE = (
     "tools/versions_check.sh",
     "tools/dev_shell.sh",
     "tools/android_release_check.py", "tools/binary_check.py", "tools/size_check.py",
-    "tools/rmp.py", "tools/text_tool.py", "tools/ink_to_yarn.py", "tools/rmp_yarnc.cpp",
+    "tools/rmp.py", "tools/text_tool.py", "tools/yarn_tool.py", "tools/ink_to_yarn.py", "tools/rmp_yarnc.cpp",
     "rmp", "rmp.ps1", "rmp.cmd",
 )
 
@@ -2532,6 +2553,20 @@ COMMANDS = {
         [("rmp text scan", "add the new texts to resources/lang.tsv"),
          ("rmp text check", "what a translation lacks or got wrong")],
         cmd_text),
+    "yarn": Command(
+        "yarn check|ysls", "the Yarn scripts: compile them against the C++, or tell the editor",
+        "check compiles every resources/**/*.yarn with the framework's own compiler "
+        "(rmp_yarnc --check), each error as file:line:column, with the types of the "
+        "functions the C++ registers (on_function(\"name\", [&](std::string s) -> bool "
+        "{...})) told to it; a function a script calls that nothing registers is an error, a "
+        "command nothing handles a warning. Name files to check only those. `rmp test` runs "
+        "it. ysls writes rmp.ysls.json beside resources/: the commands and functions the "
+        "C++ registers, typed and with the comment above each, which the Yarn Spinner "
+        "extension for VS Code reads to complete and check them.",
+        [("rmp yarn check", "every script, against the game's C++"),
+         ("rmp yarn check resources/intro.yarn", "one script"),
+         ("rmp yarn ysls", "the editor learns the game's commands and functions")],
+        cmd_yarn),
     "unpack": Command(
         "unpack", "delete the pack; the game reads resources/ again",
         "Delete resources/resources.rres, so that the game reads the loose files "

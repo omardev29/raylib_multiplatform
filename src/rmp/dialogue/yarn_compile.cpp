@@ -10,6 +10,7 @@
 #include "yarn.h"
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <functional>
 #include <map>
@@ -1319,6 +1320,51 @@ Compiled compile(std::span<const Source> sources,
     Compiler c(sources, functions);
     Compiled out = c.run();
     // A jump to a node that is not there is said when the program is built.
+    return out;
+}
+
+namespace {
+
+void add_once(std::vector<std::string> &to, std::string name) {
+    if (std::ranges::find(to, name) == to.end()) to.push_back(std::move(name));
+}
+
+// A function's name, not an operator's (+, ==, neg are calls too).
+bool is_function_name(std::string_view name) {
+    return !name.empty() &&
+           (std::isalpha(static_cast<unsigned char>(name[0])) != 0 || name[0] == '_') &&
+           name != "neg";
+}
+
+void calls_in(const std::vector<Instruction> &code, std::vector<std::string> &to) {
+    for (const Instruction &i : code) {
+        if (i.op == Op::CALL_FUNC && is_function_name(i.s)) add_once(to, i.s);
+    }
+}
+
+} // namespace
+
+std::vector<std::string> functions_called(const Program &program) {
+    std::vector<std::string> out;
+    for (const ProgramNode &n : program.nodes) {
+        calls_in(n.code, out);
+        calls_in(n.condition, out);
+    }
+    for (const SmartVariable &v : program.smart) calls_in(v.code, out);
+    return out;
+}
+
+std::vector<std::string> commands_run(const Program &program) {
+    std::vector<std::string> out;
+    for (const ProgramNode &n : program.nodes) {
+        for (const Instruction &i : n.code) {
+            if (i.op != Op::RUN_COMMAND) continue;
+            const std::size_t from = i.s.find_first_not_of(" \t");
+            if (from == std::string::npos) continue;
+            const std::size_t to = i.s.find_first_of(" \t", from);
+            add_once(out, i.s.substr(from, to == std::string::npos ? to : to - from));
+        }
+    }
     return out;
 }
 

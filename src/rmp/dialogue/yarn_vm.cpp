@@ -11,7 +11,6 @@
 
 #include <algorithm>
 #include <array>
-#include <cctype>
 #include <charconv>
 #include <cmath>
 #include <cstdint>
@@ -140,23 +139,6 @@ std::optional<Signature> Machine::signature(std::string_view name) const {
 
 namespace {
 
-void add_once(std::vector<std::string> &to, std::string name) {
-    if (std::ranges::find(to, name) == to.end()) to.push_back(std::move(name));
-}
-
-// A function's name, not an operator's (+, ==, neg are calls too).
-bool is_function_name(std::string_view name) {
-    return !name.empty() &&
-           (std::isalpha(static_cast<unsigned char>(name[0])) != 0 || name[0] == '_') &&
-           name != "neg";
-}
-
-void calls_in(const std::vector<Instruction> &code, std::vector<std::string> &to) {
-    for (const Instruction &i : code) {
-        if (i.op == Op::CALL_FUNC && is_function_name(i.s)) add_once(to, i.s);
-    }
-}
-
 std::string_view kind_name(Kind k) {
     switch (k) {
         case Kind::NUMBER:
@@ -201,28 +183,6 @@ bool Machine::command_fits(const std::string &name, const Signature &s,
         }
     }
     return true;
-}
-
-std::vector<std::string> Machine::functions_called() const {
-    std::vector<std::string> out;
-    for (const ProgramNode &n : _program.nodes) {
-        calls_in(n.code, out);
-        calls_in(n.condition, out);
-    }
-    for (const SmartVariable &v : _program.smart) calls_in(v.code, out);
-    return out;
-}
-
-std::vector<std::string> Machine::commands_run() const {
-    std::vector<std::string> out;
-    for (const ProgramNode &n : _program.nodes) {
-        for (const Instruction &i : n.code) {
-            if (i.op != Op::RUN_COMMAND) continue;
-            const std::vector<std::string> w = words(i.s);
-            if (!w.empty()) add_once(out, w.front());
-        }
-    }
-    return out;
 }
 
 // Whether `args` are what the game said `name` takes; a fault when not.

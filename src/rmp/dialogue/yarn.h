@@ -354,6 +354,10 @@ struct Binding {
 
 // Whether the language has `name` built in (visited, dice, round...).
 [[nodiscard]] bool is_builtin_function(std::string_view name);
+// Every function a program calls, every command it runs (the first word, as
+// written), once each, in the order they are first met.
+[[nodiscard]] std::vector<std::string> functions_called(const Program &program);
+[[nodiscard]] std::vector<std::string> commands_run(const Program &program);
 
 class Machine {
 public:
@@ -381,10 +385,6 @@ public:
     void bind(std::string_view name, Binding binding);
     [[nodiscard]] bool bound(std::string_view name) const;
 
-    // Every function the script calls, every command it runs (the first word,
-    // as written), once each, in the order they are first met.
-    [[nodiscard]] std::vector<std::string> functions_called() const;
-    [[nodiscard]] std::vector<std::string> commands_run() const;
     [[nodiscard]] bool has_function(std::string_view name) const;
     [[nodiscard]] std::optional<Signature> signature(std::string_view name) const;
 

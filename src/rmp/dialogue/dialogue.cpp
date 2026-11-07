@@ -228,7 +228,7 @@ yarn::Signature machine_signature(const std::optional<detail::DialogueSignature>
 // What start() says before anything runs: a function the script calls that
 // nothing registered would otherwise be found at the line that calls it.
 void check_functions(const yarn::Machine &m) {
-    for (const std::string &f : m.functions_called()) {
+    for (const std::string &f : yarn::functions_called(m.program())) {
         if (yarn::is_builtin_function(f) || m.has_function(f)) continue;
         RMP_REPORT_ONCE_KEYED(std::string_view(f),
                               "DIALOGUE: the script calls %s(), and nothing registered it: "
