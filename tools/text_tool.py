@@ -46,6 +46,8 @@ LANG_CODE = re.compile(r"^[a-z]{2,3}(-[A-Za-z0-9]{2,8})*$")
 # {name} of an rmp::Text, {0} of a Yarn line.
 PLACEHOLDER = re.compile(r"(?<!\{)\{([A-Za-z_][A-Za-z0-9_]*|[0-9]+)\}(?!\})")
 YARN_LINE_ID = re.compile(r"#line:([A-Za-z0-9_.\-]+)")
+# The row a language menu reads its name from, through rmp::lang::name().
+LANGUAGE_NAME = "language.name"
 
 
 class TextError(Exception):
@@ -353,7 +355,8 @@ def scan(root: Path) -> str:
         added += 1
     marked = 0
     for row in wide.rows:
-        gone = (row[0], row[1]) not in wanted
+        # language.name is read by rmp::lang::name(), never written in code.
+        gone = (row[0], row[1]) not in wanted and row[0] != LANGUAGE_NAME
         new = "x" if gone else ""
         if row[unused_col] != new:
             marked += 1 if gone else 0
@@ -370,6 +373,7 @@ def translations(root: Path) -> tuple[dict[tuple[str, str], dict[str, str]], lis
     resources = root / "resources"
     rows: dict[tuple[str, str], dict[str, str]] = {}
     codes: list[str] = []
+    retired: set[tuple[str, str]] = set()  # marked unused: not held to anything
     table = resources / lang["file"] if lang["file"] else None
     if table is not None and table.is_file():
         wide = Wide(table.read_text(encoding="utf-8"))
@@ -378,6 +382,7 @@ def translations(root: Path) -> tuple[dict[tuple[str, str], dict[str, str]], lis
             codes.append(c)
         for r in wide.rows:
             if unused >= 0 and r[unused]:
+                retired.add((r[0], r[1]))
                 continue
             cells = rows.setdefault((r[0], r[1]), {})
             for i, c in enumerate(wide.header[2:], start=2):
@@ -392,8 +397,9 @@ def translations(root: Path) -> tuple[dict[tuple[str, str], dict[str, str]], lis
             parsed = parse_tsv(path.read_text(encoding="utf-8"))
             start = 1 if parsed and parsed[0] and parsed[0][0] == "key" else 0
             for r in parsed[start:]:
-                if len(r) >= 3 and r[2]:
-                    rows.setdefault((r[0], r[1] if len(r) > 1 else ""), {})[code] = r[2]
+                where = (r[0], r[1] if len(r) > 1 else "")
+                if len(r) >= 3 and r[2] and where not in retired:
+                    rows.setdefault(where, {})[code] = r[2]
     return rows, codes
 
 

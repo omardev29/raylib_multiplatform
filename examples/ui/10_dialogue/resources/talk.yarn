@@ -1,0 +1,22 @@
+// One conversation, shown three ways: examples/ui/10_dialogue switches
+// between a DialogueBox, a DialogueBubble and a DialogueStage while it runs.
+//
+// $cups is the game's own variable (bound in src/main.cpp), time_of_day() its
+// function, and <<quake>> its command; <<wait 1>> is Yarn's own.
+
+title: Start
+---
+<<declare $cups = 0>>
+Mika: Good {time_of_day()}! Tea? #line:hello #mood:happy
+Sora: Only if it's the [wave]good[/wave] kind. #line:good_kind #mood:think
+-> Two cups, please. #line:two
+    <<set $cups = $cups + 2>>
+    Mika: Two cups coming up. That makes {$cups} today. #line:coming #mood:happy
+-> No tea for me. #line:none
+    Mika: Suit yourself. #line:suit #mood:sad
+<<wait 1>>
+Sora: Did you feel that? #line:feel #mood:think
+<<quake>>
+Mika: [shake]The whole park shook![/shake] #line:shook #mood:sad
+Sora: ...It was the kettle. #line:kettle #mood:happy
+===

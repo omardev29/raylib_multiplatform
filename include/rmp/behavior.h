@@ -635,6 +635,9 @@ struct Talker {
     Handle<Object> player{}; // who talks to it
     std::string action = "interact"; // the rmp::input action; "" = on arriving
     bool once = false; // talks the first time only
+    // The conversation was loaded, before it first starts: where the game
+    // binds its variables and registers its functions and commands.
+    Callback<Dialogue &> on_load;
     Callback<Dialogue &> on_talk; // the conversation started: show it
     Callback<> on_done; // ...and finished
 

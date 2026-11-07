@@ -1,0 +1,55 @@
+key	context	en	es	unused
+language.name		English	Español	
+The Lantern Festival		The Lantern Festival	El Festival de los Faroles	
+You and Mika watch a thousand lanterns rise.		You and Mika watch a thousand lanterns rise.	Mika y tú veis subir mil faroles.	
+Front Row		Front Row	Primera fila	
+Sora plays the best set of his life.		Sora plays the best set of his life.	Sora toca el mejor concierto de su vida.	
+A Quiet Evening		A Quiet Evening	Una tarde tranquila	
+The lanterns rise far away. Maybe next year.		The lanterns rise far away. Maybe next year.	Los faroles suben a lo lejos. Quizá el año que viene.	
+Back to the title		Back to the title	Volver al título	
+Paused		Paused	En pausa	
+Back to town		Back to town	Volver al pueblo	
+To the title		To the title	Al título	
+After School		After School	Después de clase	
+The lantern festival starts at seven.		The lantern festival starts at seven.	El festival de los faroles empieza a las siete.	
+Continue		Continue	Continuar	
+New afternoon		New afternoon	Nueva tarde	
+Quit		Quit	Salir	
+You found a festival flyer!		You found a festival flyer!	¡Has encontrado un folleto del festival!	
+{hour}:{minutes} pm		{hour}:{minutes} pm	{hour}:{minutes} p. m.	
+A festival flyer		A festival flyer	Un folleto del festival	
+The festival is at seven		The festival is at seven	El festival es a las siete	
+E: Talk		E: Talk	E: Hablar	
+line:mika_hi		Mika: You survived the last class of the week!	Mika: ¡Has sobrevivido a la última clase de la semana!	
+line:mika_festival		Mika: The lantern festival starts at seven. Everyone's going.	Mika: El festival de los faroles empieza a las siete. Va todo el mundo.	
+line:mika_again		Mika: Still here? It's already {0} o'clock.	Mika: ¿Sigues aquí? Ya son las {0}.	
+line:mika_ask		Want to go to the festival together?	¿Quieres ir al festival conmigo?	
+line:mika_yes		Mika: With you? [wave]Yes![/wave] Meet me at the gate at seven.	Mika: ¿Contigo? [wave]¡Sí![/wave] Nos vemos en la puerta a las siete.	
+line:mika_sora		Have you seen Sora?	¿Has visto a Sora?	
+line:mika_show		Mika: He was moping by the pond. Come on, I'll show you.	Mika: Estaba deprimido junto al estanque. Ven, te lo enseño.	
+line:mika_there		Mika: There. Go cheer him up.	Mika: Ahí está. Ve a animarlo.	
+line:mika_bye		I should get going.	Debería irme.	
+line:mika_later		Mika: See you around!	Mika: ¡Nos vemos!	
+line:sora_hi		Sora: Oh. Hi.	Sora: Ah. Hola.	
+line:sora_nerve		Sora: The band plays at the festival tonight, and I lost my nerve. And my pick.	Sora: El grupo toca esta noche en el festival, y he perdido el valor. Y la púa.	
+line:sora_again		Sora: [shake]I can't do this.[/shake]	Sora: [shake]No puedo hacerlo.[/shake]	
+line:sora_promise		You'll be great. I'll be in the front row.	Lo harás genial. Estaré en primera fila.	
+line:sora_yes		Sora: ...You'd do that? [pause=0.4/]Then I'll play. For real.	Sora: ...¿Harías eso? [pause=0.4/]Entonces tocaré. De verdad.	
+line:sora_cafe		Try the café. Aki knows everybody.	Prueba en el café. Aki conoce a todo el mundo.	
+line:sora_aki		Sora: Aki? She scares me a little.	Sora: ¿Aki? Me da un poco de miedo.	
+line:sora_bye		Good luck.	Suerte.	
+line:aki_hi		Aki: Club captain, at your service. Have you seen the flyers for tonight?	Aki: Capitana del club, a tu servicio. ¿Has visto los folletos de esta noche?	
+line:aki_flyer		Aki: Someone dropped one over by the east trees.	Aki: A alguien se le cayó uno junto a los árboles del este.	
+line:aki_found		Aki: You found it! Now you have an excuse to ask someone.	Aki: ¡Lo encontraste! Ahora tienes una excusa para invitar a alguien.	
+line:aki_again		Aki: The flyer, east of the pond. Go!	Aki: El folleto, al este del estanque. ¡Corre!	
+line:kai_again		Kai: Next time I'm winning.	Kai: La próxima vez gano yo.	
+line:kai_hi		Kai: Race you to the station! Now or never!	Kai: ¡Te echo una carrera hasta la estación! ¡Ahora o nunca!	
+line:kai_race		You're on!	¡Vale!	
+line:kai_go		Kai: [speed=2]Three, two, one... GO![/speed]	Kai: [speed=2]Tres, dos, uno... ¡YA![/speed]	
+line:kai_back		Kai: An hour of running and we're right back here. It's {0} now.	Kai: Una hora corriendo y estamos otra vez aquí. Ya son las {0}.	
+line:kai_no		Not today.	Hoy no.	
+line:kai_loss		Kai: Your loss!	Kai: ¡Tú te lo pierdes!	
+line:end_mika		Mika: There you are! Look, the lanterns!	Mika: ¡Ahí estás! ¡Mira, los faroles!	
+line:end_sora		Sora: You came. Front row, like you said.	Sora: Has venido. En primera fila, como dijiste.	
+line:home_early		You think about going home, but the afternoon isn't over yet.	Piensas en volver a casa, pero la tarde aún no ha terminado.	
+line:end_home		The lanterns rise over town. You watch them from your window.	Los faroles suben sobre el pueblo. Los miras desde tu ventana.	

@@ -1,0 +1,12 @@
+key	context	en	es	ja	unused
+language.name		English	Español	日本語	
+The Lantern Market		The Lantern Market	El Mercado de Faroles	ランタン市場	
+Hello, {name}!		Hello, {name}!	¡Hola, {name}!	こんにちは、{name}!	
+Language		Language	Idioma	言語	
+Buy a lantern		Buy a lantern	Comprar un farol	ランタンを買う	
+Sell everything		Sell everything	Venderlo todo	全部売る	
+{count} lantern|{count} lanterns		{count} lantern|{count} lanterns	{count} farol|{count} faroles	ランタン{count}個	
+{count} coin|{count} coins		{count} coin|{count} coins	{count} moneda|{count} monedas	{count}コイン	
+Not enough coins		Not enough coins	No tienes suficientes monedas	コインが足りない	
+Sold {count} for {coins}		Sold {count} for {coins}	Vendidos {count} por {coins}	{count}個を{coins}コインで売った	
+Open	stall	Open	Abierto	営業中	

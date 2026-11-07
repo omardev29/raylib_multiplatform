@@ -48,6 +48,7 @@ void Talker::_update(Object &self, float delta) {
     if (!ours.loaded) {
         ours.talk = rmp::assets::load_dialogue(dialogue);
         ours.loaded = true;
+        on_load(ours.talk);
     }
     if (!ours.talk.start(node)) return;
     ours.talking = true;

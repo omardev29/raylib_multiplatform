@@ -1,0 +1,102 @@
+// After School: everyone in town, and the way home. Each person's node is
+// named in world.ldtk (their entity's `node`); the variables are the game's
+// own (bound in src/scenes/town.cpp), so every conversation sees what the
+// others decided.
+//
+//   $hour          the town's clock, an hour of the afternoon
+//   $with          who you go to the festival with: "", "mika" or "sora"
+//   $met_*         whom you have talked to
+//   $raced         Kai's race, run
+//
+// has_item("flyer") and <<walk who place>> and <<ending kind>> are the game's
+// (on_function and on_command in src/scenes/town.cpp).
+
+title: Mika
+---
+<<declare $hour = 15>>
+<<declare $with = "">>
+<<declare $met_mika = false>>
+<<declare $met_sora = false>>
+<<declare $met_aki = false>>
+<<declare $met_kai = false>>
+<<declare $raced = false>>
+<<if $met_mika == false>>
+    Mika: You survived the last class of the week! #line:mika_hi #mood:happy
+    Mika: The lantern festival starts at seven. Everyone's going. #line:mika_festival
+    <<set $met_mika = true>>
+<<else>>
+    Mika: Still here? It's already {$hour} o'clock. #line:mika_again #mood:think
+<<endif>>
+-> Want to go to the festival together? <<if has_item("flyer") and $with == "">> #line:mika_ask
+    Mika: With you? [wave]Yes![/wave] Meet me at the gate at seven. #line:mika_yes #mood:happy
+    <<set $with = "mika">>
+-> Have you seen Sora? #line:mika_sora
+    Mika: He was moping by the pond. Come on, I'll show you. #line:mika_show #mood:think
+    <<walk Mika pond>>
+    Mika: There. Go cheer him up. #line:mika_there
+-> I should get going. #line:mika_bye
+    Mika: See you around! #line:mika_later
+===
+
+title: Sora
+---
+<<if $met_sora == false>>
+    Sora: Oh. Hi. #line:sora_hi #mood:sad
+    Sora: The band plays at the festival tonight, and I lost my nerve. And my pick. #line:sora_nerve #mood:sad
+    <<set $met_sora = true>>
+<<else>>
+    Sora: [shake]I can't do this.[/shake] #line:sora_again #mood:sad
+<<endif>>
+-> You'll be great. I'll be in the front row. <<if $with == "">> #line:sora_promise
+    Sora: ...You'd do that? [pause=0.4/]Then I'll play. For real. #line:sora_yes #mood:happy
+    <<set $with = "sora">>
+-> Try the café. Aki knows everybody. #line:sora_cafe
+    Sora: Aki? She scares me a little. #line:sora_aki #mood:think
+-> Good luck. #line:sora_bye
+===
+
+title: Aki
+---
+<<if $met_aki == false>>
+    Aki: Club captain, at your service. Have you seen the flyers for tonight? #line:aki_hi #mood:happy
+    Aki: Someone dropped one over by the east trees. #line:aki_flyer #mood:think
+    <<set $met_aki = true>>
+<<elseif has_item("flyer")>>
+    Aki: You found it! Now you have an excuse to ask someone. #line:aki_found #mood:happy
+<<else>>
+    Aki: The flyer, east of the pond. Go! #line:aki_again
+<<endif>>
+===
+
+title: Kai
+---
+<<if $raced>>
+    Kai: Next time I'm winning. #line:kai_again #mood:think
+    <<stop>>
+<<endif>>
+Kai: Race you to the station! Now or never! #line:kai_hi #mood:happy
+<<set $met_kai = true>>
+-> You're on! #line:kai_race
+    Kai: [speed=2]Three, two, one... GO![/speed] #line:kai_go #mood:happy
+    <<set $raced = true>>
+    <<set $hour = $hour + 1>>
+    Kai: An hour of running and we're right back here. It's {$hour} now. #line:kai_back #mood:sad
+-> Not today. #line:kai_no
+    Kai: Your loss! #line:kai_loss #mood:think
+===
+
+title: Home
+---
+<<if $with == "mika">>
+    Mika: There you are! Look, the lanterns! #line:end_mika #mood:happy
+    <<ending festival>>
+<<elseif $with == "sora">>
+    Sora: You came. Front row, like you said. #line:end_sora #mood:happy
+    <<ending concert>>
+<<elseif $hour < 17>>
+    You think about going home, but the afternoon isn't over yet. #line:home_early
+<<else>>
+    The lanterns rise over town. You watch them from your window. #line:end_home
+    <<ending home>>
+<<endif>>
+===

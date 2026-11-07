@@ -28,6 +28,7 @@ namespace {
 
 constexpr float STAGE_ON_STAGE = 3; // speakers on stage at once
 constexpr float SHAKE_HZ = 9;
+constexpr float NEXT_WIDTH = 48; // design units: the button at a line's end
 constexpr float CHOICE_PANEL_WIDTH = 360; // design units, of the choices' own panel
 
 int letters(std::string_view text) {
@@ -249,7 +250,7 @@ void name_plate(const std::string &speaker, const Style &style) {
 }
 
 bool next_button(std::string_view id) {
-    Button next{ .text = ">", .id = std::string(id) };
+    Button next{ .text = ">", .width = NEXT_WIDTH, .id = std::string(id) };
     return next.show();
 }
 
@@ -276,8 +277,14 @@ void line_body(rmp::Dialogue &d, DialogueMemory &m, const DialogueFlow &f, float
     const bool full = type(m, f, line, pitch);
     o.visible = static_cast<int>(m.shown);
     if (o.id.empty()) o.id = id;
-    detail::rich_with(marked_of(line), o, o.id);
-    const bool pressed = next_button(next);
+    bool pressed = false;
+    // The line, and the button that goes on at its end: one row, so a box is
+    // as tall as its words.
+    row({ .gap = 12, .items = Align::BOTTOM_RIGHT, .grow_x = true }, [&] {
+        column({ .items = Align::TOP_LEFT, .grow_x = true },
+               [&] { detail::rich_with(marked_of(line), o, o.id); });
+        pressed = next_button(next);
+    });
     answer_line(m, f, d, full, pressed);
 }
 
@@ -415,8 +422,10 @@ bool DialogueBubble::show(rmp::Dialogue &dialogue) {
             Panel p{ .box = { .gap = 6, .items = Align::TOP_LEFT, .width = width },
                      .style = look };
             p.show([&] {
+                // The line wraps short of the button at its end.
                 line_body(dialogue, ours, f, who ? who->pitch : 1.0f,
-                          RichTextOptions{ .width = width - 24 }, "dialogue_bubble_line",
+                          RichTextOptions{ .width = std::max(40.0f, width - 36 - NEXT_WIDTH) },
+                          "dialogue_bubble_line",
                           "dialogue_bubble_next");
             });
             if (!pointing || !(tail > 0)) return;
@@ -514,7 +523,7 @@ bool DialogueStage::show(rmp::Dialogue &dialogue) {
     const Style plate = who ? detail::overlay(name_style, who->name_style) : name_style;
     const DialogueFlow f = who ? voiced(flow, who->blip) : flow;
 
-    detail::open_moved(shaken, 1.0f, 1.0f);
+    detail::open_moved(shaken, 1.0f, 1.0f, true);
     column({ .gap = 0, .grow_x = true }, [&] {
         // The cast, left to right: the first half come in from the left, the
         // rest from the right; whoever speaks comes forward.

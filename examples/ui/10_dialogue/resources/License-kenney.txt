@@ -1,0 +1,19 @@
+The art, letters and sounds in this folder are by Kenney (https://kenney.nl),
+released under Creative Commons Zero (CC0 1.0): public domain, free for any
+use, with no attribution required -- credited here anyway, because it is his
+work.
+
+Made from these, unmodified except for cutting poses, townsfolk and frames out
+of the sheets and giving the files short names, by tools/make_story_assets.py,
+which also checks every download against its sha256:
+
+  Toon Characters 1      https://kenney.nl/assets/toon-characters-1
+      portraits/*.png
+  RPG Urban Pack         https://kenney.nl/assets/rpg-urban-pack
+      tiles.png, *.aseprite
+  UI Pack RPG Expansion  https://kenney.nl/assets/ui-pack-rpg-expansion
+      panel.png, plate.png, button.png, button_down.png
+  Kenney Fonts           https://kenney.nl/assets/kenney-fonts
+      font.ttf (Kenpixel High)
+  UI Pack                https://kenney.nl/assets/ui-pack
+      tap.ogg, click.ogg, switch.ogg

@@ -996,7 +996,7 @@ Style resolved(WidgetKind kind, const Style &own);
 // A box around what is declared until close_moved(), drawn moved (design
 // units), faded and scaled about its centre with everything inside it: a
 // presenter's portrait coming on stage.
-void open_moved(Vector2 offset, float alpha, float scale);
+void open_moved(Vector2 offset, float alpha, float scale, bool grow_x = false);
 void close_moved();
 // A bubble's tail, `width` by `height` design units, of `color`; and the
 // record a CUSTOM command of one carries (empty: not a tail).

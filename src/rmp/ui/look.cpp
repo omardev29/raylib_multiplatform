@@ -676,9 +676,10 @@ rmp::Ref<DrawRecord> decorate(Clay_ElementDeclaration &d, Clay_ElementId id,
     return rmp::Ref<DrawRecord>(r);
 }
 
-void open_moved(Vector2 offset, float alpha, float scale) {
+void open_moved(Vector2 offset, float alpha, float scale, bool grow_x) {
     Clay_ElementDeclaration d{};
     d.layout.layoutDirection = CLAY_TOP_TO_BOTTOM;
+    if (grow_x) d.layout.sizing.width = CLAY_SIZING_GROW(0);
     Clay__OpenElement();
     DrawRecord &r = looks.draws.emplace_back();
     r.element = Clay_GetOpenElementId();

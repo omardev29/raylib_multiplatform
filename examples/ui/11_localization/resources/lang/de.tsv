@@ -1,0 +1,12 @@
+key	context	text
+language.name		Deutsch
+The Lantern Market		Der Laternenmarkt
+Hello, {name}!		Hallo, {name}!
+Language		Sprache
+Buy a lantern		Eine Laterne kaufen
+Sell everything		Alles verkaufen
+{count} lantern|{count} lanterns		{count} Laterne|{count} Laternen
+{count} coin|{count} coins		{count} Münze|{count} Münzen
+Not enough coins		Nicht genug Münzen
+Sold {count} for {coins}		{count} für {coins} verkauft
+Open	stall	Geöffnet
