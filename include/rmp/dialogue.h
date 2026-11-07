@@ -55,25 +55,34 @@ class Value; // rmp/save.h: what save() writes and load() reads
 // A value of the Yarn language: a number, a string or a bool.
 class DialogueValue {
 public:
-    enum class Kind : std::uint8_t { NUMBER, STRING, BOOL };
+    // Which of Yarn's three types it holds.
+    enum class Kind : std::uint8_t {
+        NUMBER, // a number; Yarn has one kind, a float
+        STRING, // a piece of text
+        BOOL, // true or false
+    };
 
-    DialogueValue() = default;
+    DialogueValue() = default; // the number 0
     // Each one implicit, so `out = 3;` or `set_variable("$met", true)` reads as Yarn does.
     // NOLINTNEXTLINE(google-explicit-constructor)
-    DialogueValue(float number) : _number(number) {}
+    DialogueValue(float number) : _number(number) {} // a number
     // NOLINTNEXTLINE(google-explicit-constructor)
-    DialogueValue(int number) : _number(static_cast<float>(number)) {}
+    DialogueValue(int number)
+        : _number(static_cast<float>(number)) {} // a number, as a float
     // NOLINTNEXTLINE(google-explicit-constructor)
-    DialogueValue(double number) : _number(static_cast<float>(number)) {}
+    DialogueValue(double number)
+        : _number(static_cast<float>(number)) {} // a number, as a float
     // NOLINTNEXTLINE(google-explicit-constructor)
-    DialogueValue(bool value) : _kind(Kind::BOOL), _bool(value) {}
+    DialogueValue(bool value) : _kind(Kind::BOOL), _bool(value) {} // a bool
     // NOLINTNEXTLINE(google-explicit-constructor)
-    DialogueValue(std::string text) : _kind(Kind::STRING), _text(std::move(text)) {}
+    DialogueValue(std::string text)
+        : _kind(Kind::STRING), _text(std::move(text)) {} // a string
+    // A string from a literal: "Mika", not a pointer.
     template <std::size_t N>
     // NOLINTNEXTLINE(google-explicit-constructor,modernize-avoid-c-arrays)
     DialogueValue(const char (&text)[N]) : _kind(Kind::STRING), _text(text) {}
 
-    [[nodiscard]] Kind kind() const { return _kind; }
+    [[nodiscard]] Kind kind() const { return _kind; } // which type it holds
     [[nodiscard]] float as_number() const; // a string read as a number; a bool 1 or 0
     [[nodiscard]] bool as_bool() const; // a number not 0; a string "true"
     [[nodiscard]] std::string as_string() const; // as a line shows it: 2, 2.5, True
@@ -89,10 +98,11 @@ private:
 // place of the first word, for as many characters (code points) as they
 // have. Positions are in the line's `text`.
 struct DialogueMarkup {
-    std::string name;
-    int position = 0;
-    int length = 0;
-    std::vector<std::pair<std::string, std::string>> properties;
+    std::string name; // "wave", "color", "speed"...: what is in the brackets first
+    int position = 0; // the first character it covers, in code points of `text`
+    int length = 0; // how many it covers; 0 for a self-closing [pause=0.4/]
+    std::vector<std::pair<std::string, std::string>>
+        properties; // name = value, as written
 
     // A property's value, or "" when the markup has none of that name.
     [[nodiscard]] std::string property(std::string_view key) const;
@@ -110,11 +120,11 @@ struct DialogueLine {
 
 // One of the choices the player has now.
 struct DialogueOption {
-    std::string id;
+    std::string id; // its #line: id, the key of its translation
     std::string text; // in the current language, without markup
     bool available = true; // false: its condition failed; shown disabled, or not at all
-    std::vector<DialogueMarkup> markup;
-    std::vector<std::string> tags;
+    std::vector<DialogueMarkup> markup; // where the markup was, in `text`
+    std::vector<std::string> tags; // its #hashtags, without the #
 };
 
 // How a line group (=>) or a node group (when:) picks among what can run.
@@ -129,9 +139,12 @@ namespace detail {
 struct DialogueState;
 } // namespace detail
 
+// A conversation: a compiled Yarn script, where it is in it, and what it
+// remembers. It draws nothing -- the presenters of rmp/ui.h do, or the game.
+// Moved, never copied.
 class Dialogue {
 public:
-    Dialogue();
+    Dialogue(); // no script: loaded() is false
     ~Dialogue();
     Dialogue(Dialogue &&other) noexcept;
     Dialogue &operator=(Dialogue &&other) noexcept;
@@ -185,6 +198,7 @@ public:
     void save(rmp::Value &out) const;
     void load(const rmp::Value &in);
 
+    // How line groups and node groups choose; LEAST_SEEN unless set.
     void set_saliency(DialogueSaliency saliency);
 
     // The script's own: for the loaders below.

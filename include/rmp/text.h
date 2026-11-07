@@ -45,23 +45,25 @@ namespace rmp {
 // What else a translated text can say: the context that tells two texts with
 // the same words apart ("Open" a door, "Open" a file).
 struct TextOptions {
-    std::string_view context{};
+    std::string_view context{}; // the row's context column; empty: none
 };
 
 // One placeholder's value: a name and a number or a text.
 class TextArg {
 public:
+    // A number: it fills {name}, and chooses the plural form.
     template <class N>
         requires(std::is_arithmetic_v<N> && !std::is_same_v<N, bool> &&
                  !std::is_same_v<N, char>)
     TextArg(std::string_view name, N value)
         : _name(name), _number(static_cast<double>(value)), _numeric(true),
           _integer(std::is_integral_v<N>), _single(std::is_same_v<N, float>) {}
+    // A text: it fills {name} as it is, never translated.
     TextArg(std::string_view name, std::string_view value) : _name(name), _text(value) {}
 
-    [[nodiscard]] std::string_view name() const { return _name; }
-    [[nodiscard]] bool numeric() const { return _numeric; }
-    [[nodiscard]] double number() const { return _number; }
+    [[nodiscard]] std::string_view name() const { return _name; } // the {name} it fills
+    [[nodiscard]] bool numeric() const { return _numeric; } // a number, not a text
+    [[nodiscard]] double number() const { return _number; } // the number; 0 for a text
     // The value as it is written into the text.
     [[nodiscard]] std::string text() const;
 

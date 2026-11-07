@@ -3314,9 +3314,19 @@ def toml_comments(path: Path) -> dict[str, str]:
     section = ""
     above: list[str] = []
     run = ""            # the block above a run of keys written one after another
+    # A table the game fills ([ios.settings]) has no key of its own to carry
+    # a comment: what is written under its header, before any key, is its.
+    fresh = ""
+
+    def under_header():
+        if fresh and above and not out.get(fresh):
+            out[fresh] = "\n".join(above).strip()
+
     for raw in path.read_text(encoding="utf-8").splitlines():
         line = raw.strip()
         if not line:
+            under_header()
+            fresh = ""
             above, run = [], ""
             continue
         if line.startswith("#"):
@@ -3327,12 +3337,15 @@ def toml_comments(path: Path) -> dict[str, str]:
             continue
         m = re.match(r"\[([^\]]+)\]", line)
         if m:
+            under_header()
             section = m.group(1).strip()
+            fresh = section
             out.setdefault(section, "\n".join(above).strip())
             above, run = [], ""
             continue
         m = re.match(r"([A-Za-z0-9_\-]+)\s*=", line)
         if m:
+            fresh = ""
             key = f"{section}.{m.group(1)}" if section else m.group(1)
             trailing = ""
             hash_at = _comment_start(line)
@@ -3342,6 +3355,7 @@ def toml_comments(path: Path) -> dict[str, str]:
                 run = "\n".join(above).strip("\n")
             out[key] = "\n".join(x for x in (run, trailing) if x)
         above = []
+    under_header()
     return out
 
 
@@ -3366,10 +3380,13 @@ def schema() -> list[dict]:
     def walk(prefix: str, table: dict):
         for key, value in table.items():
             full = f"{prefix}.{key}" if prefix else key
-            if isinstance(value, dict):
+            # A table with keys of its own is walked; an empty one is a table
+            # the game fills ([ios.settings], [lang] fonts), a key of its own.
+            if isinstance(value, dict) and value:
                 walk(full, value)
                 continue
-            kind = ("bool" if isinstance(value, bool) else "int" if isinstance(value, int)
+            kind = ("table" if isinstance(value, dict)
+                    else "bool" if isinstance(value, bool) else "int" if isinstance(value, int)
                     else "float" if isinstance(value, float) else "string" if isinstance(value, str)
                     else "list" if isinstance(value, list) else type(value).__name__)
             row = {"key": full, "default": value, "type": kind, "comment": comments.get(full, "")}

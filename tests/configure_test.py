@@ -8475,6 +8475,20 @@ class ConfigTablesTest(unittest.TestCase):
                 section, field = key.split(".", 1)
                 self.assertIn(field, cfgmod.DEFAULTS[section])
 
+    def test_a_table_the_game_fills_is_a_key_with_its_comment(self):
+        """[ios.settings] and [lang] fonts are empty tables the game fills:
+        walked like the others, they were no row at all, and the site's
+        link to [lang] fonts pointed at nothing. The comment of
+        [ios.settings] is the block under its header."""
+        rows = {r["key"]: r for r in cfgmod.schema()}
+        for key in ("ios.settings", "lang.fonts"):
+            with self.subTest(key=key):
+                self.assertEqual(rows[key]["type"], "table")
+                self.assertEqual(rows[key]["default"], {})
+        self.assertIn("Raw Xcode build settings", rows["ios.settings"]["comment"])
+        self.assertIn("fonts = { ja", rows["lang.fonts"]["comment"])
+        self.assertNotIn("ios", rows)  # a table with keys is still walked
+
     def test_every_key_has_its_comment_in_the_toml(self):
         rows = cfgmod.schema()
         self.assertGreater(len(rows), 50)

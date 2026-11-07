@@ -1302,8 +1302,10 @@ template <class Body> void at(Vector2 world, Body &&body) {
 }
 
 // ---------------------------------------------------------------------------
-// Dialogue presenters: an rmp::Dialogue shown three ways, each a widget you
-// keep and show() every frame between begin() and end().
+// Dialogue presenters
+//
+// An rmp::Dialogue shown three ways, each a widget you keep and show() every
+// frame between begin() and end().
 //
 //     rmp::ui::DialogueBox box{ .portraits = { { .speaker = "Mika", .picture = mika } } };
 //     ...
@@ -1326,9 +1328,9 @@ template <class Body> void at(Vector2 world, Body &&body) {
 
 // A speaker's picture, and one for each mood a line's #mood:happy names.
 struct Portrait {
-    std::string speaker;
+    std::string speaker; // the name before the colon of a line: "Mika"
     std::string mood{}; // empty: the picture for any mood without its own
-    Picture picture{};
+    Picture picture{}; // a texture, an atlas region, a sprite's frame or a nine-slice
 };
 
 // How a presenter types a line out, and goes on.
@@ -1350,23 +1352,25 @@ struct DialogueMemory {
     int length = 0; // letters in the line
     float waited = 0; // seconds since it was all shown, or of a [pause]
     float choice_left = 0; // seconds left of a timed choice
-    int blips = 0;
+    int blips = 0; // blips played for this line
     std::vector<std::pair<std::string, std::string>>
         history; // speaker, line: read so far
     std::vector<std::string> seen; // the ids of the lines read
     std::vector<std::string> stage; // DialogueStage: who is on stage, left to right
-    bool showing_history = false;
+    bool showing_history = false; // toggle_history(): the backlog instead of the box
 };
 
+// The classic box: along the bottom of the screen, the speaker's portrait and
+// name beside the line, the choices as buttons under it.
 struct DialogueBox {
-    std::vector<Portrait> portraits{};
-    DialogueFlow flow{};
+    std::vector<Portrait> portraits{}; // by speaker, and by mood
+    DialogueFlow flow{}; // the typewriter, the blips, auto-advance, timed choices
     float height = 0; // design units; 0 = as the line needs
     bool pauses_world = true; // for rmp::behavior::Talker: the scene below waits
     Style style{}; // the box
     Style name_style{}; // the name plate
     Style choice_style{}; // each choice
-    DialogueMemory ours;
+    DialogueMemory ours; // its state between frames; yours to read
 
     // Draws the line or the choices, and takes the player's answer. True
     // while the dialogue has something to show.
@@ -1376,39 +1380,48 @@ struct DialogueBox {
 
 // Who a bubble points at: a speaker by name, and the object that speaks.
 struct BubbleSpeaker {
-    std::string name;
-    rmp::Handle<rmp::Object> object{};
+    std::string name; // the speaker of the lines it says
+    rmp::Handle<rmp::Object>
+        object{}; // what it is drawn over; empty: where the UI puts it
     Vector2 offset{ 0, -18 }; // from the object's position, in world units
 };
 
+// A bubble over the speaker's head, in the world (rmp::ui::at()), the
+// choices in it too. The world goes on around it.
 struct DialogueBubble {
-    std::vector<BubbleSpeaker> speakers{};
-    DialogueFlow flow{};
+    std::vector<BubbleSpeaker> speakers{}; // who says what, and over which object
+    DialogueFlow flow{}; // the typewriter, the blips, auto-advance, timed choices
     float width = 220; // design units: the line wraps inside it
     bool pauses_world = false; // the world goes on around a bubble
     Style style{}; // the bubble
-    Style choice_style{};
-    DialogueMemory ours;
+    Style choice_style{}; // each choice
+    DialogueMemory ours; // its state between frames; yours to read
 
+    // Draws the line or the choices, and takes the player's answer. True
+    // while the dialogue has something to show.
     bool show(rmp::Dialogue &dialogue);
 };
 
+// A visual novel's stage: big portraits of who is on it, the speaker in
+// front and the rest dimmed, and the line in a box under them.
 struct DialogueStage {
-    std::vector<Portrait> portraits{};
-    DialogueFlow flow{};
+    std::vector<Portrait> portraits{}; // by speaker, and by mood
+    DialogueFlow flow{}; // the typewriter, the blips, auto-advance, timed choices
     float portrait_height = 300; // design units
-    bool pauses_world = true;
+    bool pauses_world = true; // for rmp::behavior::Talker: the scene below waits
     Style style{}; // the box under the portraits
-    Style name_style{};
-    Style choice_style{};
+    Style name_style{}; // the name plate
+    Style choice_style{}; // each choice
     Color dimmed =
         CLITERAL(Color){ 120, 120, 130, 255 }; // the tint of who is not speaking
-    DialogueMemory ours;
+    DialogueMemory ours; // its state between frames; yours to read
 
+    // Draws the stage, the line or the choices, and takes the player's
+    // answer. True while the dialogue has something to show.
     bool show(rmp::Dialogue &dialogue);
 };
 
-// How tooltip() places its line, and how long it waits.// How tooltip() places its line, and how long it waits.
+// How tooltip() places its line, and how long it waits.
 struct TooltipOptions {
     Align side = Align::TOP_CENTER; // which side of the control it appears on
     // Seconds the pointer rests on the control before it shows; infinity: never
