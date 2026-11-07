@@ -242,7 +242,7 @@ them changing a signature. On top of it, a few small namespaces, all under `rmp:
 | **`rmp::Tilemap`** | A level from LDtk or Tiled, drawn, collided and populated through your factories. [Manual](https://omardev29.github.io/rmp-docs/manual/modules/tilemaps.html) |
 | **`rmp::audio`** | `play("coin")` and `music("level1")` by name; three volume buses. [Manual](https://omardev29.github.io/rmp-docs/manual/modules/audio.html) |
 | **`rmp::save`** | `rmp::Value` saves with a default on every read, in the right folder everywhere. [Manual](https://omardev29.github.io/rmp-docs/manual/modules/saving.html) |
-| **`rmp::lang`** | The game in more than one language: every literal the UI is handed translated from a TSV table, `{placeholders}`, CLDR plurals, the player's system language. [Manual](https://omardev29.github.io/rmp-docs/manual/modules/text.html) |
+| **`rmp::lang`** | The game in more than one language: every literal the UI is handed translated from a TSV table, `{placeholders}`, CLDR plurals, the player's system language. [Manual](https://omardev29.github.io/rmp-docs/manual/modules/localization.html) |
 | **`rmp::Dialogue`** | Conversations written in Yarn Spinner 3 — options, conditions, variables, line and node groups — compiled by the framework's own compiler. [Manual](https://omardev29.github.io/rmp-docs/manual/modules/dialogue.html) |
 | **`rmp::random`** | Seeded and reproducible. [Manual](https://omardev29.github.io/rmp-docs/manual/modules/random.html) |
 | **`rmp::ads`** | Interstitial and rewarded ads on Android, nothing everywhere else, no `#ifdef`s. [Manual](https://omardev29.github.io/rmp-docs/manual/modules/ads.html) |
