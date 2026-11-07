@@ -880,6 +880,13 @@ struct DrawRecord {
     float scale = 1;
     Vector2 offset{};
     float alpha = 1;
+    // Drawn as nothing: its rectangle is there so Clay emits a command for the
+    // box, which is where its motion starts (open_moved()).
+    bool carrier = false;
+};
+// A bubble's tail: a triangle pointing down, in its box.
+struct TailRecord {
+    Color color{};
 };
 struct TextRecord {
     uint32_t magic = TEXT_MAGIC;
@@ -981,6 +988,20 @@ rmp::Ref<DrawRecord> decorate(Clay_ElementDeclaration &d, Clay_ElementId id,
 // A record that draws `picture` in its element's box, tinted: image() and
 // friends. Empty for an empty picture.
 rmp::Ref<DrawRecord> picture_record(const Picture &picture, Color tint);
+// `top` over `base`: what a field of `top` sets wins, the rest is `base`'s.
+Style overlay(const Style &base, const Style &top);
+// What `own` resolves to for a widget of `kind`: the theme, its styles, what
+// the containers around hand down, then `own`.
+Style resolved(WidgetKind kind, const Style &own);
+// A box around what is declared until close_moved(), drawn moved (design
+// units), faded and scaled about its centre with everything inside it: a
+// presenter's portrait coming on stage.
+void open_moved(Vector2 offset, float alpha, float scale);
+void close_moved();
+// A bubble's tail, `width` by `height` design units, of `color`; and the
+// record a CUSTOM command of one carries (empty: not a tail).
+void open_tail(float width, float height, Color color);
+rmp::Ref<const TailRecord> tail_record(const Clay_RenderCommand &cmd);
 // A Clay text element, with the look's font, outline and shadow on it.
 void open_text(Clay_String text, Clay_TextElementConfig config);
 
@@ -993,7 +1014,7 @@ Edges track(Clay_ElementId id, WidgetKind kind, std::string_view name,
 void emit(EventKind kind, WidgetKind widget, std::string_view name);
 // What emit() plays a sound with (sound.cpp puts rmp::audio::play() there the
 // first time a SoundName is written; a test puts its own). Empty: silence.
-void set_sound_player(rmp::Callback<std::string_view, float> play);
+void set_sound_player(rmp::Callback<std::string_view, float, float> play);
 bool has_sound_player();
 // Start shaking the element with this id (its look's Motion), now.
 void start_shake(uint32_t element, WidgetKind widget, std::string_view name);
@@ -1066,7 +1087,7 @@ void progress_with(float fraction, const ProgressOptions &o, rmp::Ref<const Pict
 // draw_rich(), and a presenter lays out what it already parsed with rich_with().
 void rich_begin_frame();
 // A sound by name, as the presenters' blips and voices play it.
-void play_sound(const SoundName &sound, float volume);
+void play_sound(const SoundName &sound, float volume, float pitch = 1);
 void draw_rich(const Clay_RenderCommand &cmd, float alpha);
 void rich_with(const rmp::yarn::Marked &marked, const RichTextOptions &o,
                std::string_view label);

@@ -505,7 +505,7 @@ TEST_SUITE("property: ui looks") {
                 RC_ASSERT(from_string.empty() == name.empty());
                 RC_ASSERT(literal == "tick" && literal.view().size() == 4);
                 heard_sounds().clear();
-                detail::set_sound_player([](std::string_view sound, float) {
+                detail::set_sound_player([](std::string_view sound, float, float) {
                     heard_sounds().emplace_back(sound);
                 });
                 ui::Theme t = ui::theme_dark();

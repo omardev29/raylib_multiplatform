@@ -1220,6 +1220,92 @@ void an_outline_goes_around_the_letters() {
 
 // Rich text, drawn a letter at a time (src/rmp/ui/rich.cpp's draw_rich): its
 // colours, a typewriter's count, bold, and the letters that move.
+// A bubble's tail and a portrait's motion, on a GPU: the tail is a triangle of
+// the bubble's colour under it, wide at the top and a point at the bottom;
+// a moved box draws nothing of its own and carries what is in it.
+void tails_and_moved_boxes() {
+    const Color teal{ 0, 160, 160, 255 };
+    const auto tail_box = [] {
+        const Clay_RenderCommandArray a = rmp::ui::detail::last_pass_commands();
+        for (int32_t i = 0; i < a.length; ++i) {
+            const Clay_RenderCommand &c = a.internalArray[i];
+            if (rmp::ui::detail::tail_record(c))
+                return Rectangle{ c.boundingBox.x, c.boundingBox.y, c.boundingBox.width,
+                                  c.boundingBox.height };
+        }
+        return Rectangle{};
+    };
+    const auto draw_tail = [&] {
+        ClearBackground(BLACK);
+        rmp::ui::begin({ .placement = rmp::ui::Align::TOP_LEFT });
+        rmp::ui::detail::open_tail(40, 20, teal);
+        rmp::ui::end();
+    };
+    frame(draw_tail);
+    const Shot shot = frame(draw_tail);
+    const Rectangle t = tail_box();
+    const int top = static_cast<int>(t.y + 1);
+    const int bottom = static_cast<int>(t.y + t.height - 2);
+    const int mid = static_cast<int>(t.x + t.width / 2);
+    check(t.width > 0 && same(shot.at(mid, top), teal) && same(shot.at(mid, bottom), teal),
+          "a tail: its colour down the middle");
+    check(same(shot.at(static_cast<int>(t.x + 1), bottom), BLACK) &&
+              same(shot.at(static_cast<int>(t.x + t.width - 2), bottom), BLACK),
+          "a tail: a point at the bottom, nothing at its lower corners");
+    rmp::ui::shutdown();
+
+    // The carrier draws nothing: a moved box with nothing in it is black.
+    const auto empty = [&] {
+        ClearBackground(BLACK);
+        rmp::ui::begin({ .placement = rmp::ui::Align::TOP_LEFT });
+        rmp::ui::detail::open_moved({ 0, 0 }, 1, 1);
+        rmp::ui::column({ .width = 100, .height = 100 }, [] {});
+        rmp::ui::detail::close_moved();
+        rmp::ui::end();
+    };
+    frame(empty);
+    const Shot blank = frame(empty);
+    bool any = false;
+    for (int y = 0; y < GetScreenHeight() && !any; ++y)
+        for (int x = 0; x < GetScreenWidth() && !any; ++x) any = !same(blank.at(x, y), BLACK);
+    rmp::ui::shutdown();
+    check(!any, "a moved box draws nothing of its own");
+
+    // What is in it moves with it.
+    const auto box_at = [&](Vector2 offset) {
+        const auto draw = [&] {
+            ClearBackground(BLACK);
+            rmp::ui::begin({ .placement = rmp::ui::Align::TOP_LEFT });
+            rmp::ui::detail::open_moved(offset, 1, 1);
+            rmp::ui::panel({ .box = { .width = 60, .height = 60 }, .background = teal,
+                             .radius = 0 }, [] {});
+            rmp::ui::detail::close_moved();
+            rmp::ui::end();
+        };
+        frame(draw);
+        const Shot s = frame(draw);
+        // The panel's row: the rectangle that is not the carrier.
+        int y = 0;
+        const Clay_RenderCommandArray a = rmp::ui::detail::last_pass_commands();
+        for (int32_t i = 0; i < a.length; ++i) {
+            const Clay_RenderCommand &c = a.internalArray[i];
+            const auto r = rmp::ui::detail::draw_record(c);
+            if (c.commandType == CLAY_RENDER_COMMAND_TYPE_RECTANGLE && !(r && r->carrier))
+                y = static_cast<int>(c.boundingBox.y + c.boundingBox.height / 2);
+        }
+        int first = -1;
+        for (int x = 0; x < GetScreenWidth() && first < 0; ++x) {
+            if (same(s.at(x, y), teal)) first = x;
+        }
+        rmp::ui::shutdown();
+        return first;
+    };
+    const int still = box_at({ 0, 0 });
+    const int moved = box_at({ 25, 0 });
+    check(still >= 0 && std::abs(static_cast<float>(moved - still) - rmp::ui::detail::px(25)) <= 1,
+          "a moved box carries what is in it, by its offset");
+}
+
 void rich_text_draws_its_letters() {
     // What a rich text puts in its box: the pixels that match, and the ones
     // that are not the black under it.
@@ -1424,6 +1510,7 @@ int main() {
     an_outline_goes_around_the_letters();
     a_skin_is_the_box();
     rich_text_draws_its_letters();
+    tails_and_moved_boxes();
     the_framework_look();
 
     rmp::ui::detail::set_test_blur_shader(std::nullopt);

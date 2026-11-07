@@ -361,6 +361,14 @@ void draw_picture(const DrawRecord &r, Rectangle dest, Color tint) {
     }
 }
 
+// RMP_COVERAGE_OFF(on the GPU: tests/ui_render_test.cpp draws a bubble's tail)
+// A bubble's tail: the box's top edge to the middle of its bottom.
+void draw_tail(Clay_BoundingBox box, Color color) {
+    DrawTriangle(Vector2{ box.x, box.y }, Vector2{ box.x + box.width / 2, box.y + box.height },
+                 Vector2{ box.x + box.width, box.y }, color);
+}
+// RMP_COVERAGE_ON
+
 void draw_shadow(const DrawRecord &r, Clay_BoundingBox box, float alpha) {
     ShadowLayers layers{};
     const int n = shadow_layers(r, box, alpha, layers);
@@ -432,6 +440,7 @@ void draw(Clay_RenderCommandArray commands) {
 
         switch (cmd.commandType) {
             case CLAY_RENDER_COMMAND_TYPE_RECTANGLE: {
+                if (rec && rec->carrier) break; // open_moved()'s: only its motion
                 const auto &r = cmd.renderData.rectangle;
                 const Color fill = faded(from_clay(r.backgroundColor), alpha);
                 const Corners corners = corners_of(r.cornerRadius, cmd.boundingBox);
@@ -504,8 +513,13 @@ void draw(Clay_RenderCommandArray commands) {
             }
 
             case CLAY_RENDER_COMMAND_TYPE_CUSTOM:
-                // rich_text(): its letters, where rich.cpp laid them out.
-                draw_rich(cmd, alpha);
+                // A bubble's tail, or rich_text()'s letters, where rich.cpp
+                // laid them out.
+                if (const auto tail = tail_record(cmd)) {
+                    draw_tail(cmd.boundingBox, faded(tail->color, alpha));
+                } else {
+                    draw_rich(cmd, alpha);
+                }
                 break;
 
             case CLAY_RENDER_COMMAND_TYPE_SCISSOR_START: {
