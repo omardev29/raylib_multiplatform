@@ -364,7 +364,8 @@ void draw_picture(const DrawRecord &r, Rectangle dest, Color tint) {
 // RMP_COVERAGE_OFF(on the GPU: tests/ui_render_test.cpp draws a bubble's tail)
 // A bubble's tail: the box's top edge to the middle of its bottom.
 void draw_tail(Clay_BoundingBox box, Color color) {
-    DrawTriangle(Vector2{ box.x, box.y }, Vector2{ box.x + box.width / 2, box.y + box.height },
+    DrawTriangle(Vector2{ box.x, box.y },
+                 Vector2{ box.x + box.width / 2, box.y + box.height },
                  Vector2{ box.x + box.width, box.y }, color);
 }
 // RMP_COVERAGE_ON

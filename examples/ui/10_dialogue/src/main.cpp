@@ -39,8 +39,11 @@ const Color CREAM = { 255, 246, 226, 255 };
 
 rmp::ui::Picture frame(std::string_view file, float border) {
     return rmp::ui::NineSlice{ .texture = rmp::assets::load_texture(file),
-                               .left = border, .top = border, .right = border,
-                               .bottom = border, .scale = 2 };
+                               .left = border,
+                               .top = border,
+                               .right = border,
+                               .bottom = border,
+                               .scale = 2 };
 }
 
 // Both of them, in every mood: one picture each, by speaker and #mood:.
@@ -54,7 +57,8 @@ std::vector<rmp::ui::Portrait> portraits() {
         const std::string file = "portraits/" + who + "_";
         all.push_back({ .speaker = name, .picture = picture(file + "neutral.png") });
         for (const std::string_view mood : MOODS) {
-            all.push_back({ .speaker = name, .mood = std::string(mood),
+            all.push_back({ .speaker = name,
+                            .mood = std::string(mood),
                             .picture = picture(file + std::string(mood) + ".png") });
         }
     }
@@ -71,20 +75,30 @@ public:
         rmp::ui::Theme look = rmp::ui::theme_light();
         look.text = INK;
         look.sounds = { .click = "click", .volume = 0.5f };
-        look.styles.panel = { .skin = rmp::ui::Skin{ .normal = frame("panel.png", FRAME) },
-                              .padding_x = 26, .padding_y = 20, .gap = 10 };
-        look.styles.button = { .skin = rmp::ui::Skin{ .normal = frame("button.png", PLATE),
-                                                      .press = frame("button_down.png", PLATE) },
-                               .padding_x = 20, .padding_y = 10, .text = INK };
+        look.styles.panel = { .skin =
+                                  rmp::ui::Skin{ .normal = frame("panel.png", FRAME) },
+                              .padding_x = 26,
+                              .padding_y = 20,
+                              .gap = 10 };
+        look.styles.button = {
+            .skin = rmp::ui::Skin{ .normal = frame("button.png", PLATE),
+                                   .press = frame("button_down.png", PLATE) },
+            .padding_x = 20,
+            .padding_y = 10,
+            .text = INK
+        };
         rmp::ui::set_theme(look);
 
         // Two people in the park, for the bubble to stand over.
-        for (const auto &[name, x] : { std::pair{ "Mika", 400.0f }, std::pair{ "Sora", 580.0f } }) {
+        for (const auto &[name, x] :
+             { std::pair{ "Mika", 400.0f }, std::pair{ "Sora", 580.0f } }) {
             auto &person = spawn({ .position = { x, 180 } });
             person.sprite.texture = rmp::assets::load_texture(
-                std::string("portraits/") + (name[0] == 'M' ? "mika" : "sora") + "_neutral.png");
+                std::string("portraits/") + (name[0] == 'M' ? "mika" : "sora") +
+                "_neutral.png");
             person.sprite.size = { 72, 96 };
-            _people.push_back({ .name = name, .object = person.handle(), .offset = { 0, -52 } });
+            _people.push_back(
+                { .name = name, .object = person.handle(), .offset = { 0, -52 } });
         }
         _people[0].pitch = 1.25f;
         _people[1].pitch = 0.85f;
@@ -121,17 +135,28 @@ private:
         _talk.on_command("quake", [this] { _stage.shake(); });
         _talk.start();
 
-        const rmp::ui::DialogueFlow flow{ .letters_per_second = 40, .blip = "tap",
-                                          .blip_every = 3, .blip_jitter = 0.05f };
-        const rmp::ui::Style plate{ .skin = rmp::ui::Skin{ .normal = frame("plate.png", PLATE) },
-                                    .padding_x = 18, .padding_y = 6, .text = CREAM };
+        const rmp::ui::DialogueFlow flow{
+            .letters_per_second = 40, .blip = "tap", .blip_every = 3, .blip_jitter = 0.05f
+        };
+        const rmp::ui::Style plate{ .skin = rmp::ui::Skin{ .normal = frame("plate.png",
+                                                                           PLATE) },
+                                    .padding_x = 18,
+                                    .padding_y = 6,
+                                    .text = CREAM };
         const std::vector<rmp::ui::Speaker> voices{ { .name = "Mika", .pitch = 1.25f },
-                                                     { .name = "Sora", .pitch = 0.85f } };
-        _box = { .portraits = portraits(), .speakers = voices, .flow = flow,
-                 .width = 640, .name_offset = { 18, -16 }, .name_style = plate };
+                                                    { .name = "Sora", .pitch = 0.85f } };
+        _box = { .portraits = portraits(),
+                 .speakers = voices,
+                 .flow = flow,
+                 .width = 640,
+                 .name_offset = { 18, -16 },
+                 .name_style = plate };
         _bubble = { .speakers = _people, .flow = flow, .width = 240 };
-        _stage = { .portraits = portraits(), .speakers = voices, .flow = flow,
-                   .portrait_height = 250, .name_style = plate };
+        _stage = { .portraits = portraits(),
+                   .speakers = voices,
+                   .flow = flow,
+                   .portrait_height = 250,
+                   .name_style = plate };
     }
 
     rmp::Dialogue _talk;

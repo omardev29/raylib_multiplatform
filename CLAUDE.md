@@ -415,6 +415,23 @@ here so that nobody "fixes" one back.
   with `rmp_yarnc` ("embedded", desktop builds), "auto" for debug and release.
   The presenters are rmp::ui widgets (DialogueBox, DialogueBubble,
   DialogueStage), and `rmp::behavior::Talker` starts a conversation.
+- **A game's Yarn talks to its C++ through typed calls, waits, bound
+  variables and two checks** (Omar, 2026-11-07). `on_function("has_item",
+  [&](std::string item) -> bool {...})` and `on_command("walk", [&](std::string
+  who, float speed) {...})` take their types from the lambda, and a call of the
+  wrong count or kind is a mistake said once, never a call; a command's handler
+  calls `wait(seconds)` or `wait_until(done)` and the dialogue holds until it is
+  over (`<<wait 2>>` too, when the game has no "wait"); `bind("$gold",
+  player.gold)` makes a declared $variable the game's own, never copied and
+  never in `save()`; `start()` names every function the script calls and
+  nothing registered. `rmp yarn check` compiles every .yarn against the C++'s
+  typed functions (a stage of `rmp test`); `rmp yarn ysls` writes the
+  `rmp.ysls.json` the Yarn Spinner extension for VS Code reads. No function
+  overloading in our Yarn. The presenters give each `Speaker` a box, a name
+  plate and a voice, lay the Box out (portrait side, name on the frame, where
+  the choices go), point a bubble's tail at its speaker, slide the Stage's cast
+  in and bring the speaker forward, and `dialogue_line()`/`dialogue_choices()`
+  are the pieces of a presenter of the game's own.
 - **Android's release hides what it does not export, and collects what
   nobody reaches** (Omar, 2026-11-07). raymob links all of `src/` into one
   shared library, and a shared library keeps every symbol it exports: with

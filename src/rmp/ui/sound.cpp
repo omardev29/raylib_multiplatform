@@ -20,7 +20,8 @@ void SoundName::keep(std::string_view name) {
     _name = std::string(name);
     if (detail::has_sound_player()) return;
     detail::set_sound_player([](std::string_view sound, float volume, float pitch) {
-        rmp::audio::play(sound, rmp::audio::PlayOptions{ .volume = volume, .pitch = pitch });
+        rmp::audio::play(sound,
+                         rmp::audio::PlayOptions{ .volume = volume, .pitch = pitch });
     });
 }
 

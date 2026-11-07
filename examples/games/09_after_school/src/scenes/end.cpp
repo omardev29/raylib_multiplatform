@@ -46,7 +46,8 @@ void EndScene::_ready() {
     for (Lantern &l : lanterns()) {
         l = { { rmp::random::range(b.x, b.x + b.width),
                 rmp::random::range(b.y, b.y + b.height * 1.2f) },
-              rmp::random::range(0.0f, 6.28f), rmp::random::range(2.0f, 4.0f) };
+              rmp::random::range(0.0f, 6.28f),
+              rmp::random::range(2.0f, 4.0f) };
     }
 }
 
@@ -68,14 +69,18 @@ void EndScene::_draw() {
     rmp::ui::begin();
     rmp::ui::panel([this] {
         if (_kind == "festival") {
-            rmp::ui::text("The Lantern Festival", { .size = rmp::ui::Size::LARGE, .wrap = false });
-            rmp::ui::text("You and Mika watch a thousand lanterns rise.", { .wrap = false });
+            rmp::ui::text("The Lantern Festival",
+                          { .size = rmp::ui::Size::LARGE, .wrap = false });
+            rmp::ui::text("You and Mika watch a thousand lanterns rise.",
+                          { .wrap = false });
         } else if (_kind == "concert") {
             rmp::ui::text("Front Row", { .size = rmp::ui::Size::LARGE, .wrap = false });
             rmp::ui::text("Sora plays the best set of his life.", { .wrap = false });
         } else {
-            rmp::ui::text("A Quiet Evening", { .size = rmp::ui::Size::LARGE, .wrap = false });
-            rmp::ui::text("The lanterns rise far away. Maybe next year.", { .wrap = false });
+            rmp::ui::text("A Quiet Evening",
+                          { .size = rmp::ui::Size::LARGE, .wrap = false });
+            rmp::ui::text("The lanterns rise far away. Maybe next year.",
+                          { .wrap = false });
         }
         if (rmp::ui::button("Back to the title")) rmp::Scene::change<TitleScene>();
     });

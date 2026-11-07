@@ -31,7 +31,8 @@ void TitleScene::_update(float delta) {
     _clock += delta;
     const Rectangle b = map.bounds();
     camera.position = { b.x + (b.width / 2) + (std::sin(_clock * DRIFT) * b.width / 4),
-                        b.y + (b.height / 2) + (std::cos(_clock * DRIFT) * b.height / 5) };
+                        b.y + (b.height / 2) +
+                            (std::cos(_clock * DRIFT) * b.height / 5) };
 }
 
 void TitleScene::_draw() {
@@ -41,8 +42,8 @@ void TitleScene::_draw() {
                               .size = 46,
                               .wrap = false,
                               .style = { .text = TITLE,
-                                         .text_outline =
-                                             rmp::ui::TextOutline{ .width = 3, .color = OUTLINE } } };
+                                         .text_outline = rmp::ui::TextOutline{
+                                             .width = 3, .color = OUTLINE } } };
         title.show();
         rmp::ui::text("The lantern festival starts at seven.",
                       { .color = rmp::ui::ColorRole::MUTED, .wrap = false });
@@ -57,7 +58,8 @@ void TitleScene::_draw() {
         // The languages lang.tsv has, each in its own words.
         rmp::ui::row([] {
             for (const std::string &code : rmp::lang::available()) {
-                if (rmp::ui::button(rmp::Text(rmp::lang::name(code)))) rmp::lang::set(code);
+                if (rmp::ui::button(rmp::Text(rmp::lang::name(code))))
+                    rmp::lang::set(code);
             }
         });
 #if !defined(PLATFORM_IOS)

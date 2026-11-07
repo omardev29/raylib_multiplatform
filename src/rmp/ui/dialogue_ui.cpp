@@ -126,8 +126,9 @@ bool type(DialogueMemory &m, const DialogueFlow &f, const rmp::DialogueLine &lin
         const int typed = static_cast<int>(m.shown);
         if (!f.blip.empty() && f.blip_every > 0 && typed / f.blip_every > m.blips) {
             m.blips = typed / f.blip_every;
-            const float jitter = std::isfinite(f.blip_jitter) ? std::clamp(f.blip_jitter, 0.0f, 0.9f)
-                                                             : 0.0f;
+            const float jitter = std::isfinite(f.blip_jitter)
+                ? std::clamp(f.blip_jitter, 0.0f, 0.9f)
+                : 0.0f;
             const float vary = jitter > 0 ? rmp::random::range(-jitter, jitter) : 0.0f;
             detail::play_sound(f.blip, 1.0f, pitch * (1.0f + vary));
         }
@@ -334,8 +335,8 @@ float progress_of(float seconds, float over) {
 
 } // namespace
 
-bool dialogue_line(rmp::Dialogue &dialogue, DialogueMemory &memory, const DialogueFlow &flow,
-                   const RichTextOptions &text) {
+bool dialogue_line(rmp::Dialogue &dialogue, DialogueMemory &memory,
+                   const DialogueFlow &flow, const RichTextOptions &text) {
     if (settle(dialogue) != Now::SHOWING || !dialogue.has_line()) return false;
     line_body(dialogue, memory, flow, 1.0f, text, "dialogue_line", "dialogue_next");
     return true;
@@ -360,7 +361,8 @@ bool DialogueBox::show(rmp::Dialogue &dialogue) {
     const Style plate = who ? detail::overlay(name_style, who->name_style) : name_style;
     const DialogueFlow f = who ? voiced(flow, who->blip) : flow;
     const float pitch = who ? who->pitch : 1.0f;
-    const bool apart = !line && dialogue.has_options() && choices != DialogueChoices::IN_BOX;
+    const bool apart =
+        !line && dialogue.has_options() && choices != DialogueChoices::IN_BOX;
 
     const auto the_choices = [&] {
         Panel p{ .box = { .gap = 8, .width = CHOICE_PANEL_WIDTH }, .style = style };
@@ -370,42 +372,47 @@ bool DialogueBox::show(rmp::Dialogue &dialogue) {
         over_screen(Clay_Sizing{}, the_choices);
         return dialogue.running();
     }
-    column({ .gap = 8, .items = Align::TOP_RIGHT, .grow_x = width <= 0, .width = width }, [&] {
-        if (apart) the_choices(); // ABOVE: their own panel, over the box's right
-        Panel box{ .row = true,
-                   .box = { .gap = 16, .grow_x = true, .height = height },
-                   .style = box_style };
-        box.show([&] {
-            if (ours.showing_history) {
-                column({ .grow_x = true }, [&] { history(ours); });
-                if (next_button("dialogue_history_close")) ours.showing_history = false;
-                return;
-            }
-            if (line) {
-                const rmp::DialogueLine &l = dialogue.line();
-                const auto portrait =
-                    portrait_for(portraits, l.speaker, tag_value(l.tags, "mood"));
-                const auto picture = [&] {
-                    if (!portrait) return;
-                    column({ .id = "dialogue_portrait" }, [&] {
-                        image(*portrait, { .width = portrait_size, .height = portrait_size });
+    column(
+        { .gap = 8, .items = Align::TOP_RIGHT, .grow_x = width <= 0, .width = width },
+        [&] {
+            if (apart) the_choices(); // ABOVE: their own panel, over the box's right
+            Panel box{ .row = true,
+                       .box = { .gap = 16, .grow_x = true, .height = height },
+                       .style = box_style };
+            box.show([&] {
+                if (ours.showing_history) {
+                    column({ .grow_x = true }, [&] { history(ours); });
+                    if (next_button("dialogue_history_close"))
+                        ours.showing_history = false;
+                    return;
+                }
+                if (line) {
+                    const rmp::DialogueLine &l = dialogue.line();
+                    const auto portrait =
+                        portrait_for(portraits, l.speaker, tag_value(l.tags, "mood"));
+                    const auto picture = [&] {
+                        if (!portrait) return;
+                        column({ .id = "dialogue_portrait" }, [&] {
+                            image(*portrait,
+                                  { .width = portrait_size, .height = portrait_size });
+                        });
+                    };
+                    const bool floating_name = name_offset.x != 0 || name_offset.y != 0;
+                    if (floating_name && !l.speaker.empty())
+                        over_parent(name_offset, [&] { name_plate(l.speaker, plate); });
+                    if (portrait_side == DialogueSide::LEFT) picture();
+                    column({ .gap = 6, .items = Align::TOP_LEFT, .grow_x = true }, [&] {
+                        if (!floating_name) name_plate(l.speaker, plate);
+                        line_body(dialogue, ours, f, pitch, {}, "dialogue_line",
+                                  "dialogue_next");
                     });
-                };
-                const bool floating_name = name_offset.x != 0 || name_offset.y != 0;
-                if (floating_name && !l.speaker.empty())
-                    over_parent(name_offset, [&] { name_plate(l.speaker, plate); });
-                if (portrait_side == DialogueSide::LEFT) picture();
-                column({ .gap = 6, .items = Align::TOP_LEFT, .grow_x = true }, [&] {
-                    if (!floating_name) name_plate(l.speaker, plate);
-                    line_body(dialogue, ours, f, pitch, {}, "dialogue_line", "dialogue_next");
-                });
-                if (portrait_side == DialogueSide::RIGHT) picture();
-            } else if (dialogue.has_options() && !apart) {
-                column({ .gap = 8, .grow_x = true },
-                       [&] { show_choices(ours, flow, dialogue, choice_style); });
-            }
+                    if (portrait_side == DialogueSide::RIGHT) picture();
+                } else if (dialogue.has_options() && !apart) {
+                    column({ .gap = 8, .grow_x = true },
+                           [&] { show_choices(ours, flow, dialogue, choice_style); });
+                }
+            });
         });
-    });
     return dialogue.running();
 }
 
@@ -423,10 +430,10 @@ bool DialogueBubble::show(rmp::Dialogue &dialogue) {
                      .style = look };
             p.show([&] {
                 // The line wraps short of the button at its end.
-                line_body(dialogue, ours, f, who ? who->pitch : 1.0f,
-                          RichTextOptions{ .width = std::max(40.0f, width - 36 - NEXT_WIDTH) },
-                          "dialogue_bubble_line",
-                          "dialogue_bubble_next");
+                line_body(
+                    dialogue, ours, f, who ? who->pitch : 1.0f,
+                    RichTextOptions{ .width = std::max(40.0f, width - 36 - NEXT_WIDTH) },
+                    "dialogue_bubble_line", "dialogue_bubble_next");
             });
             if (!pointing || !(tail > 0)) return;
             if (!tail_picture.empty()) {
@@ -514,7 +521,8 @@ bool DialogueStage::show(rmp::Dialogue &dialogue) {
             ours.shaking = -1;
         } else {
             const float t = ours.shaking / std::max(ours.shake_seconds, 1e-6f);
-            shaken.x = std::sin(ours.shaking * 2.0f * std::numbers::pi_v<float> * SHAKE_HZ) *
+            shaken.x =
+                std::sin(ours.shaking * 2.0f * std::numbers::pi_v<float> * SHAKE_HZ) *
                 ours.shake_strength * (1.0f - t);
         }
     }
@@ -532,14 +540,18 @@ bool DialogueStage::show(rmp::Dialogue &dialogue) {
             for (std::size_t i = 0; i < n; ++i) {
                 const std::string &cast = ours.stage[i];
                 const bool speaking = cast == speaker;
-                const auto p = portrait_for(portraits, cast, speaking ? mood : std::string());
+                const auto p =
+                    portrait_for(portraits, cast, speaking ? mood : std::string());
                 if (!p) continue;
                 const float in = progress_of(ours.entered[i], enter_seconds);
                 const float from_left = 2 * i + 1 < n || n == 1 ? -1.0f : 1.0f;
                 const float k = ours.focus[i];
-                const Vector2 moved{ from_left * enter_offset * (1.0f - in), -focus_lift * k };
+                const Vector2 moved{ from_left * enter_offset * (1.0f - in),
+                                     -focus_lift * k };
                 detail::open_moved(moved, in, lerpf(1.0f, focus_scale, k));
-                image(*p, { .height = portrait_height, .tint = lerp_color(dimmed, WHITE, k) });
+                image(
+                    *p,
+                    { .height = portrait_height, .tint = lerp_color(dimmed, WHITE, k) });
                 detail::close_moved();
             }
         });

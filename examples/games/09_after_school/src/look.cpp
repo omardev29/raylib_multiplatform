@@ -95,7 +95,8 @@ void set_look() {
     look.sounds = { .hover = "tap", .click = "click", .volume = 0.5f };
     look.styles.panel = {
         .skin = rmp::ui::Skin{ .normal = frame("panel.png", FRAME) },
-        .shadow = rmp::ui::Shadow{ .offset = { 0, 6 }, .blur = 12, .color = { 0, 0, 0, 110 } },
+        .shadow =
+            rmp::ui::Shadow{ .offset = { 0, 6 }, .blur = 12, .color = { 0, 0, 0, 110 } },
         .padding_x = 30,
         .padding_y = 24,
         .gap = 12,
@@ -114,7 +115,9 @@ void set_look() {
 
 rmp::ui::DialogueStage make_stage() {
     rmp::ui::DialogueStage stage{
-        .flow = { .letters_per_second = 50, .blip = "tap", .blip_every = 3,
+        .flow = { .letters_per_second = 50,
+                  .blip = "tap",
+                  .blip_every = 3,
                   .blip_jitter = 0.06f },
         .portrait_height = PORTRAIT_HEIGHT,
         .name_style = { .skin = rmp::ui::Skin{ .normal = frame("plate.png", PLATE) },
@@ -124,12 +127,14 @@ rmp::ui::DialogueStage make_stage() {
     };
     for (const Person &p : PEOPLE) {
         const std::string face = "portraits/" + std::string(p.look) + "_";
-        stage.portraits.push_back({ .speaker = std::string(p.name),
-                                    .picture = rmp::assets::load_texture(face + "neutral.png") });
+        stage.portraits.push_back(
+            { .speaker = std::string(p.name),
+              .picture = rmp::assets::load_texture(face + "neutral.png") });
         for (const std::string_view mood : MOODS) {
-            stage.portraits.push_back(
-                { .speaker = std::string(p.name), .mood = std::string(mood),
-                  .picture = rmp::assets::load_texture(face + std::string(mood) + ".png") });
+            stage.portraits.push_back({ .speaker = std::string(p.name),
+                                        .mood = std::string(mood),
+                                        .picture = rmp::assets::load_texture(
+                                            face + std::string(mood) + ".png") });
         }
         stage.speakers.push_back({ .name = std::string(p.name),
                                    .pitch = p.pitch,

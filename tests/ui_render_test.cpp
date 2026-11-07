@@ -1247,7 +1247,8 @@ void tails_and_moved_boxes() {
     const int top = static_cast<int>(t.y + 1);
     const int bottom = static_cast<int>(t.y + t.height - 2);
     const int mid = static_cast<int>(t.x + t.width / 2);
-    check(t.width > 0 && same(shot.at(mid, top), teal) && same(shot.at(mid, bottom), teal),
+    check(t.width > 0 && same(shot.at(mid, top), teal) &&
+              same(shot.at(mid, bottom), teal),
           "a tail: its colour down the middle");
     check(same(shot.at(static_cast<int>(t.x + 1), bottom), BLACK) &&
               same(shot.at(static_cast<int>(t.x + t.width - 2), bottom), BLACK),
@@ -1267,7 +1268,8 @@ void tails_and_moved_boxes() {
     const Shot blank = frame(empty);
     bool any = false;
     for (int y = 0; y < GetScreenHeight() && !any; ++y)
-        for (int x = 0; x < GetScreenWidth() && !any; ++x) any = !same(blank.at(x, y), BLACK);
+        for (int x = 0; x < GetScreenWidth() && !any; ++x)
+            any = !same(blank.at(x, y), BLACK);
     rmp::ui::shutdown();
     check(!any, "a moved box draws nothing of its own");
 
@@ -1277,8 +1279,9 @@ void tails_and_moved_boxes() {
             ClearBackground(BLACK);
             rmp::ui::begin({ .placement = rmp::ui::Align::TOP_LEFT });
             rmp::ui::detail::open_moved(offset, 1, 1);
-            rmp::ui::panel({ .box = { .width = 60, .height = 60 }, .background = teal,
-                             .radius = 0 }, [] {});
+            rmp::ui::panel(
+                { .box = { .width = 60, .height = 60 }, .background = teal, .radius = 0 },
+                [] {});
             rmp::ui::detail::close_moved();
             rmp::ui::end();
         };
@@ -1302,7 +1305,8 @@ void tails_and_moved_boxes() {
     };
     const int still = box_at({ 0, 0 });
     const int moved = box_at({ 25, 0 });
-    check(still >= 0 && std::abs(static_cast<float>(moved - still) - rmp::ui::detail::px(25)) <= 1,
+    check(still >= 0 &&
+              std::abs(static_cast<float>(moved - still) - rmp::ui::detail::px(25)) <= 1,
           "a moved box carries what is in it, by its offset");
 }
 

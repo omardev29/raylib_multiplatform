@@ -9,7 +9,7 @@ packs, and the URLs below are those mirrors. They are downloaded by hand ONCE
 into one folder and not committed: this script checks each against its sha256,
 refuses anything else, and makes from them what IS committed:
 
-  portraits/<who>_<mood>.png    Toon Characters 1's HD poses: idle, cheer, hurt
+  portraits/<who>_<mood>.png    Toon Characters 1's HD poses: idle, cheer, duck
                                 and think as neutral, happy, sad and think
   <who>.aseprite                (09) RPG Urban Pack's townsfolk: idle_* and
                                 walk_*, facing e, n, w and s
@@ -80,7 +80,7 @@ PACKS = {
 # Who, out of Toon Characters 1, and which of their poses is which mood.
 PEOPLE = {"mika": "Female person", "sora": "Male person", "aki": "Female adventurer",
           "kai": "Male adventurer"}
-MOODS = {"neutral": "idle", "happy": "cheer0", "sad": "hurt", "think": "think"}
+MOODS = {"neutral": "idle", "happy": "cheer0", "sad": "duck", "think": "think"}
 
 UI = {"panel.png": "panel_beige.png", "plate.png": "buttonLong_brown.png",
       "button.png": "buttonLong_beige.png", "button_down.png": "buttonLong_beige_pressed.png"}

@@ -785,7 +785,8 @@ void emit(EventKind kind, WidgetKind widget, std::string_view name) {
         sound && !sound->empty() && player.play) {
         player.play(
             sound->view(),
-            usable(s.sounds.volume.value_or(1.0f), 1.0f, 0.0f, 1.0f, "sounds.volume"), 1.0f);
+            usable(s.sounds.volume.value_or(1.0f), 1.0f, 0.0f, 1.0f, "sounds.volume"),
+            1.0f);
     }
     if (looks.hook) {
         const Event e{ kind, widget, name };

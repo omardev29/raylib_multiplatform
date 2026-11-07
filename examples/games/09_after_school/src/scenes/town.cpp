@@ -61,7 +61,8 @@ struct Stroll {
         self.position.x += d.x / far * step;
         self.position.y += d.y / far * step;
         const bool across = std::abs(d.x) > std::abs(d.y);
-        self.sprite.play(across ? (d.x > 0 ? "walk_e" : "walk_w") : (d.y > 0 ? "walk_s" : "walk_n"));
+        self.sprite.play(across ? (d.x > 0 ? "walk_e" : "walk_w")
+                                : (d.y > 0 ? "walk_s" : "walk_n"));
     }
 };
 
@@ -110,7 +111,8 @@ void prepare(rmp::Dialogue &talk, TownScene &scene) {
         }
     });
     // The evening's end: festival, concert or home.
-    talk.on_command("ending", [&scene](std::string kind) { scene.ending(std::move(kind)); });
+    talk.on_command("ending",
+                    [&scene](std::string kind) { scene.ending(std::move(kind)); });
 }
 
 } // namespace
@@ -130,11 +132,12 @@ void TownScene::build() {
     you.sprite.play("idle_n");
     you.solid = true;
     you.layer = 5;
-    you.add<rmp::behavior::TopDown>({ .speed = SPEED,
-                                      .eight_way = true,
-                                      .idle = "",
-                                      .walk = "walk",
-                                      .suffixes = { "e", "e", "n", "w", "w", "w", "s", "e" } });
+    you.add<rmp::behavior::TopDown>(
+        { .speed = SPEED,
+          .eight_way = true,
+          .idle = "",
+          .walk = "walk",
+          .suffixes = { "e", "e", "n", "w", "w", "w", "s", "e" } });
     you.add<Standing>();
     _you = you.handle();
 
@@ -145,7 +148,8 @@ void TownScene::build() {
         town().places[std::string(o.property_string("name"))] = o.position;
     });
     map.on_object("Person", [this](rmp::Scene &scene, const rmp::MapObject &o) {
-        auto &person = scene.spawn({ .position = o.position, .shape = rmp::rect({ 10, 8 }) });
+        auto &person =
+            scene.spawn({ .position = o.position, .shape = rmp::rect({ 10, 8 }) });
         const std::string look(o.property_string("look", "mika"));
         person.sprite.sheet = rmp::assets::load_sheet(look + ".aseprite");
         person.sprite.play("idle_s");
@@ -177,12 +181,11 @@ void TownScene::build() {
         auto &flyer = scene.spawn({ .position = o.position, .shape = rmp::circle(6) });
         flyer.sprite.texture = rmp::assets::load_texture("tiles.png");
         flyer.sprite.source = Rectangle{ 11 * TILE, 13 * TILE, TILE, TILE }; // a poster
-        flyer.add<rmp::behavior::Collectible>({
-            .sound = "switch",
-            .on_collect = [](rmp::Object &, rmp::Object &) {
-                story().flyer = true;
-                rmp::ui::notify("You found a festival flyer!");
-            } });
+        flyer.add<rmp::behavior::Collectible>(
+            { .sound = "switch", .on_collect = [](rmp::Object &, rmp::Object &) {
+                 story().flyer = true;
+                 rmp::ui::notify("You found a festival flyer!");
+             } });
     });
     map.spawn_objects(*this);
 
@@ -197,7 +200,8 @@ void TownScene::talking(rmp::Handle<rmp::Object> speaker) {
     _stage.ours = {};
     // Kai's race: a choice with a clock on it.
     const auto o = speaker.get();
-    const auto t = o ? o->get<rmp::behavior::Talker>() : rmp::Ref<rmp::behavior::Talker>{};
+    const auto t =
+        o ? o->get<rmp::behavior::Talker>() : rmp::Ref<rmp::behavior::Talker>{};
     _stage.flow.choice_seconds = t && t->node == "Kai" ? KAI_SECONDS : 0;
     _stage.flow.default_choice = 1;
     if (const auto y = _you.get()) y->enable<rmp::behavior::TopDown>(false);
@@ -235,11 +239,13 @@ void TownScene::_draw() {
     const Story &s = story();
     rmp::ui::begin({ .placement = rmp::ui::Align::TOP_LEFT, .padding = 14 });
     rmp::ui::panel([&] {
-        rmp::ui::text(rmp::Text("{hour}:{minutes} pm",
-                                { { "hour", s.hour - 12 },
-                                  { "minutes", TextFormat("%02d", static_cast<int>(s.minutes)) } }),
-                      { .wrap = false });
-        rmp::ui::text(s.flyer ? rmp::Text("A festival flyer") : rmp::Text("The festival is at seven"),
+        rmp::ui::text(
+            rmp::Text("{hour}:{minutes} pm",
+                      { { "hour", s.hour - 12 },
+                        { "minutes", TextFormat("%02d", static_cast<int>(s.minutes)) } }),
+            { .wrap = false });
+        rmp::ui::text(s.flyer ? rmp::Text("A festival flyer")
+                              : rmp::Text("The festival is at seven"),
                       { .color = rmp::ui::ColorRole::MUTED, .wrap = false });
     });
     rmp::ui::end();
@@ -254,7 +260,8 @@ void TownScene::_draw() {
     // "Talk" over whoever is close enough.
     for (const auto &[name, handle] : town().people) {
         const auto o = handle.get();
-        const auto t = o ? o->get<rmp::behavior::Talker>() : rmp::Ref<rmp::behavior::Talker>{};
+        const auto t =
+            o ? o->get<rmp::behavior::Talker>() : rmp::Ref<rmp::behavior::Talker>{};
         if (!t || !t->in_range()) continue;
         rmp::ui::begin();
         rmp::ui::at({ o->position.x, o->position.y + PROMPT_LIFT }, [] {

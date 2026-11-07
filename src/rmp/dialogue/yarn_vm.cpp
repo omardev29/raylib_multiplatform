@@ -177,8 +177,8 @@ bool Machine::command_fits(const std::string &name, const Signature &s,
         }
         if (!ok) {
             fault("<<" + name + ">>'s word " + std::to_string(k + 1) + " is " +
-                  std::string(kind_name(*s.params[k])) + ", and the script gives it '" + w +
-                  "'");
+                  std::string(kind_name(*s.params[k])) + ", and the script gives it '" +
+                  w + "'");
             return false;
         }
     }
@@ -542,8 +542,8 @@ void Machine::step(const Instruction &i) {
                 if (w.front() == "wait") {
                     // Yarn's own <<wait 2>>, when the game has no "wait" of its own.
                     _event = Event{ Event::Is::HOLD };
-                    _event.seconds = w.size() > 1 ? std::max(0.0f, Value::of(w[1]).as_number())
-                                                  : 0.0f;
+                    _event.seconds =
+                        w.size() > 1 ? std::max(0.0f, Value::of(w[1]).as_number()) : 0.0f;
                     _waiting = true;
                     return;
                 }

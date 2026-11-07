@@ -230,10 +230,11 @@ yarn::Signature machine_signature(const std::optional<detail::DialogueSignature>
 void check_functions(const yarn::Machine &m) {
     for (const std::string &f : yarn::functions_called(m.program())) {
         if (yarn::is_builtin_function(f) || m.has_function(f)) continue;
-        RMP_REPORT_ONCE_KEYED(std::string_view(f),
-                              "DIALOGUE: the script calls %s(), and nothing registered it: "
-                              "on_function(\"%s\", ...) before start()",
-                              f.c_str(), f.c_str());
+        RMP_REPORT_ONCE_KEYED(
+            std::string_view(f),
+            "DIALOGUE: the script calls %s(), and nothing registered it: "
+            "on_function(\"%s\", ...) before start()",
+            f.c_str(), f.c_str());
     }
 }
 
@@ -530,29 +531,31 @@ void Dialogue::bind_kind(std::string_view name, DialogueValue::Kind kind,
     if (loaded() && public_kind(declared->second.kind) != kind) {
         const std::string_view says = kind_word(public_kind(declared->second.kind));
         const std::string_view given = kind_word(kind);
-        RMP_REPORT_ONCE_KEYED(name,
-                              "DIALOGUE: bind(\"%.*s\"): the script declares %.*s, and the "
-                              "game binds %.*s",
-                              static_cast<int>(name.size()), name.data(),
-                              static_cast<int>(says.size()), says.data(),
-                              static_cast<int>(given.size()), given.data());
+        RMP_REPORT_ONCE_KEYED(
+            name,
+            "DIALOGUE: bind(\"%.*s\"): the script declares %.*s, and the "
+            "game binds %.*s",
+            static_cast<int>(name.size()), name.data(), static_cast<int>(says.size()),
+            says.data(), static_cast<int>(given.size()), given.data());
         return;
     }
     auto g = std::make_shared<rmp::Callback<DialogueValue &>>(std::move(get));
     auto st = std::make_shared<rmp::Callback<const DialogueValue &>>(std::move(set));
-    _state->machine.bind(name, yarn::Binding{
-                                   [g](yarn::Value &out) {
-                                       DialogueValue v;
-                                       (*g)(v);
-                                       out = to_yarn(v);
-                                   },
-                                   [st](const yarn::Value &in) { (*st)(from_yarn(in)); },
-                               });
+    _state->machine.bind(name,
+                         yarn::Binding{
+                             [g](yarn::Value &out) {
+                                 DialogueValue v;
+                                 (*g)(v);
+                                 out = to_yarn(v);
+                             },
+                             [st](const yarn::Value &in) { (*st)(from_yarn(in)); },
+                         });
 }
 
 void Dialogue::bind(std::string_view name, int &variable) {
     bind_kind(
-        name, DialogueValue::Kind::NUMBER, [&variable](DialogueValue &out) { out = variable; },
+        name, DialogueValue::Kind::NUMBER,
+        [&variable](DialogueValue &out) { out = variable; },
         [&variable](const DialogueValue &in) {
             variable = static_cast<int>(std::lround(in.as_number()));
         });
@@ -560,13 +563,15 @@ void Dialogue::bind(std::string_view name, int &variable) {
 
 void Dialogue::bind(std::string_view name, float &variable) {
     bind_kind(
-        name, DialogueValue::Kind::NUMBER, [&variable](DialogueValue &out) { out = variable; },
+        name, DialogueValue::Kind::NUMBER,
+        [&variable](DialogueValue &out) { out = variable; },
         [&variable](const DialogueValue &in) { variable = in.as_number(); });
 }
 
 void Dialogue::bind(std::string_view name, bool &variable) {
     bind_kind(
-        name, DialogueValue::Kind::BOOL, [&variable](DialogueValue &out) { out = variable; },
+        name, DialogueValue::Kind::BOOL,
+        [&variable](DialogueValue &out) { out = variable; },
         [&variable](const DialogueValue &in) { variable = in.as_bool(); });
 }
 
@@ -583,8 +588,8 @@ void Dialogue::bind(std::string_view name, rmp::Callback<DialogueValue &> get,
     const yarn::Program &p = _state->machine.program();
     const auto declared = p.initial.find(std::string(name));
     const DialogueValue::Kind kind = declared == p.initial.end()
-                                         ? DialogueValue::Kind::NUMBER
-                                         : public_kind(declared->second.kind);
+        ? DialogueValue::Kind::NUMBER
+        : public_kind(declared->second.kind);
     bind_kind(name, kind, std::move(get), std::move(set));
 }
 

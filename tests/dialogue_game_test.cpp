@@ -71,9 +71,8 @@ TEST_SUITE("dialogue: the game's C++") {
             count = n;
             return true;
         });
-        d.on_function("price", [](std::string_view item) -> int {
-            return item == "pie" ? 3 : 0;
-        });
+        d.on_function("price",
+                      [](std::string_view item) -> int { return item == "pie" ? 3 : 0; });
         d.on_function("shout", [](const std::string &s) { return s + "!"; });
         d.on_function("half", [](double v) { return v / 2; });
         d.on_function("whole", [](bool b) { return rmp::DialogueValue(b); });
@@ -102,7 +101,8 @@ TEST_SUITE("dialogue: the game's C++") {
         REQUIRE(e.start());
         CHECK(calls == 0);
         CHECK(heard_about("twice() takes 1 argument, and the script gives it 2"));
-        CHECK(heard_about("twice()'s argument 1 is a number, and the script gives it a string"));
+        CHECK(heard_about(
+            "twice()'s argument 1 is a number, and the script gives it a string"));
         CHECK(std::ranges::any_of(d.errors(), [](const std::string &e) {
             return e.find("twice() takes 1") != std::string::npos;
         }));
@@ -121,8 +121,9 @@ TEST_SUITE("dialogue: the game's C++") {
 
     TEST_CASE("a typed command gets its words, and refuses the wrong ones") {
         Listening listening;
-        rmp::Dialogue d = script("title: Start\n---\n<<walk Mika 2.5 true>>\n"
-                                 "<<walk Mika fast true>>\n<<walk Mika>>\n<<shake>>\nEnd.\n===\n");
+        rmp::Dialogue d =
+            script("title: Start\n---\n<<walk Mika 2.5 true>>\n"
+                   "<<walk Mika fast true>>\n<<walk Mika>>\n<<shake>>\nEnd.\n===\n");
         std::vector<std::string> walks;
         int shakes = 0;
         d.on_command("walk", [&](std::string who, float speed, bool run) {
@@ -134,8 +135,10 @@ TEST_SUITE("dialogue: the game's C++") {
         CHECK(walks == std::vector<std::string>{ "Mika 25 run" });
         CHECK(shakes == 1);
         CHECK(d.line().text == "End.");
-        CHECK(heard_about("<<walk>>'s word 2 is a number, and the script gives it 'fast'"));
-        CHECK(heard_about("<<walk>> takes 3 words after its name, and the script gives it 1"));
+        CHECK(
+            heard_about("<<walk>>'s word 2 is a number, and the script gives it 'fast'"));
+        CHECK(heard_about(
+            "<<walk>> takes 3 words after its name, and the script gives it 1"));
     }
 
     TEST_CASE("a command waits until the game says it is done") {
@@ -163,7 +166,8 @@ TEST_SUITE("dialogue: the game's C++") {
         // A step is 1/20 s (under [app] max_delta); asked twice a frame, a
         // second of waiting would be half as many frames.
         rmp::app::detail::set_fixed_delta(0.05f);
-        rmp::Dialogue d = script("title: Start\n---\n<<pause>>\nOne.\n<<wait 0.5>>\nTwo.\n===\n");
+        rmp::Dialogue d =
+            script("title: Start\n---\n<<pause>>\nOne.\n<<wait 0.5>>\nTwo.\n===\n");
         d.on_command("pause", [&] { d.wait(1.0f); });
         REQUIRE(d.start());
         int frames = 0;
@@ -253,8 +257,9 @@ TEST_SUITE("dialogue: the game's C++") {
     }
 
     TEST_CASE("a variable bound through two functions") {
-        rmp::Dialogue d = script("title: Start\n---\n<<declare $hour = 0>>\n"
-                                 "It is {$hour}.\n<<set $hour = $hour + 1>>\nLater.\n===\n");
+        rmp::Dialogue d =
+            script("title: Start\n---\n<<declare $hour = 0>>\n"
+                   "It is {$hour}.\n<<set $hour = $hour + 1>>\nLater.\n===\n");
         float hour = 9;
         d.bind(
             "$hour", [&](rmp::DialogueValue &out) { out = hour; },
@@ -267,28 +272,31 @@ TEST_SUITE("dialogue: the game's C++") {
 
     TEST_CASE("a binding the script does not declare, or of another type, is refused") {
         Listening listening;
-        rmp::Dialogue d = script("title: Start\n---\n<<declare $gold = 0>>\n{$gold}\n===\n");
+        rmp::Dialogue d =
+            script("title: Start\n---\n<<declare $gold = 0>>\n{$gold}\n===\n");
         bool wrong = true;
         int nothing = 0;
         d.bind("$gold", wrong);
         d.bind("$ghost", nothing);
-        CHECK(heard_about("bind(\"$gold\"): the script declares a number, and the game binds "
-                          "a bool"));
+        CHECK(heard_about(
+            "bind(\"$gold\"): the script declares a number, and the game binds "
+            "a bool"));
         CHECK(heard_about("bind(\"$ghost\"): the script does not declare it"));
         REQUIRE(d.start());
         CHECK(d.line().text == "0"); // the script's own variable, untouched
     }
 
     TEST_CASE("the raw forms still take every argument as written") {
-        rmp::Dialogue d = script("title: Start\n---\n<<log a b c>>\n{count(1, 2, 3)}\n===\n");
+        rmp::Dialogue d =
+            script("title: Start\n---\n<<log a b c>>\n{count(1, 2, 3)}\n===\n");
         std::vector<std::string> logged;
         d.on_command("log", [&](std::span<const std::string> w) {
             logged.assign(w.begin(), w.end());
         });
-        d.on_function("count", [](rmp::DialogueValue &out,
-                                  std::span<const rmp::DialogueValue> a) {
-            out = static_cast<int>(a.size());
-        });
+        d.on_function("count",
+                      [](rmp::DialogueValue &out, std::span<const rmp::DialogueValue> a) {
+                          out = static_cast<int>(a.size());
+                      });
         REQUIRE(d.start());
         CHECK(logged == std::vector<std::string>{ "a", "b", "c" });
         CHECK(d.line().text == "3");

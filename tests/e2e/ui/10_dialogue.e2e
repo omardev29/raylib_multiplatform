@@ -10,8 +10,8 @@
 65 click 160 60
 75 click 176 126
 110 shot bubble
-111 click 597 68
-113 click 597 68
+111 click 680 66
+113 click 680 66
 # The choice: two cups -- and $cups is the scene's own int, bound.
 130 shot choice
 131 click 400 198

@@ -1404,8 +1404,8 @@ struct DialogueMemory {
 // going on (on the line, or the next button it draws after it). True while
 // there is a line. The `flow` blip is the one played: a Speaker's is yours to
 // put in it.
-bool dialogue_line(rmp::Dialogue &dialogue, DialogueMemory &memory, const DialogueFlow &flow,
-                   const RichTextOptions &text = {});
+bool dialogue_line(rmp::Dialogue &dialogue, DialogueMemory &memory,
+                   const DialogueFlow &flow, const RichTextOptions &text = {});
 // The choices, as buttons in a column where the call is, and a timed
 // choice's bar. True while there are choices.
 bool dialogue_choices(rmp::Dialogue &dialogue, DialogueMemory &memory,

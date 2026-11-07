@@ -39,13 +39,17 @@ const Color INK = { 62, 39, 35, 255 };
 
 rmp::ui::Picture frame(std::string_view file, float border) {
     return rmp::ui::NineSlice{ .texture = rmp::assets::load_texture(file),
-                               .left = border, .top = border, .right = border,
-                               .bottom = border, .scale = 2 };
+                               .left = border,
+                               .top = border,
+                               .right = border,
+                               .bottom = border,
+                               .scale = 2 };
 }
 
 // Japanese needs its own letters: the UI's font follows the language.
 void font_for(std::string_view language) {
-    rmp::ui::set_font(rmp::assets::load_font(language == "ja" ? "jp.ttf" : "font.ttf", 16));
+    rmp::ui::set_font(
+        rmp::assets::load_font(language == "ja" ? "jp.ttf" : "font.ttf", 16));
 }
 
 } // namespace
@@ -57,11 +61,18 @@ public:
         rmp::ui::Theme look = rmp::ui::theme_light();
         look.text = INK;
         look.sounds = { .click = "click", .volume = 0.5f };
-        look.styles.panel = { .skin = rmp::ui::Skin{ .normal = frame("panel.png", FRAME) },
-                              .padding_x = 28, .padding_y = 22, .gap = 10 };
-        look.styles.button = { .skin = rmp::ui::Skin{ .normal = frame("button.png", PLATE),
-                                                      .press = frame("button_down.png", PLATE) },
-                               .padding_x = 22, .padding_y = 10, .text = INK };
+        look.styles.panel = { .skin =
+                                  rmp::ui::Skin{ .normal = frame("panel.png", FRAME) },
+                              .padding_x = 28,
+                              .padding_y = 22,
+                              .gap = 10 };
+        look.styles.button = {
+            .skin = rmp::ui::Skin{ .normal = frame("button.png", PLATE),
+                                   .press = frame("button_down.png", PLATE) },
+            .padding_x = 22,
+            .padding_y = 10,
+            .text = INK
+        };
         rmp::ui::set_theme(look);
         _japanese = rmp::assets::load_font("jp.ttf", 16);
         _latin = rmp::assets::load_font("font.ttf", 16);
@@ -71,13 +82,17 @@ public:
     void _draw() override {
         rmp::ui::begin();
         rmp::ui::panel([this] {
-            rmp::ui::text("The Lantern Market", { .size = rmp::ui::Size::LARGE, .wrap = false });
-            rmp::ui::text(rmp::Text("Hello, {name}!", { { "name", "Ada" } }), { .wrap = false });
+            rmp::ui::text("The Lantern Market",
+                          { .size = rmp::ui::Size::LARGE, .wrap = false });
+            rmp::ui::text(rmp::Text("Hello, {name}!", { { "name", "Ada" } }),
+                          { .wrap = false });
             rmp::ui::text(rmp::Text("Open", { .context = "stall" }), { .wrap = false });
-            rmp::ui::text(rmp::Text("{count} coin|{count} coins", { { "count", _coins } }),
-                          { .wrap = false });
-            rmp::ui::text(rmp::Text("{count} lantern|{count} lanterns", { { "count", _lanterns } }),
-                          { .wrap = false });
+            rmp::ui::text(
+                rmp::Text("{count} coin|{count} coins", { { "count", _coins } }),
+                { .wrap = false });
+            rmp::ui::text(
+                rmp::Text("{count} lantern|{count} lanterns", { { "count", _lanterns } }),
+                { .wrap = false });
             if (rmp::ui::button("Buy a lantern")) {
                 if (_coins < PRICE) {
                     rmp::ui::notify("Not enough coins");
@@ -87,12 +102,14 @@ public:
                 }
             }
             if (rmp::ui::button("Sell everything") && _lanterns > 0) {
-                rmp::ui::notify(rmp::Text("Sold {count} for {coins}",
-                                          { { "count", _lanterns }, { "coins", _lanterns * WORTH } }));
+                rmp::ui::notify(rmp::Text(
+                    "Sold {count} for {coins}",
+                    { { "count", _lanterns }, { "coins", _lanterns * WORTH } }));
                 _coins += _lanterns * WORTH;
                 _lanterns = 0;
             }
-            rmp::ui::text("Language", { .color = rmp::ui::ColorRole::MUTED, .wrap = false });
+            rmp::ui::text("Language",
+                          { .color = rmp::ui::ColorRole::MUTED, .wrap = false });
             // Each language's name in its own words, in a font that has its
             // letters, whatever the language is now.
             rmp::ui::row([this] {

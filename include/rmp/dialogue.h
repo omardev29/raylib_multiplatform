@@ -150,9 +150,12 @@ struct DialogueSignature {
 
 template <class T> constexpr DialogueType dialogue_type() {
     using U = std::remove_cvref_t<T>;
-    if constexpr (std::is_same_v<U, bool>) return DialogueType::BOOL;
-    else if constexpr (std::is_arithmetic_v<U>) return DialogueType::NUMBER;
-    else if constexpr (std::is_same_v<U, std::string> || std::is_same_v<U, std::string_view>)
+    if constexpr (std::is_same_v<U, bool>)
+        return DialogueType::BOOL;
+    else if constexpr (std::is_arithmetic_v<U>)
+        return DialogueType::NUMBER;
+    else if constexpr (std::is_same_v<U, std::string> ||
+                       std::is_same_v<U, std::string_view>)
         return DialogueType::STRING;
     else {
         static_assert(std::is_same_v<U, DialogueValue>,
@@ -165,11 +168,16 @@ template <class T> constexpr DialogueType dialogue_type() {
 // A function's argument in the type its parameter asks for.
 template <class T> auto dialogue_arg(const DialogueValue &v) {
     using U = std::remove_cvref_t<T>;
-    if constexpr (std::is_same_v<U, bool>) return v.as_bool();
-    else if constexpr (std::is_arithmetic_v<U>) return static_cast<U>(v.as_number());
-    else if constexpr (std::is_same_v<U, std::string> || std::is_same_v<U, std::string_view>)
-        return v.as_string(); // a std::string_view parameter reads it while the call lasts
-    else return v;
+    if constexpr (std::is_same_v<U, bool>)
+        return v.as_bool();
+    else if constexpr (std::is_arithmetic_v<U>)
+        return static_cast<U>(v.as_number());
+    else if constexpr (std::is_same_v<U, std::string> ||
+                       std::is_same_v<U, std::string_view>)
+        return v
+            .as_string(); // a std::string_view parameter reads it while the call lasts
+    else
+        return v;
 }
 
 // The parameters and the result of a lambda (or any type with one
@@ -198,11 +206,15 @@ decltype(auto) dialogue_apply(Fn &fn, std::span<const DialogueValue> in,
 // A function's result as a Yarn value.
 template <class R> DialogueValue dialogue_result(R &&r) {
     using U = std::remove_cvref_t<R>;
-    static_assert(!std::is_void_v<U>, "a Yarn function returns a value: a number, a "
-                                      "bool, a string or an rmp::DialogueValue");
-    if constexpr (std::is_same_v<U, bool> || std::is_same_v<U, DialogueValue>) return r;
-    else if constexpr (std::is_arithmetic_v<U>) return static_cast<double>(r);
-    else return std::string(r);
+    static_assert(!std::is_void_v<U>,
+                  "a Yarn function returns a value: a number, a "
+                  "bool, a string or an rmp::DialogueValue");
+    if constexpr (std::is_same_v<U, bool> || std::is_same_v<U, DialogueValue>)
+        return r;
+    else if constexpr (std::is_arithmetic_v<U>)
+        return static_cast<double>(r);
+    else
+        return std::string(r);
 }
 } // namespace detail
 
@@ -258,20 +270,21 @@ public:
     template <class F> void on_command(std::string_view name, F &&handler) {
         using Fn = std::decay_t<F>;
         if constexpr (std::is_invocable_v<Fn &, std::span<const std::string>>) {
-            raw_command(name, rmp::Callback<std::span<const std::string>>(
-                                  static_cast<F &&>(handler)),
-                        std::nullopt);
+            raw_command(
+                name,
+                rmp::Callback<std::span<const std::string>>(static_cast<F &&>(handler)),
+                std::nullopt);
         } else {
             using L = detail::DialogueLambda<Fn>;
-            raw_command(name,
-                        [fn = Fn(static_cast<F &&>(handler))](
-                            std::span<const std::string> words) mutable {
-                            std::vector<DialogueValue> in(words.begin(), words.end());
-                            detail::dialogue_apply(
-                                fn, in, std::make_index_sequence<L::ARITY>{},
-                                std::type_identity<typename L::Args>{});
-                        },
-                        detail::dialogue_signature(std::type_identity<typename L::Args>{}));
+            raw_command(
+                name,
+                [fn = Fn(static_cast<F &&>(handler))](
+                    std::span<const std::string> words) mutable {
+                    std::vector<DialogueValue> in(words.begin(), words.end());
+                    detail::dialogue_apply(fn, in, std::make_index_sequence<L::ARITY>{},
+                                           std::type_identity<typename L::Args>{});
+                },
+                detail::dialogue_signature(std::type_identity<typename L::Args>{}));
         }
     }
 
@@ -354,11 +367,13 @@ public:
     explicit Dialogue(std::unique_ptr<detail::DialogueState> state);
 
 private:
-    void raw_command(std::string_view name, rmp::Callback<std::span<const std::string>> handler,
+    void raw_command(std::string_view name,
+                     rmp::Callback<std::span<const std::string>> handler,
                      std::optional<detail::DialogueSignature> signature);
-    void raw_function(std::string_view name,
-                      rmp::Callback<DialogueValue &, std::span<const DialogueValue>> function,
-                      std::optional<detail::DialogueSignature> signature);
+    void
+    raw_function(std::string_view name,
+                 rmp::Callback<DialogueValue &, std::span<const DialogueValue>> function,
+                 std::optional<detail::DialogueSignature> signature);
     void hold_until(rmp::Callback<bool &> done);
     void bind_kind(std::string_view name, DialogueValue::Kind kind,
                    rmp::Callback<DialogueValue &> get,

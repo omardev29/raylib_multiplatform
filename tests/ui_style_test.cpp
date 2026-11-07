@@ -1334,10 +1334,11 @@ TEST_SUITE("ui: events and kept widgets") {
         played.names.clear();
         played.volumes.clear();
         detail::play_sound("blip", 0.25f); // no player yet: nothing
-        detail::set_sound_player([](std::string_view name, float volume, float /*pitch*/) {
-            played.names.emplace_back(name);
-            played.volumes.push_back(volume);
-        });
+        detail::set_sound_player(
+            [](std::string_view name, float volume, float /*pitch*/) {
+                played.names.emplace_back(name);
+                played.volumes.push_back(volume);
+            });
         detail::play_sound("blip", 0.25f);
         detail::play_sound(ui::SoundName{}, 1.0f);
         REQUIRE(played.names.size() == 1);
@@ -1349,10 +1350,11 @@ TEST_SUITE("ui: events and kept widgets") {
         const HeadlessUi headless;
         played.names.clear();
         played.volumes.clear();
-        detail::set_sound_player([](std::string_view name, float volume, float /*pitch*/) {
-            played.names.emplace_back(name);
-            played.volumes.push_back(volume);
-        });
+        detail::set_sound_player(
+            [](std::string_view name, float volume, float /*pitch*/) {
+                played.names.emplace_back(name);
+                played.volumes.push_back(volume);
+            });
         ui::Theme t = ui::theme_dark();
         t.sounds.click = "click"; // the test's player stays: one was there already
         t.sounds.hover = "over";

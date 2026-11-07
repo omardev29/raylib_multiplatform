@@ -1309,7 +1309,8 @@ struct EmbeddedTalk {
 
 TEST_CASE_FIXTURE(Fixture, "Talker: on_load comes once, before the first line") {
     const std::vector<rmp::yarn::Source> sources{
-        { "bound.yarn", "title: Start\n---\n<<declare $gold = 0>>\nYou have {$gold}.\n===\n" }
+        { "bound.yarn",
+          "title: Start\n---\n<<declare $gold = 0>>\nYou have {$gold}.\n===\n" }
     };
     const std::vector<std::uint8_t> bytes =
         rmp::yarn::to_bytes(rmp::yarn::compile(sources).program);

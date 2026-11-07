@@ -1332,8 +1332,8 @@ void add_once(std::vector<std::string> &to, std::string name) {
 // A function's name, not an operator's (+, ==, neg are calls too).
 bool is_function_name(std::string_view name) {
     return !name.empty() &&
-           (std::isalpha(static_cast<unsigned char>(name[0])) != 0 || name[0] == '_') &&
-           name != "neg";
+        (std::isalpha(static_cast<unsigned char>(name[0])) != 0 || name[0] == '_') &&
+        name != "neg";
 }
 
 void calls_in(const std::vector<Instruction> &code, std::vector<std::string> &to) {
