@@ -42,9 +42,12 @@
 
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
+#include <tuple>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
@@ -137,6 +140,70 @@ enum class DialogueSaliency : std::uint8_t {
 
 namespace detail {
 struct DialogueState;
+
+// What a typed callback takes, read off its parameters: a number, a string,
+// a bool, or anything (a DialogueValue).
+enum class DialogueType : std::uint8_t { NUMBER, STRING, BOOL, ANY };
+struct DialogueSignature {
+    std::vector<DialogueType> params;
+};
+
+template <class T> constexpr DialogueType dialogue_type() {
+    using U = std::remove_cvref_t<T>;
+    if constexpr (std::is_same_v<U, bool>) return DialogueType::BOOL;
+    else if constexpr (std::is_arithmetic_v<U>) return DialogueType::NUMBER;
+    else if constexpr (std::is_same_v<U, std::string> || std::is_same_v<U, std::string_view>)
+        return DialogueType::STRING;
+    else {
+        static_assert(std::is_same_v<U, DialogueValue>,
+                      "a Yarn function or command takes numbers, bools, std::string, "
+                      "std::string_view or rmp::DialogueValue");
+        return DialogueType::ANY;
+    }
+}
+
+// A function's argument in the type its parameter asks for.
+template <class T> auto dialogue_arg(const DialogueValue &v) {
+    using U = std::remove_cvref_t<T>;
+    if constexpr (std::is_same_v<U, bool>) return v.as_bool();
+    else if constexpr (std::is_arithmetic_v<U>) return static_cast<U>(v.as_number());
+    else if constexpr (std::is_same_v<U, std::string> || std::is_same_v<U, std::string_view>)
+        return v.as_string(); // a std::string_view parameter reads it while the call lasts
+    else return v;
+}
+
+// The parameters and the result of a lambda (or any type with one
+// operator()), mutable or not.
+template <class F> struct DialogueLambda : DialogueLambda<decltype(&F::operator())> {};
+template <class C, class R, class... A> struct DialogueLambda<R (C::*)(A...) const> {
+    using Result = R;
+    using Args = std::tuple<A...>;
+    static constexpr std::size_t ARITY = sizeof...(A);
+};
+template <class C, class R, class... A>
+struct DialogueLambda<R (C::*)(A...)> : DialogueLambda<R (C::*)(A...) const> {};
+
+template <class... A>
+DialogueSignature dialogue_signature(std::type_identity<std::tuple<A...>> /*unused*/) {
+    return { { dialogue_type<A>()... } };
+}
+
+template <class Fn, class... A, std::size_t... I>
+decltype(auto) dialogue_apply(Fn &fn, std::span<const DialogueValue> in,
+                              std::index_sequence<I...> /*unused*/,
+                              std::type_identity<std::tuple<A...>> /*unused*/) {
+    return fn(dialogue_arg<A>(I < in.size() ? in[I] : DialogueValue{})...);
+}
+
+// A function's result as a Yarn value.
+template <class R> DialogueValue dialogue_result(R &&r) {
+    using U = std::remove_cvref_t<R>;
+    static_assert(!std::is_void_v<U>, "a Yarn function returns a value: a number, a "
+                                      "bool, a string or an rmp::DialogueValue");
+    if constexpr (std::is_same_v<U, bool> || std::is_same_v<U, DialogueValue>) return r;
+    else if constexpr (std::is_arithmetic_v<U>) return static_cast<double>(r);
+    else return std::string(r);
+}
 } // namespace detail
 
 // A conversation: a compiled Yarn script, where it is in it, and what it
@@ -178,19 +245,101 @@ public:
     // any number goes on past the options.
     void choose(int index);
 
-    // <<name arg arg>> calls `handler` with the args, and the dialogue goes
-    // on by itself. A command nobody handles waits in has_command().
-    void on_command(std::string_view name,
-                    rmp::Callback<std::span<const std::string>> handler);
-    // name(...) in an expression: `function` reads the arguments and writes
-    // the result in the value it is handed.
-    void
-    on_function(std::string_view name,
-                rmp::Callback<DialogueValue &, std::span<const DialogueValue>> function);
+    // <<name arg arg>> calls `handler`, and the dialogue goes on by itself --
+    // or waits, when the handler calls wait() or wait_until(). A command
+    // nobody handles waits in has_command().
+    //
+    // Typed: each word after the name arrives as the parameter asks, and a
+    // script that gives the wrong number of words, or a word that is not a
+    // number where one goes, is a mistake said once, the command not run:
+    //     talk.on_command("walk", [&](std::string who, float speed) { ... });
+    //     talk.on_command("shake", [&] { camera.shake(); });
+    // Or every word as written: [&](std::span<const std::string> words) { ... }.
+    template <class F> void on_command(std::string_view name, F &&handler) {
+        using Fn = std::decay_t<F>;
+        if constexpr (std::is_invocable_v<Fn &, std::span<const std::string>>) {
+            raw_command(name, rmp::Callback<std::span<const std::string>>(
+                                  static_cast<F &&>(handler)),
+                        std::nullopt);
+        } else {
+            using L = detail::DialogueLambda<Fn>;
+            raw_command(name,
+                        [fn = Fn(static_cast<F &&>(handler))](
+                            std::span<const std::string> words) mutable {
+                            std::vector<DialogueValue> in(words.begin(), words.end());
+                            detail::dialogue_apply(
+                                fn, in, std::make_index_sequence<L::ARITY>{},
+                                std::type_identity<typename L::Args>{});
+                        },
+                        detail::dialogue_signature(std::type_identity<typename L::Args>{}));
+        }
+    }
+
+    // name(...) in an expression. Typed: the parameters say what it takes and
+    // the result what it gives, and a call with the wrong number or kind of
+    // arguments is a mistake said once, never a call:
+    //     talk.on_function("has_item", [&](std::string item) -> bool { ... });
+    // Or untyped: [&](rmp::DialogueValue &out, std::span<const rmp::DialogueValue> args).
+    // Write the result type (-> bool): `rmp yarn ysls` reads it for the editor.
+    template <class F> void on_function(std::string_view name, F &&function) {
+        using Fn = std::decay_t<F>;
+        if constexpr (std::is_invocable_v<Fn &, DialogueValue &,
+                                          std::span<const DialogueValue>>) {
+            raw_function(name,
+                         rmp::Callback<DialogueValue &, std::span<const DialogueValue>>(
+                             static_cast<F &&>(function)),
+                         std::nullopt);
+        } else {
+            using L = detail::DialogueLambda<Fn>;
+            raw_function(
+                name,
+                [fn = Fn(static_cast<F &&>(function))](
+                    DialogueValue &out, std::span<const DialogueValue> in) mutable {
+                    out = detail::dialogue_result(detail::dialogue_apply(
+                        fn, in, std::make_index_sequence<L::ARITY>{},
+                        std::type_identity<typename L::Args>{}));
+                },
+                detail::dialogue_signature(std::type_identity<typename L::Args>{}));
+        }
+    }
+
+    // From inside a command's handler: the dialogue waits after the command,
+    // for `seconds`, or until `done()` is true (asked once a frame, from
+    // waiting()). <<wait 2>> waits by itself, when the game has no "wait".
+    //     talk.on_command("walk", [&](std::string where) {
+    //         mika.walk_to(where);
+    //         talk.wait_until([&] { return mika.arrived(); });
+    //     });
+    void wait(float seconds);
+    template <class F> void wait_until(F &&done) {
+        hold_until(rmp::Callback<bool &>(
+            [fn = std::decay_t<F>(static_cast<F &&>(done))](bool &out) mutable {
+                out = static_cast<bool>(fn());
+            }));
+    }
+    // Whether a command holds the dialogue: no line, no options, until its
+    // wait is over. Asking is what moves it on: once a frame, the presenters
+    // do it, or the game's own loop.
+    bool waiting();
 
     // $variables: what the script set, and what the game sets for it.
     [[nodiscard]] DialogueValue variable(std::string_view name) const;
     void set_variable(std::string_view name, const DialogueValue &value);
+
+    // A $variable that IS one of the game's: the script reads it and writes
+    // it, and nothing is copied. The script declares it, with its type
+    // (<<declare $gold = 0>>); a binding of another type, or of a variable the
+    // script does not declare, is a mistake said once. save() leaves bound
+    // variables out: they are the game's to save. The variable must outlive
+    // the dialogue.
+    //     talk.bind("$gold", player.gold);
+    void bind(std::string_view name, int &variable);
+    void bind(std::string_view name, float &variable);
+    void bind(std::string_view name, bool &variable);
+    void bind(std::string_view name, std::string &variable);
+    // Or through two functions, for a value the game works out.
+    void bind(std::string_view name, rmp::Callback<DialogueValue &> get,
+              rmp::Callback<const DialogueValue &> set);
     [[nodiscard]] int visits(std::string_view node) const; // visited_count()
 
     // Everything the conversation remembers -- variables, visits, what was
@@ -205,6 +354,16 @@ public:
     explicit Dialogue(std::unique_ptr<detail::DialogueState> state);
 
 private:
+    void raw_command(std::string_view name, rmp::Callback<std::span<const std::string>> handler,
+                     std::optional<detail::DialogueSignature> signature);
+    void raw_function(std::string_view name,
+                      rmp::Callback<DialogueValue &, std::span<const DialogueValue>> function,
+                      std::optional<detail::DialogueSignature> signature);
+    void hold_until(rmp::Callback<bool &> done);
+    void bind_kind(std::string_view name, DialogueValue::Kind kind,
+                   rmp::Callback<DialogueValue &> get,
+                   rmp::Callback<const DialogueValue &> set);
+
     std::unique_ptr<detail::DialogueState> _state;
 };
 

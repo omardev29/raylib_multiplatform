@@ -11,6 +11,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cctype>
 #include <charconv>
 #include <cmath>
 #include <cstdint>
@@ -108,13 +109,140 @@ void Machine::choose(int index) {
     run();
 }
 
-void Machine::on_command(std::string_view name,
-                         rmp::Callback<std::span<const std::string>> handler) {
-    _commands.insert_or_assign(std::string(name), std::move(handler));
+void Machine::on_command(std::string_view name, Handler handler, Signature signature) {
+    _commands.insert_or_assign(std::string(name),
+                               Command{ std::move(handler), std::move(signature) });
 }
 
-void Machine::on_function(std::string_view name, Function function) {
-    _functions.insert_or_assign(std::string(name), std::move(function));
+void Machine::on_function(std::string_view name, Function function, Signature signature) {
+    _functions.insert_or_assign(std::string(name),
+                                Registered{ std::move(function), std::move(signature) });
+}
+
+void Machine::bind(std::string_view name, Binding binding) {
+    _bound.insert_or_assign(std::string(name), std::move(binding));
+    _vars.erase(std::string(name)); // the game's from now on
+}
+
+bool Machine::bound(std::string_view name) const { return _bound.contains(name); }
+
+bool Machine::has_function(std::string_view name) const {
+    return _functions.contains(name);
+}
+
+std::optional<Signature> Machine::signature(std::string_view name) const {
+    if (const auto f = _functions.find(name); f != _functions.end())
+        return f->second.signature;
+    if (const auto c = _commands.find(name); c != _commands.end())
+        return c->second.signature;
+    return std::nullopt;
+}
+
+namespace {
+
+void add_once(std::vector<std::string> &to, std::string name) {
+    if (std::ranges::find(to, name) == to.end()) to.push_back(std::move(name));
+}
+
+// A function's name, not an operator's (+, ==, neg are calls too).
+bool is_function_name(std::string_view name) {
+    return !name.empty() &&
+           (std::isalpha(static_cast<unsigned char>(name[0])) != 0 || name[0] == '_') &&
+           name != "neg";
+}
+
+void calls_in(const std::vector<Instruction> &code, std::vector<std::string> &to) {
+    for (const Instruction &i : code) {
+        if (i.op == Op::CALL_FUNC && is_function_name(i.s)) add_once(to, i.s);
+    }
+}
+
+std::string_view kind_name(Kind k) {
+    switch (k) {
+        case Kind::NUMBER:
+            return "a number";
+        case Kind::STRING:
+            return "a string";
+        case Kind::BOOL:
+            return "a bool";
+    }
+    return "a value";
+}
+
+} // namespace
+
+// The same for a command, whose arguments are words: a number must read as
+// one, a bool as true or false.
+bool Machine::command_fits(const std::string &name, const Signature &s,
+                           std::span<const std::string> words) {
+    if (s.arity >= 0 && std::cmp_not_equal(words.size(), s.arity)) {
+        fault("<<" + name + ">> takes " + std::to_string(s.arity) + " word" +
+              (s.arity == 1 ? "" : "s") + " after its name, and the script gives it " +
+              std::to_string(words.size()));
+        return false;
+    }
+    for (std::size_t k = 0; k < words.size() && k < s.params.size(); ++k) {
+        if (!s.params[k]) continue;
+        const std::string &w = words[k];
+        bool ok = true;
+        if (*s.params[k] == Kind::NUMBER) {
+            float f = 0;
+            const char *end = w.data() + w.size();
+            const auto r = std::from_chars(w.data(), end, f);
+            ok = !w.empty() && r.ec == std::errc{} && r.ptr == end;
+        } else if (*s.params[k] == Kind::BOOL) {
+            ok = w == "true" || w == "false" || w == "True" || w == "False";
+        }
+        if (!ok) {
+            fault("<<" + name + ">>'s word " + std::to_string(k + 1) + " is " +
+                  std::string(kind_name(*s.params[k])) + ", and the script gives it '" + w +
+                  "'");
+            return false;
+        }
+    }
+    return true;
+}
+
+std::vector<std::string> Machine::functions_called() const {
+    std::vector<std::string> out;
+    for (const ProgramNode &n : _program.nodes) {
+        calls_in(n.code, out);
+        calls_in(n.condition, out);
+    }
+    for (const SmartVariable &v : _program.smart) calls_in(v.code, out);
+    return out;
+}
+
+std::vector<std::string> Machine::commands_run() const {
+    std::vector<std::string> out;
+    for (const ProgramNode &n : _program.nodes) {
+        for (const Instruction &i : n.code) {
+            if (i.op != Op::RUN_COMMAND) continue;
+            const std::vector<std::string> w = words(i.s);
+            if (!w.empty()) add_once(out, w.front());
+        }
+    }
+    return out;
+}
+
+// Whether `args` are what the game said `name` takes; a fault when not.
+bool Machine::fits(const std::string &name, const Signature &s,
+                   std::span<const Value> args) {
+    if (s.arity >= 0 && std::cmp_not_equal(args.size(), s.arity)) {
+        fault(name + " takes " + std::to_string(s.arity) + " argument" +
+              (s.arity == 1 ? "" : "s") + ", and the script gives it " +
+              std::to_string(args.size()));
+        return false;
+    }
+    for (std::size_t k = 0; k < args.size() && k < s.params.size(); ++k) {
+        if (s.params[k] && *s.params[k] != args[k].kind) {
+            fault(name + "'s argument " + std::to_string(k + 1) + " is " +
+                  std::string(kind_name(*s.params[k])) + ", and the script gives it " +
+                  std::string(kind_name(args[k].kind)));
+            return false;
+        }
+    }
+    return true;
 }
 
 void Machine::enter(int node) { _frames.push_back({ node, 0 }); }
@@ -166,6 +294,11 @@ int Machine::visits(std::string_view node) const {
 }
 
 Value Machine::read(std::string_view name) const {
+    if (const auto b = _bound.find(name); b != _bound.end()) {
+        Value v = Value::of(0.0f);
+        b->second.get(v);
+        return v;
+    }
     if (const auto it = _vars.find(std::string(name)); it != _vars.end())
         return it->second;
     for (const SmartVariable &s : _program.smart) {
@@ -181,6 +314,10 @@ Value Machine::read(std::string_view name) const {
 Value Machine::variable(std::string_view name) const { return read(name); }
 
 void Machine::set_variable(std::string_view name, Value value) {
+    if (const auto b = _bound.find(name); b != _bound.end()) {
+        b->second.set(value);
+        return;
+    }
     _vars.insert_or_assign(std::string(name), std::move(value));
 }
 
@@ -250,7 +387,8 @@ Value Machine::call(const std::string &name, std::span<const Value> args) {
     if (name == "neg") return Value::of(-num(0));
     if (const auto f = _functions.find(name); f != _functions.end()) {
         Value out;
-        f->second(out, args);
+        if (!fits(name + "()", f->second.signature, args)) return Value::of(false);
+        f->second.function(out, args);
         return out;
     }
     const auto truncate = [](float v) { return std::trunc(v); };
@@ -430,7 +568,23 @@ void Machine::step(const Instruction &i) {
             const std::vector<std::string> w = words(text);
             if (!w.empty()) {
                 if (const auto h = _commands.find(w.front()); h != _commands.end()) {
-                    h->second(std::span<const std::string>(w).subspan(1));
+                    const std::span<const std::string> rest =
+                        std::span<const std::string>(w).subspan(1);
+                    if (!command_fits(w.front(), h->second.signature, rest)) return;
+                    h->second.handler(rest);
+                    if (_hold) {
+                        _hold = false;
+                        _event = Event{ Event::Is::HOLD };
+                        _waiting = true;
+                    }
+                    return;
+                }
+                if (w.front() == "wait") {
+                    // Yarn's own <<wait 2>>, when the game has no "wait" of its own.
+                    _event = Event{ Event::Is::HOLD };
+                    _event.seconds = w.size() > 1 ? std::max(0.0f, Value::of(w[1]).as_number())
+                                                  : 0.0f;
+                    _waiting = true;
                     return;
                 }
             }
@@ -487,7 +641,7 @@ void Machine::step(const Instruction &i) {
             _stack.push_back(read(i.s));
             break;
         case Op::STORE_VARIABLE:
-            if (!_stack.empty()) _vars[i.s] = _stack.back();
+            if (!_stack.empty()) set_variable(i.s, _stack.back());
             break;
         case Op::STOP:
             stop();

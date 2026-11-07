@@ -324,8 +324,11 @@ struct OptionEvent {
 };
 
 struct Event {
-    enum class Is : std::uint8_t { NONE, LINE, OPTIONS, COMMAND, DONE };
+    // HOLD: a command asked the dialogue to wait (the game's wait_until(), or
+    // <<wait 2>> when the game has no command of that name).
+    enum class Is : std::uint8_t { NONE, LINE, OPTIONS, COMMAND, DONE, HOLD };
     Is is = Is::NONE;
+    float seconds = -1; // HOLD of <<wait>>: how long; -1 for the game's own
     std::string id; // LINE: the line's id
     std::vector<std::string> substitutions; // LINE
     std::string command; // COMMAND: its text, expanded
@@ -334,6 +337,23 @@ struct Event {
 
 // A function a script calls: it reads its arguments and writes its result.
 using Function = rmp::Callback<Value &, std::span<const Value>>;
+using Handler = rmp::Callback<std::span<const std::string>>;
+
+// What the game says a function or a command takes, when it says: the
+// number of arguments and each one's kind (empty: any). arity -1: unchecked.
+struct Signature {
+    int arity = -1;
+    std::vector<std::optional<Kind>> params;
+};
+
+// A variable the game keeps: the script reads and writes the game's own.
+struct Binding {
+    rmp::Callback<Value &> get;
+    rmp::Callback<const Value &> set;
+};
+
+// Whether the language has `name` built in (visited, dice, round...).
+[[nodiscard]] bool is_builtin_function(std::string_view name);
 
 class Machine {
 public:
@@ -353,9 +373,20 @@ public:
     [[nodiscard]] std::string node() const; // the node running now, or empty
 
     // A command's handler: called with its words, and the dialogue carries on.
-    void on_command(std::string_view name,
-                    rmp::Callback<std::span<const std::string>> handler);
-    void on_function(std::string_view name, Function function);
+    void on_command(std::string_view name, Handler handler, Signature signature = {});
+    void on_function(std::string_view name, Function function, Signature signature = {});
+    // From inside a command's handler: the dialogue stops after the command,
+    // on a HOLD event, until advance().
+    void hold() { _hold = true; }
+    void bind(std::string_view name, Binding binding);
+    [[nodiscard]] bool bound(std::string_view name) const;
+
+    // Every function the script calls, every command it runs (the first word,
+    // as written), once each, in the order they are first met.
+    [[nodiscard]] std::vector<std::string> functions_called() const;
+    [[nodiscard]] std::vector<std::string> commands_run() const;
+    [[nodiscard]] bool has_function(std::string_view name) const;
+    [[nodiscard]] std::optional<Signature> signature(std::string_view name) const;
 
     [[nodiscard]] Value variable(std::string_view name) const; // smart ones computed
     void set_variable(std::string_view name, Value value);
@@ -400,9 +431,21 @@ private:
     std::vector<OptionEvent> _options;
     std::vector<Candidate> _candidates;
     std::map<std::string, Value> _vars;
-    std::map<std::string, rmp::Callback<std::span<const std::string>>, std::less<>>
-        _commands;
-    std::map<std::string, Function, std::less<>> _functions;
+    struct Command {
+        Handler handler;
+        Signature signature;
+    };
+    struct Registered {
+        Function function;
+        Signature signature;
+    };
+    bool fits(const std::string &name, const Signature &s, std::span<const Value> args);
+    bool command_fits(const std::string &name, const Signature &s,
+                      std::span<const std::string> words);
+    std::map<std::string, Command, std::less<>> _commands;
+    std::map<std::string, Registered, std::less<>> _functions;
+    std::map<std::string, Binding, std::less<>> _bound;
+    bool _hold = false;
     Event _event;
     int _fallthrough = 0;
     bool _waiting = false;

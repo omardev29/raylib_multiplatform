@@ -20,6 +20,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <cstdlib>
 #include <map>
 #include <string>
@@ -37,6 +38,13 @@ struct DialogueState {
     DialogueLine line;
     std::vector<DialogueOption> options;
     std::string command;
+    // A command's wait: until `until` says done, or `seconds` have gone.
+    rmp::Callback<bool &> until;
+    bool has_until = false;
+    float seconds = -1;
+    std::uint64_t asked = 0; // the frame waiting() last counted
+    std::size_t faults_said = 0; // of the machine's errors, how many reported
+    bool in_command = false; // a handler of ours is running: wait() may hold
 };
 
 } // namespace detail
@@ -142,8 +150,23 @@ std::vector<std::string> tags_of(const yarn::Program &program, const std::string
 
 // The machine's event, turned into the game's words: once per event, so a
 // presenter asking every frame does not translate every frame.
+void say_faults(detail::DialogueState &s) {
+    const std::vector<std::string> &faults = s.machine.errors();
+    for (; s.faults_said < faults.size(); ++s.faults_said) {
+        const std::string &f = faults[s.faults_said];
+        s.errors.push_back(f);
+        // A mistake in the game's script or its registrations, met as it runs.
+        RMP_REPORT_ONCE_KEYED(std::string_view(f), "DIALOGUE: %s", f.c_str());
+    }
+}
+
 void refresh(detail::DialogueState &s) {
+    say_faults(s);
     const yarn::Event &e = s.machine.event();
+    if (e.is == yarn::Event::Is::HOLD && e.seconds >= 0 && !s.has_until) {
+        s.seconds = e.seconds; // <<wait 2>>
+        s.asked = 0;
+    }
     s.line = {};
     s.options.clear();
     s.command.clear();
@@ -177,6 +200,40 @@ void refresh(detail::DialogueState &s) {
             break;
         default:
             break;
+    }
+}
+
+std::optional<yarn::Kind> kind_of(detail::DialogueType t) {
+    switch (t) {
+        case detail::DialogueType::NUMBER:
+            return yarn::Kind::NUMBER;
+        case detail::DialogueType::STRING:
+            return yarn::Kind::STRING;
+        case detail::DialogueType::BOOL:
+            return yarn::Kind::BOOL;
+        case detail::DialogueType::ANY:
+            break;
+    }
+    return std::nullopt;
+}
+
+yarn::Signature machine_signature(const std::optional<detail::DialogueSignature> &s) {
+    yarn::Signature out;
+    if (!s) return out;
+    out.arity = static_cast<int>(s->params.size());
+    for (const detail::DialogueType t : s->params) out.params.push_back(kind_of(t));
+    return out;
+}
+
+// What start() says before anything runs: a function the script calls that
+// nothing registered would otherwise be found at the line that calls it.
+void check_functions(const yarn::Machine &m) {
+    for (const std::string &f : m.functions_called()) {
+        if (yarn::is_builtin_function(f) || m.has_function(f)) continue;
+        RMP_REPORT_ONCE_KEYED(std::string_view(f),
+                              "DIALOGUE: the script calls %s(), and nothing registered it: "
+                              "on_function(\"%s\", ...) before start()",
+                              f.c_str(), f.c_str());
     }
 }
 
@@ -267,6 +324,9 @@ bool Dialogue::has_node(std::string_view node) const {
 
 bool Dialogue::start(std::string_view node) {
     if (!loaded()) return false;
+    check_functions(_state->machine);
+    _state->has_until = false;
+    _state->seconds = -1;
     const bool ok = _state->machine.start(node);
     if (!ok) {
         RMP_REPORT_ONCE_KEYED(node,
@@ -319,6 +379,8 @@ std::string_view Dialogue::command() const {
 
 void Dialogue::advance() {
     if (!running()) return;
+    _state->has_until = false;
+    _state->seconds = -1;
     _state->machine.advance();
     refresh(*_state);
 }
@@ -329,28 +391,89 @@ void Dialogue::choose(int index) {
     refresh(*_state);
 }
 
-void Dialogue::on_command(std::string_view name,
-                          rmp::Callback<std::span<const std::string>> handler) {
-    if (_state) _state->machine.on_command(name, std::move(handler));
+void Dialogue::raw_command(std::string_view name,
+                           rmp::Callback<std::span<const std::string>> handler,
+                           std::optional<detail::DialogueSignature> signature) {
+    if (!_state) return;
+    auto shared =
+        std::make_shared<rmp::Callback<std::span<const std::string>>>(std::move(handler));
+    detail::DialogueState *state = _state.get();
+    _state->machine.on_command(
+        name,
+        [shared, state](std::span<const std::string> words) {
+            state->in_command = true;
+            (*shared)(words);
+            state->in_command = false;
+        },
+        machine_signature(signature));
 }
 
-void Dialogue::on_function(
+void Dialogue::raw_function(
     std::string_view name,
-    rmp::Callback<DialogueValue &, std::span<const DialogueValue>> function) {
+    rmp::Callback<DialogueValue &, std::span<const DialogueValue>> function,
+    std::optional<detail::DialogueSignature> signature) {
     if (!_state) return;
     // The game's function in the game's types, around the machine's.
     auto shared =
         std::make_shared<rmp::Callback<DialogueValue &, std::span<const DialogueValue>>>(
             std::move(function));
     _state->machine.on_function(
-        name, [shared](yarn::Value &out, std::span<const yarn::Value> args) {
+        name,
+        [shared](yarn::Value &out, std::span<const yarn::Value> args) {
             std::vector<DialogueValue> in;
             in.reserve(args.size());
             for (const yarn::Value &a : args) in.push_back(from_yarn(a));
             DialogueValue result;
             (*shared)(result, in);
             out = to_yarn(result);
-        });
+        },
+        machine_signature(signature));
+}
+
+void Dialogue::wait(float seconds) {
+    if (!_state) return;
+    if (!_state->in_command) {
+        RMP_REPORT_ONCE("DIALOGUE: wait() is for a command's handler: outside one it "
+                        "waits for nothing");
+        return;
+    }
+    _state->seconds = std::isfinite(seconds) ? std::max(0.0f, seconds) : 0.0f;
+    _state->asked = 0;
+    _state->has_until = false;
+    _state->machine.hold();
+}
+
+void Dialogue::hold_until(rmp::Callback<bool &> done) {
+    if (!_state) return;
+    if (!_state->in_command) {
+        RMP_REPORT_ONCE("DIALOGUE: wait_until() is for a command's handler: outside one "
+                        "it waits for nothing");
+        return;
+    }
+    _state->until = std::move(done);
+    _state->has_until = true;
+    _state->seconds = -1;
+    _state->machine.hold();
+}
+
+bool Dialogue::waiting() {
+    if (!running() || _state->machine.event().is != yarn::Event::Is::HOLD) return false;
+    detail::DialogueState &s = *_state;
+    bool done = false;
+    if (s.has_until) {
+        s.until(done);
+    } else {
+        // Counted once a frame, however often it is asked.
+        const std::uint64_t frame = rmp::app::detail::frame_number();
+        if (frame == 0 || frame != s.asked) {
+            s.asked = frame;
+            s.seconds -= rmp::app::detail::frame_delta();
+        }
+        done = s.seconds <= 0;
+    }
+    if (!done) return true;
+    advance();
+    return waiting();
 }
 
 DialogueValue Dialogue::variable(std::string_view name) const {
@@ -360,6 +483,109 @@ DialogueValue Dialogue::variable(std::string_view name) const {
 
 void Dialogue::set_variable(std::string_view name, const DialogueValue &value) {
     if (_state) _state->machine.set_variable(name, to_yarn(value));
+}
+
+namespace {
+
+DialogueValue::Kind public_kind(yarn::Kind k) {
+    switch (k) {
+        case yarn::Kind::NUMBER:
+            return DialogueValue::Kind::NUMBER;
+        case yarn::Kind::STRING:
+            return DialogueValue::Kind::STRING;
+        case yarn::Kind::BOOL:
+            return DialogueValue::Kind::BOOL;
+    }
+    return DialogueValue::Kind::NUMBER;
+}
+
+std::string_view kind_word(DialogueValue::Kind k) {
+    switch (k) {
+        case DialogueValue::Kind::NUMBER:
+            return "a number";
+        case DialogueValue::Kind::STRING:
+            return "a string";
+        case DialogueValue::Kind::BOOL:
+            return "a bool";
+    }
+    return "a value";
+}
+
+} // namespace
+
+void Dialogue::bind_kind(std::string_view name, DialogueValue::Kind kind,
+                         rmp::Callback<DialogueValue &> get,
+                         rmp::Callback<const DialogueValue &> set) {
+    if (!_state) return;
+    const yarn::Program &p = _state->machine.program();
+    const auto declared = p.initial.find(std::string(name));
+    if (loaded() && declared == p.initial.end()) {
+        RMP_REPORT_ONCE_KEYED(name,
+                              "DIALOGUE: bind(\"%.*s\"): the script does not declare it: "
+                              "<<declare %.*s = ...>> says its type",
+                              static_cast<int>(name.size()), name.data(),
+                              static_cast<int>(name.size()), name.data());
+        return;
+    }
+    if (loaded() && public_kind(declared->second.kind) != kind) {
+        const std::string_view says = kind_word(public_kind(declared->second.kind));
+        const std::string_view given = kind_word(kind);
+        RMP_REPORT_ONCE_KEYED(name,
+                              "DIALOGUE: bind(\"%.*s\"): the script declares %.*s, and the "
+                              "game binds %.*s",
+                              static_cast<int>(name.size()), name.data(),
+                              static_cast<int>(says.size()), says.data(),
+                              static_cast<int>(given.size()), given.data());
+        return;
+    }
+    auto g = std::make_shared<rmp::Callback<DialogueValue &>>(std::move(get));
+    auto st = std::make_shared<rmp::Callback<const DialogueValue &>>(std::move(set));
+    _state->machine.bind(name, yarn::Binding{
+                                   [g](yarn::Value &out) {
+                                       DialogueValue v;
+                                       (*g)(v);
+                                       out = to_yarn(v);
+                                   },
+                                   [st](const yarn::Value &in) { (*st)(from_yarn(in)); },
+                               });
+}
+
+void Dialogue::bind(std::string_view name, int &variable) {
+    bind_kind(
+        name, DialogueValue::Kind::NUMBER, [&variable](DialogueValue &out) { out = variable; },
+        [&variable](const DialogueValue &in) {
+            variable = static_cast<int>(std::lround(in.as_number()));
+        });
+}
+
+void Dialogue::bind(std::string_view name, float &variable) {
+    bind_kind(
+        name, DialogueValue::Kind::NUMBER, [&variable](DialogueValue &out) { out = variable; },
+        [&variable](const DialogueValue &in) { variable = in.as_number(); });
+}
+
+void Dialogue::bind(std::string_view name, bool &variable) {
+    bind_kind(
+        name, DialogueValue::Kind::BOOL, [&variable](DialogueValue &out) { out = variable; },
+        [&variable](const DialogueValue &in) { variable = in.as_bool(); });
+}
+
+void Dialogue::bind(std::string_view name, std::string &variable) {
+    bind_kind(
+        name, DialogueValue::Kind::STRING,
+        [&variable](DialogueValue &out) { out = variable; },
+        [&variable](const DialogueValue &in) { variable = in.as_string(); });
+}
+
+void Dialogue::bind(std::string_view name, rmp::Callback<DialogueValue &> get,
+                    rmp::Callback<const DialogueValue &> set) {
+    if (!_state) return;
+    const yarn::Program &p = _state->machine.program();
+    const auto declared = p.initial.find(std::string(name));
+    const DialogueValue::Kind kind = declared == p.initial.end()
+                                         ? DialogueValue::Kind::NUMBER
+                                         : public_kind(declared->second.kind);
+    bind_kind(name, kind, std::move(get), std::move(set));
 }
 
 int Dialogue::visits(std::string_view node) const {

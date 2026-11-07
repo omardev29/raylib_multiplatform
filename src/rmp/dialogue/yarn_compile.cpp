@@ -1322,4 +1322,10 @@ Compiled compile(std::span<const Source> sources,
     return out;
 }
 
+bool is_builtin_function(std::string_view name) {
+    // The test suite's own (assert, dummy_*) are registered by its runner, as
+    // the official one does: not the language's.
+    return builtins().contains(name) && name != "assert" && !name.starts_with("dummy_");
+}
+
 } // namespace rmp::yarn
