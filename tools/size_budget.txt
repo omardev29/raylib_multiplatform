@@ -32,19 +32,19 @@
 #
 # binary               kind    unpacked    packed
 linux-x64-glibc        elf      1384712    453528  # measured at 46b3c95
-linux-arm64-glibc      elf      1206016    363576  # measured at e2ea300
-linux-riscv64-glibc    elf      1012848    413204  # measured at e2ea300
-linux-x64-musl         elf      1279896    384384  # measured at e2ea300
-linux-x64-glibc-drm    elf       823208    338956  # measured at e2ea300
-linux-arm64-glibc-drm  elf       728808         -  # measured at e2ea300
+linux-arm64-glibc      elf      1271376    415768  # measured at 9bc4418
+linux-riscv64-glibc    elf      1032080    466500  # measured at 9bc4418
+linux-x64-musl         elf      1381440    453108  # measured at 9bc4418
+linux-x64-glibc-drm    elf       955080    386300  # measured at 9bc4418
+linux-arm64-glibc-drm  elf       860984         -  # measured at 9bc4418
 windows-x64            pe       2375168         -  # measured at f6aa958
 windows-arm64          pe       1376768         -  # measured at e2ea300
-macos                  macho    1799352         -  # measured at e2ea300
-freebsd-x64            elf       821240         -  # measured at e2ea300
+macos                  macho    2090696         -  # measured at 9bc4418
+freebsd-x64            elf       991456         -  # measured at 9bc4418
 freebsd-arm64          elf       732080         -  # measured at e2ea300
-openbsd-x64            elf       894640         -  # measured at e2ea300
+openbsd-x64            elf      1083064         -  # measured at 9bc4418
 openbsd-arm64          elf       894848         -  # measured at e2ea300
-netbsd-x64             elf      1004112         -  # measured at e2ea300
+netbsd-x64             elf      1176656         -  # measured at 9bc4418
 web                    wasm      574669         -  # measured at 46b3c95
 android/arm64-v8a      so       1107728         -  # measured at c53a430
 android/armeabi-v7a    so        817720         -  # measured at c53a430
