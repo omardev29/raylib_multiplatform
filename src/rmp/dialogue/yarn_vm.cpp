@@ -11,7 +11,6 @@
 
 #include <algorithm>
 #include <array>
-#include <charconv>
 #include <cmath>
 #include <cstdint>
 #include <cstdlib>
@@ -153,6 +152,39 @@ std::string_view kind_name(Kind k) {
 
 } // namespace
 
+// Whether a command's word is a number as a script writes one: a sign, digits
+// with at most one point between or around them, and an exponent. By hand:
+// a floating-point from_chars is not in every C++ library this builds with
+// (emscripten's, Apple's), and it would bring its tables into every game.
+namespace {
+
+bool is_number_word(std::string_view w) {
+    std::size_t i = 0;
+    if (i < w.size() && (w[i] == '-' || w[i] == '+')) ++i;
+    int digits = 0;
+    bool point = false;
+    for (; i < w.size(); ++i) {
+        if (w[i] >= '0' && w[i] <= '9') {
+            ++digits;
+        } else if (w[i] == '.' && !point) {
+            point = true;
+        } else {
+            break;
+        }
+    }
+    if (digits == 0) return false;
+    if (i < w.size() && (w[i] == 'e' || w[i] == 'E')) {
+        ++i;
+        if (i < w.size() && (w[i] == '-' || w[i] == '+')) ++i;
+        const std::size_t from = i;
+        while (i < w.size() && w[i] >= '0' && w[i] <= '9') ++i;
+        if (i == from) return false;
+    }
+    return i == w.size();
+}
+
+} // namespace
+
 // The same for a command, whose arguments are words: a number must read as
 // one, a bool as true or false.
 bool Machine::command_fits(const std::string &name, const Signature &s,
@@ -168,10 +200,7 @@ bool Machine::command_fits(const std::string &name, const Signature &s,
         const std::string &w = words[k];
         bool ok = true;
         if (*s.params[k] == Kind::NUMBER) {
-            float f = 0;
-            const char *end = w.data() + w.size();
-            const auto r = std::from_chars(w.data(), end, f);
-            ok = !w.empty() && r.ec == std::errc{} && r.ptr == end;
+            ok = is_number_word(w);
         } else if (*s.params[k] == Kind::BOOL) {
             ok = w == "true" || w == "false" || w == "True" || w == "False";
         }

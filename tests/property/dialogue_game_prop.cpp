@@ -83,8 +83,8 @@ TEST_SUITE("property: dialogue and the game's C++") {
     TEST_CASE("a typed call is made with its own count and kinds, or not at all") {
         rmp::test::check("any arguments to a typed function and command", [] {
             quiet();
-            const auto args = *rc::gen::resize(4, rc::gen::container<std::vector<std::string>>(
-                                                       argument()));
+            const auto args = *rc::gen::resize(
+                4, rc::gen::container<std::vector<std::string>>(argument()));
             const auto words =
                 *rc::gen::resize(4, rc::gen::container<std::vector<std::string>>(word()));
             const std::string source =
@@ -127,7 +127,8 @@ TEST_SUITE("property: dialogue and the game's C++") {
                 "title: Start\n---\n<<declare $i = 0>>\n<<declare $f = 0>>\n"
                 "<<declare $b = false>>\n<<declare $s = \"\">>\n<<declare $h = 0>>\n"
                 "<<set $i = $i + 1>>\n<<set $f = $f * 2>>\n<<set $b = !$b>>\n"
-                "<<set $s = $s + \"x\">>\n<<set $h = $h + 1>>\n{$i} {$f} {$b} {$s}\n===\n");
+                "<<set $s = $s + \"x\">>\n<<set $h = $h + 1>>\n{$i} {$f} {$b} "
+                "{$s}\n===\n");
             RC_ASSERT(d.loaded());
             d.bind("$i", i);
             d.bind("$f", f);
@@ -160,7 +161,8 @@ TEST_SUITE("property: dialogue and the game's C++") {
             RC_ASSERT(d.loaded());
             int frame = 0;
             d.on_command("hold", [&] { d.wait(seconds); });
-            d.on_command("until", [&] { d.wait_until([&] { return frame >= ready_at; }); });
+            d.on_command("until",
+                         [&] { d.wait_until([&] { return frame >= ready_at; }); });
             d.wait(seconds); // outside a command: said, and nothing
             d.start();
             // No runner steps here: with a fixed delta each ask is a frame of
@@ -176,24 +178,29 @@ TEST_SUITE("property: dialogue and the game's C++") {
         rmp::app::detail::set_fixed_delta(0);
     }
 
-    TEST_CASE("the stage shakes and flashes by any amount; a presenter of one's own runs") {
+    TEST_CASE(
+        "the stage shakes and flashes by any amount; a presenter of one's own runs") {
         rmp::ui::detail::set_test_viewport(800, 450);
         rmp::ui::detail::set_test_frame_time(1.0f / 30);
         rmp::app::detail::set_fixed_delta(1.0f / 30); // for the <<wait>>
         rmp::test::check("any shake, any flash, any script", [] {
             quiet();
-            rmp::Dialogue d = dd::compile_text(
-                "title: Start\n---\nMika: One [wave]two[/wave].\nSora: Three.\n-> A\n    a\n"
-                "-> B <<if false>>\n    b\n<<wait 0.05>>\nEnd.\n===\n");
+            rmp::Dialogue d =
+                dd::compile_text("title: Start\n---\nMika: One [wave]two[/wave].\nSora: "
+                                 "Three.\n-> A\n    a\n"
+                                 "-> B <<if false>>\n    b\n<<wait 0.05>>\nEnd.\n===\n");
             RC_ASSERT(d.loaded());
             d.start();
-            rmp::ui::DialogueStage stage{ .flow = { .auto_advance = 0.01f,
-                                                    .choice_seconds = 0.05f },
-                                          .enter_seconds = *rmp::test::gen::hostile_float(),
-                                          .focus_seconds = *rmp::test::gen::hostile_float() };
-            stage.shake(*rmp::test::gen::hostile_float(), *rmp::test::gen::hostile_float());
+            rmp::ui::DialogueStage stage{
+                .flow = { .auto_advance = 0.01f, .choice_seconds = 0.05f },
+                .enter_seconds = *rmp::test::gen::hostile_float(),
+                .focus_seconds = *rmp::test::gen::hostile_float()
+            };
+            stage.shake(*rmp::test::gen::hostile_float(),
+                        *rmp::test::gen::hostile_float());
             stage.flash(Color{ 1, 2, 3, 200 }, *rmp::test::gen::hostile_float());
-            rmp::Dialogue own = dd::compile_text("title: Start\n---\nHi.\n-> A\n    a\n===\n");
+            rmp::Dialogue own =
+                dd::compile_text("title: Start\n---\nHi.\n-> A\n    a\n===\n");
             own.start();
             rmp::ui::DialogueMemory memory;
             const rmp::ui::DialogueFlow flow{ .letters_per_second =

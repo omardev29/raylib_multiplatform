@@ -141,6 +141,26 @@ TEST_SUITE("dialogue: the game's C++") {
             "<<walk>> takes 3 words after its name, and the script gives it 1"));
     }
 
+    TEST_CASE("a command's number is any number a script writes, and nothing else") {
+        Listening listening;
+        int ran = 0;
+        for (const char *word : { "2", "-2.5", "+.5", "3.", "1e3", "2.5E-2" }) {
+            rmp::Dialogue d =
+                script(std::string("title: Start\n---\n<<n ") + word + ">>\n===\n");
+            d.on_command("n", [&](float) { ++ran; });
+            d.start();
+        }
+        CHECK(ran == 6);
+        for (const char *word :
+             { ".", "-", "1e", "1.2.3", "0x10", "nan", "inf", "2,5" }) {
+            rmp::Dialogue d =
+                script(std::string("title: Start\n---\n<<n ") + word + ">>\n===\n");
+            d.on_command("n", [&](float) { ++ran; });
+            d.start();
+        }
+        CHECK(ran == 6);
+    }
+
     TEST_CASE("a command waits until the game says it is done") {
         rmp::Dialogue d = script("title: Start\n---\n<<walk door>>\nArrived.\n===\n");
         bool arrived = false;
