@@ -2463,7 +2463,7 @@ class ConfigureWindowPacingTest(unittest.TestCase):
 
     def test_app_cpp_uses_both_in_the_right_order_and_never_on_the_web(self):
         text = (REPO / "src" / "rmp" / "app.cpp").read_text()
-        start = text.index("void start(std::unique_ptr<rmp::Scene> first) {")
+        start = text.index("void open_window() {")
         body = text[start:text.index("\n}\n", start)]
         self.assertIn("RMP_WINDOW_VSYNC", body)
         self.assertIn("FLAG_VSYNC_HINT", body)
@@ -2659,14 +2659,14 @@ class TestWindowOnlyUnderTheSmokeTest(unittest.TestCase):
     boot a [window] stretch on a screen of another shape -- and nothing but
     the smoke test may: a player whose environment happens to hold it gets the
     window the .toml asked for. What it may hold is pinned in
-    tests/stretch_test.cpp; this holds start() to asking only under
+    tests/stretch_test.cpp; this holds open_window() to asking only under
     RAY_TEST_MAX_FRAMES, before InitWindow(), with what it read, and to a
     boot that fails -- not one at the design size -- on a value it cannot read."""
 
     @staticmethod
     def problems(app: str) -> list[str]:
         out = []
-        start = app.index("void start(std::unique_ptr<rmp::Scene> first) {")
+        start = app.index("void open_window() {")
         body = app[start:app.index("\n}\n", start)]
         guard = body.find("if (SmokeTest_maxFrames > 0) {")
         read = body.find("std::getenv(\"RAY_TEST_WINDOW\")")
