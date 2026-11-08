@@ -8,6 +8,7 @@
 #include "doctest.h"
 
 #include "../src/rmp/dialogue/dialogue_internal.h"
+#include "../src/rmp/dialogue/yarn.h"
 #include "../src/rmp/internal.h"
 
 #include <rmp/app.h>
@@ -320,5 +321,35 @@ TEST_SUITE("dialogue: the game's C++") {
         REQUIRE(d.start());
         CHECK(logged == std::vector<std::string>{ "a", "b", "c" });
         CHECK(d.line().text == "3");
+    }
+    // What `rmp_yarnc --check` lists for `rmp yarn check`: each name once,
+    // from the lines, the conditions and the smart variables alike.
+    TEST_CASE("a program names the functions it calls and the commands it runs") {
+        const std::vector<rmp::yarn::Source> sources{ { "s.yarn", R"(title: Start
+when: has_key()
+---
+<<declare $near = is_near("door") && visited("Start")>>
+<<walk Mika  door>>
+<<walk Kai there>>
+<<   shout>>
+<<if has_item("map")>>
+    Map: {round(price("map"))}
+<<endif>>
+===
+)" } };
+        const rmp::yarn::Compiled c = rmp::yarn::compile(sources);
+        REQUIRE(c.ok());
+        std::vector<std::string> called = rmp::yarn::functions_called(c.program);
+        std::ranges::sort(called);
+        CHECK(called ==
+              std::vector<std::string>{ "has_item", "has_key", "is_near", "price",
+                                        "round", "visited" });
+        CHECK(rmp::yarn::commands_run(c.program) ==
+              std::vector<std::string>{ "walk", "shout" });
+        CHECK(rmp::yarn::is_builtin_function("round"));
+        CHECK(rmp::yarn::is_builtin_function("visited"));
+        CHECK_FALSE(rmp::yarn::is_builtin_function("has_item"));
+        CHECK_FALSE(rmp::yarn::is_builtin_function("assert"));
+        CHECK_FALSE(rmp::yarn::is_builtin_function("dummy_bool"));
     }
 }

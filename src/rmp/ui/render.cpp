@@ -516,11 +516,13 @@ void draw(Clay_RenderCommandArray commands) {
             case CLAY_RENDER_COMMAND_TYPE_CUSTOM:
                 // A bubble's tail, or rich_text()'s letters, where rich.cpp
                 // laid them out.
+                // RMP_COVERAGE_OFF(on the GPU: tests/ui_render_test.cpp draws a tail and rich text)
                 if (const auto tail = tail_record(cmd)) {
                     draw_tail(cmd.boundingBox, faded(tail->color, alpha));
                 } else {
                     draw_rich(cmd, alpha);
                 }
+                // RMP_COVERAGE_ON
                 break;
 
             case CLAY_RENDER_COMMAND_TYPE_SCISSOR_START: {
