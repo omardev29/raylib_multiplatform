@@ -45,8 +45,6 @@
 // covers: rmp::Dialogue::load(const rmp::Value &)
 // covers: rmp::Dialogue::loaded() const
 // covers: rmp::Dialogue::node() const
-// covers: rmp::Dialogue::on_command(std::string_view, rmp::Callback<std::span<const std::string>>)
-// covers: rmp::Dialogue::on_function(std::string_view, rmp::Callback<DialogueValue &, std::span<const DialogueValue>>)
 // covers: rmp::Dialogue::operator=(Dialogue &&)
 // covers: rmp::Dialogue::options() const
 // covers: rmp::Dialogue::running() const
