@@ -1350,13 +1350,13 @@ struct Speaker {
 };
 
 // Which side of the box a portrait sits on.
-enum class DialogueSide : std::uint8_t {
+enum class DialogueSide {
     LEFT, // before the line
     RIGHT, // after it
 };
 
 // Where a box puts the choices.
-enum class DialogueChoices : std::uint8_t {
+enum class DialogueChoices {
     IN_BOX, // in the box, in place of the line
     ABOVE, // in a panel of their own above the box, at its right
     CENTER, // in a panel in the middle of the screen
