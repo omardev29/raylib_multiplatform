@@ -94,7 +94,7 @@ TEST_SUITE("property: dialogue and the game's C++") {
             if (!d.loaded()) return; // the type checker refused it: also an answer
             int calls = 0;
             int commands = 0;
-            d.on_function("f", [&](float a, std::string b) -> std::string {
+            d.on_function("f", [&](float a, const std::string &b) -> std::string {
                 ++calls;
                 RC_ASSERT(std::isfinite(a) || std::isinf(a) || std::isnan(a));
                 return b + "!";

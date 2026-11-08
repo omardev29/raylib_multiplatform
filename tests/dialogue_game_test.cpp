@@ -18,6 +18,7 @@
 #include <algorithm>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 namespace {
@@ -68,7 +69,7 @@ TEST_SUITE("dialogue: the game's C++") {
         std::string asked;
         int count = 0;
         d.on_function("has_item", [&](std::string item, int n) -> bool {
-            asked = item;
+            asked = std::move(item);
             count = n;
             return true;
         });
@@ -88,7 +89,7 @@ TEST_SUITE("dialogue: the game's C++") {
     }
 
     TEST_CASE("a call with the wrong count or kind is a mistake, never a call") {
-        Listening listening;
+        const Listening listening;
         int calls = 0;
         const auto twice = [&](float v) -> float {
             ++calls;
@@ -110,7 +111,7 @@ TEST_SUITE("dialogue: the game's C++") {
     }
 
     TEST_CASE("start() says which function nobody registered, before any line") {
-        Listening listening;
+        const Listening listening;
         rmp::Dialogue d = script("title: Start\n---\nHello.\n<<if late()>>\nLate.\n"
                                  "<<endif>>\n{round(2.4)}\n===\n");
         REQUIRE(d.start());
@@ -121,13 +122,13 @@ TEST_SUITE("dialogue: the game's C++") {
     }
 
     TEST_CASE("a typed command gets its words, and refuses the wrong ones") {
-        Listening listening;
+        const Listening listening;
         rmp::Dialogue d =
             script("title: Start\n---\n<<walk Mika 2.5 true>>\n"
                    "<<walk Mika fast true>>\n<<walk Mika>>\n<<shake>>\nEnd.\n===\n");
         std::vector<std::string> walks;
         int shakes = 0;
-        d.on_command("walk", [&](std::string who, float speed, bool run) {
+        d.on_command("walk", [&](const std::string &who, float speed, bool run) {
             walks.push_back(who + " " + std::to_string(static_cast<int>(speed * 10)) +
                             (run ? " run" : " walk"));
         });
@@ -143,19 +144,20 @@ TEST_SUITE("dialogue: the game's C++") {
     }
 
     TEST_CASE("a command's number is any number a script writes, and nothing else") {
-        Listening listening;
+        const Listening listening;
         int ran = 0;
-        for (const char *word : { "2", "-2.5", "+.5", "3.", "1e3", "2.5E-2" }) {
-            rmp::Dialogue d =
-                script(std::string("title: Start\n---\n<<n ") + word + ">>\n===\n");
+        for (const std::string_view word :
+             { "2", "-2.5", "+.5", "3.", "1e3", "2.5E-2" }) {
+            rmp::Dialogue d = script(
+                std::string("title: Start\n---\n<<n ").append(word).append(">>\n===\n"));
             d.on_command("n", [&](float) { ++ran; });
             d.start();
         }
         CHECK(ran == 6);
-        for (const char *word :
+        for (const std::string_view word :
              { ".", "-", "1e", "1.2.3", "0x10", "nan", "inf", "2,5" }) {
-            rmp::Dialogue d =
-                script(std::string("title: Start\n---\n<<n ") + word + ">>\n===\n");
+            rmp::Dialogue d = script(
+                std::string("title: Start\n---\n<<n ").append(word).append(">>\n===\n"));
             d.on_command("n", [&](float) { ++ran; });
             d.start();
         }
@@ -167,7 +169,7 @@ TEST_SUITE("dialogue: the game's C++") {
         bool arrived = false;
         std::string where;
         d.on_command("walk", [&](std::string to) {
-            where = to;
+            where = std::move(to);
             d.wait_until([&] { return arrived; });
         });
         REQUIRE(d.start());
@@ -224,7 +226,7 @@ TEST_SUITE("dialogue: the game's C++") {
     }
 
     TEST_CASE("wait() outside a command waits for nothing, and says so") {
-        Listening listening;
+        const Listening listening;
         rmp::Dialogue d = script("title: Start\n---\nHi.\n===\n");
         REQUIRE(d.start());
         d.wait(2);
@@ -292,7 +294,7 @@ TEST_SUITE("dialogue: the game's C++") {
     }
 
     TEST_CASE("a binding the script does not declare, or of another type, is refused") {
-        Listening listening;
+        const Listening listening;
         rmp::Dialogue d =
             script("title: Start\n---\n<<declare $gold = 0>>\n{$gold}\n===\n");
         bool wrong = true;

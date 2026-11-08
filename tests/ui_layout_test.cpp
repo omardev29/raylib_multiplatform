@@ -3403,7 +3403,7 @@ void show_frame(const rmp::Callback<> &body) {
     rmp::ui::end();
 }
 
-bool has_element(const char *label) {
+bool has_element(std::string_view label) {
     Clay_BoundingBox b{};
     return rmp::ui::detail::bounds_of(label, 0, 0, &b);
 }
@@ -3485,7 +3485,12 @@ void run_dialogue_pro() {
             width = box_of("dialogue_next").x + box_of("dialogue_next").w;
             return line.x;
         };
-        float y_left = 0, y_float = 0, p_left = 0, p_right = 0, w = 0, w2 = 0;
+        float y_left = 0;
+        float y_float = 0;
+        float p_left = 0;
+        float p_right = 0;
+        float w = 0;
+        float w2 = 0;
         const float left = line_x(rmp::ui::DialogueSide::LEFT, {}, y_left, p_left, w);
         const float right = line_x(rmp::ui::DialogueSide::RIGHT, {}, y_left, p_right, w2);
         check(p_left < left, "a LEFT portrait sits before the line");
@@ -3495,7 +3500,9 @@ void run_dialogue_pro() {
         float y_plain = 0;
         (void)line_x(rmp::ui::DialogueSide::LEFT, {}, y_plain, p_left, w);
         check(y_float < y_plain, "a name plate on the frame leaves the line its room");
-        float y_wide = 0, p_wide = 0, w_wide = 0;
+        float y_wide = 0;
+        float p_wide = 0;
+        float w_wide = 0;
         box_width = 0;
         (void)line_x(rmp::ui::DialogueSide::LEFT, {}, y_wide, p_wide, w_wide);
         check(w < w_wide && w > 0, "a box of a width is narrower");
@@ -3546,7 +3553,7 @@ void run_dialogue_pro() {
     // A bubble's tail: under the bubble, pointing at the speaker, its colour.
     {
         rmp::Scene room;
-        rmp::Object &npc = room.spawn({ .position = Vector2{ 400, 300 } });
+        const rmp::Object &npc = room.spawn({ .position = Vector2{ 400, 300 } });
         rmp::Dialogue d = dd::compile_text("title: Start\n---\nNpc: Over here.\n===\n");
         d.start();
         rmp::ui::DialogueBubble bubble{

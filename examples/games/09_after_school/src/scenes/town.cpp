@@ -91,11 +91,11 @@ void prepare(rmp::Dialogue &talk, TownScene &scene) {
     talk.bind("$met_kai", s.met_kai);
     talk.bind("$raced", s.raced);
     // Whether you carry the item: "flyer" is the only one in town.
-    talk.on_function("has_item", [](std::string item) -> bool {
+    talk.on_function("has_item", [](const std::string &item) -> bool {
         return item == "flyer" && story().flyer;
     });
     // Walks a person to one of the map's places; the dialogue waits for them.
-    talk.on_command("walk", [&talk](std::string who, std::string where) {
+    talk.on_command("walk", [&talk](const std::string &who, const std::string &where) {
         const auto person = town().people.find(who);
         const auto place = town().places.find(where);
         if (person == town().people.end() || place == town().places.end()) return;

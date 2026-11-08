@@ -1317,7 +1317,7 @@ TEST_CASE_FIXTURE(Fixture, "Talker: on_load comes once, before the first line") 
     const std::vector<rmp::dialogue::detail::Embedded> table{ { "bound.yarn", bytes } };
     rmp::dialogue::detail::set_embedded(table);
     World world;
-    rmp::Object &hero = box(world, { 0, 0 }, { 10, 10 });
+    const rmp::Object &hero = box(world, { 0, 0 }, { 10, 10 });
     rmp::Object &npc = box(world, { 10, 0 }, { 10, 10 });
     int gold = 7;
     int loads = 0;

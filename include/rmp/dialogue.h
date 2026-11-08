@@ -150,14 +150,14 @@ struct DialogueSignature {
 
 template <class T> constexpr DialogueType dialogue_type() {
     using U = std::remove_cvref_t<T>;
-    if constexpr (std::is_same_v<U, bool>)
+    if constexpr (std::is_same_v<U, bool>) {
         return DialogueType::BOOL;
-    else if constexpr (std::is_arithmetic_v<U>)
+    } else if constexpr (std::is_arithmetic_v<U>) {
         return DialogueType::NUMBER;
-    else if constexpr (std::is_same_v<U, std::string> ||
-                       std::is_same_v<U, std::string_view>)
+    } else if constexpr (std::is_same_v<U, std::string> ||
+                         std::is_same_v<U, std::string_view>) {
         return DialogueType::STRING;
-    else {
+    } else {
         static_assert(std::is_same_v<U, DialogueValue>,
                       "a Yarn function or command takes numbers, bools, std::string, "
                       "std::string_view or rmp::DialogueValue");
@@ -369,11 +369,11 @@ public:
 private:
     void raw_command(std::string_view name,
                      rmp::Callback<std::span<const std::string>> handler,
-                     std::optional<detail::DialogueSignature> signature);
+                     const std::optional<detail::DialogueSignature> &signature);
     void
     raw_function(std::string_view name,
                  rmp::Callback<DialogueValue &, std::span<const DialogueValue>> function,
-                 std::optional<detail::DialogueSignature> signature);
+                 const std::optional<detail::DialogueSignature> &signature);
     void hold_until(rmp::Callback<bool &> done);
     void bind_kind(std::string_view name, DialogueValue::Kind kind,
                    rmp::Callback<DialogueValue &> get,

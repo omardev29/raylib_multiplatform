@@ -394,17 +394,17 @@ void Dialogue::choose(int index) {
 
 void Dialogue::raw_command(std::string_view name,
                            rmp::Callback<std::span<const std::string>> handler,
-                           std::optional<detail::DialogueSignature> signature) {
+                           const std::optional<detail::DialogueSignature> &signature) {
     if (!_state) return;
     auto shared =
         std::make_shared<rmp::Callback<std::span<const std::string>>>(std::move(handler));
-    detail::DialogueState *state = _state.get();
+    detail::DialogueState &state = *_state;
     _state->machine.on_command(
         name,
-        [shared, state](std::span<const std::string> words) {
-            state->in_command = true;
+        [shared, &state](std::span<const std::string> words) {
+            state.in_command = true;
             (*shared)(words);
-            state->in_command = false;
+            state.in_command = false;
         },
         machine_signature(signature));
 }
@@ -412,7 +412,7 @@ void Dialogue::raw_command(std::string_view name,
 void Dialogue::raw_function(
     std::string_view name,
     rmp::Callback<DialogueValue &, std::span<const DialogueValue>> function,
-    std::optional<detail::DialogueSignature> signature) {
+    const std::optional<detail::DialogueSignature> &signature) {
     if (!_state) return;
     // The game's function in the game's types, around the machine's.
     auto shared =

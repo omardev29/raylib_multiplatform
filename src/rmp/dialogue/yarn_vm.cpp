@@ -196,18 +196,21 @@ bool Machine::command_fits(const std::string &name, const Signature &s,
         return false;
     }
     for (std::size_t k = 0; k < words.size() && k < s.params.size(); ++k) {
-        if (!s.params[k]) continue;
+        const std::optional<Kind> want = s.params[k];
+        if (!want) continue;
         const std::string &w = words[k];
         bool ok = true;
-        if (*s.params[k] == Kind::NUMBER) {
+        if (*want == Kind::NUMBER) {
             ok = is_number_word(w);
-        } else if (*s.params[k] == Kind::BOOL) {
+        } else if (*want == Kind::BOOL) {
             ok = w == "true" || w == "false" || w == "True" || w == "False";
         }
         if (!ok) {
-            fault("<<" + name + ">>'s word " + std::to_string(k + 1) + " is " +
-                  std::string(kind_name(*s.params[k])) + ", and the script gives it '" +
-                  w + "'");
+            std::string said = "<<" + name;
+            said += ">>'s word " + std::to_string(k + 1) + " is ";
+            said += kind_name(*want);
+            said += ", and the script gives it '" + w + "'";
+            fault(said);
             return false;
         }
     }
@@ -224,9 +227,10 @@ bool Machine::fits(const std::string &name, const Signature &s,
         return false;
     }
     for (std::size_t k = 0; k < args.size() && k < s.params.size(); ++k) {
-        if (s.params[k] && *s.params[k] != args[k].kind) {
+        const std::optional<Kind> want = s.params[k];
+        if (want && *want != args[k].kind) {
             fault(name + "'s argument " + std::to_string(k + 1) + " is " +
-                  std::string(kind_name(*s.params[k])) + ", and the script gives it " +
+                  std::string(kind_name(*want)) + ", and the script gives it " +
                   std::string(kind_name(args[k].kind)));
             return false;
         }
