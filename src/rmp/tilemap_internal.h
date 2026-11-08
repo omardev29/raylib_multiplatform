@@ -249,9 +249,15 @@ Rectangle tile_source(const MapData *data, int gid);
 // nothing to be taller than the grid.
 Vector2 tile_origin(const MapData *data, int gid, int column, int row);
 
-// The file name of a path: the asset layer works in names, and both editors
-// write paths relative to the map.
+// The file name of a path: the last part, after any '/' or '\\'.
 const char *file_name_of(const char *path);
+
+// The resource a map names: both editors write paths relative to the map, so
+// `path` is read from the folder `map` is in -- "maps/town.ldtk" and
+// "../tiles/town.png" are "tiles/town.png" -- when that is a file in
+// resources/; otherwise its file name at the top of resources/, where a map's
+// files were kept before there were folders. "" for no path.
+std::string next_to(std::string_view map, const char *path);
 
 // A tileset image that did not become a texture, said as what it is: not in
 // resources/, or there and not loadable. `map` names an LDtk project in the

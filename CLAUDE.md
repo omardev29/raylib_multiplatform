@@ -449,6 +449,18 @@ here so that nobody "fixes" one back.
   opened (at namespace scope, in a global's constructor) has nothing to draw:
   `open_window()` names the first one through `RMP_REPORT_ONCE`, and a run that
   never opens a window -- every unit test -- never hears it.
+- **Things live in folders by what they are** (Omar, 2026-11-08). `src/rmp/`
+  has a folder per module, named like its header (`app/`, `scene/`,
+  `assets/`, `ui/`, `dialogue/`, ...), with only `internal.h`, which they all
+  share, at the top; `include/rmp/` stays one header per module. A game's
+  `resources/` is kept in folders by kind -- `sprites/`, `maps/`, `audio/`,
+  `fonts/`, `dialogue/`, `locale/` and so on -- and every loader takes the
+  path below `resources/`, written with `/`, the same on every target: loose
+  in development, in the pack a release ships (`tools/rres_pack.c` runs
+  inside `resources/` and stores each file under that path), on the web,
+  Android and iOS; a map's tilesets and external levels are read from the
+  map's own folder. The examples keep the `resources/` they have for now
+  (Omar, 2026-11-08); `tests/` stays as it is.
 - **`src/main.cpp` is a dozen lines and ends at `RMP_GAME(MainMenuScene);`**
   -- phase 4 did that, and it stays that way. The user's game lives in
   `src/scenes/` and `src/objects/`; new mechanics go to `examples/`, never here.

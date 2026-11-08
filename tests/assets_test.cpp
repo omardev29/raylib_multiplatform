@@ -39,6 +39,7 @@
 
 #include "../src/rmp/internal.h"
 #include "../src/rmp/pack_internal.h"
+#include "../src/rmp/tilemap_internal.h"
 #include "pack_writer.h"
 
 #include <rmp/assets.h>
@@ -257,15 +258,24 @@ TEST_SUITE("assets: loader hook") {
     }
 
     TEST_CASE(
-        "and nothing below the folder, nothing outside it, and not the folder itself") {
-        // It used to claim every path that STARTED with the folder: the pack
-        // is flat, so "resources/sub/player.png" -- shipped beside the pack --
-        // was answered with the packed player.png, a different picture, and
-        // "resources/../saves/level1.json" with the packed level1.json.
+        "below the folder by its own path, nothing outside it, not the folder itself") {
+        // It used to claim every path that STARTED with the folder, by its
+        // file name: "resources/sub/player.png" was answered with the packed
+        // player.png, a different picture, and "resources/../saves/level1.json"
+        // with the packed level1.json. A file below the folder is its path
+        // below it, the name the packer stores it under.
         const AtRoot at("resources/");
         using rmp::assets::detail::in_resources_dir;
+        namespace rres = rmp::assets::detail::rres;
 
-        CHECK_FALSE(in_resources_dir("resources/sub/player.png"));
+        CHECK(in_resources_dir("resources/sub/player.png"));
+        CHECK(rres::packed_name("resources/", "resources/sub/player.png") ==
+              "sub/player.png");
+        CHECK(rres::packed_name("resources/", "./resources/sub/../a/b/c.png") ==
+              "a/b/c.png");
+        CHECK(rres::packed_name("resources/", "resources/sub//player.png") ==
+              "sub/player.png");
+        CHECK_FALSE(in_resources_dir("resources/sub/"));
         CHECK_FALSE(in_resources_dir("resources/../saves/level1.json"));
         CHECK_FALSE(in_resources_dir("resources/"));
         CHECK_FALSE(in_resources_dir("resources"));
@@ -286,7 +296,7 @@ TEST_SUITE("assets: loader hook") {
         CHECK_FALSE(in_resources_dir("/game/player.png"));
     }
 
-    TEST_CASE("an EMPTY resources root claims bare file names and nothing else") {
+    TEST_CASE("an EMPTY resources root claims relative paths and nothing else") {
         // Android sets RMP_RESOURCES_PATH to "": every asset sits at the root of the
         // APK's assets/, which is also where the pack goes. An empty prefix used
         // to match every path in the filesystem -- the loop comparing it ran zero
@@ -299,18 +309,40 @@ TEST_SUITE("assets: loader hook") {
 
         CHECK(in_resources_dir("player.png"));
         CHECK(in_resources_dir("save.json"));
-        // A directory separator of either kind means it is somebody else's file.
+        // An absolute path is somebody else's file; a relative one is a file
+        // of assets/, in a folder or not.
         CHECK_FALSE(in_resources_dir("/data/user/0/com.example.game/files/save.json"));
-        CHECK_FALSE(in_resources_dir("files/save.json"));
-#if defined(_WIN32)
-        CHECK_FALSE(in_resources_dir("sub\\save.json"));
-#else
-        CHECK(in_resources_dir("sub\\save.json")); // one name, with a backslash in it
-#endif
+        CHECK(in_resources_dir("maps/town.ldtk"));
+        CHECK(
+            in_resources_dir("sub\\save.json")); // a folder on Windows, a name elsewhere
         // "./x" is still "x": raylib builds that form itself.
         CHECK(in_resources_dir("./save.json"));
         CHECK_FALSE(in_resources_dir(""));
         CHECK_FALSE(in_resources_dir("../save.json"));
+    }
+
+    TEST_CASE(
+        "a file packed in a folder is found by its path, in the pack and by the hook") {
+        // What pack_resources makes of resources/maps/: tools/rres_pack.c runs
+        // inside resources/ and stores the file as "maps/level.json".
+        const Scratch release("folders");
+        release.put_pack(
+            pack::write({ { "maps/level.json", pack::bytes_of("packed map") },
+                          { "level.json", pack::bytes_of("top") } }));
+        const AtRoot at(release.root());
+        rmp::assets::init();
+        REQUIRE(rmp::assets::using_pack());
+        CHECK(rmp::assets::detail::pack_has("maps/level.json"));
+        CHECK(rmp::assets::detail::pack_has("./maps/../maps/level.json"));
+        CHECK(text_of(rmp::assets::load_data("maps/level.json")) == "packed map");
+        CHECK(text_of(rmp::assets::load_data("level.json")) == "top");
+        // raylib's own loader, through the hook, by the path it builds.
+        const std::string path = release.root() + "maps/level.json";
+        char *text = LoadFileText(path.c_str());
+        REQUIRE(text != nullptr);
+        CHECK(std::string(text) == "packed map");
+        UnloadFileText(text);
+        rmp::assets::shutdown();
     }
 
     TEST_CASE("through the hook, a file in a subfolder is the one beside the pack") {
@@ -1383,5 +1415,31 @@ TEST_SUITE("assets: before the window") {
         (void)rmp::assets::load_texture("not_there_after_window.png");
         CHECK(rmp::assets::detail::loaded_before_window()->count == more->count);
         rmp::detail::release_all();
+    }
+}
+
+TEST_SUITE("assets: a map's files next to it") {
+    // LDtk's relPath and Tiled's source and image are written relative to the
+    // map: read from the map's folder when that file is there, by the file's
+    // name at the top of resources/ when it is not (how maps were kept before
+    // folders, and still are in the examples).
+    TEST_CASE("a path from the map's folder, or the file's name at the top") {
+        const Scratch res("next-to");
+        res.put("tiles/town.png", "png");
+        res.put("maps/rooms/inn.ldtkl", "{}");
+        res.put("flat.png", "png");
+        const AtRoot at(res.root());
+        using rmp::tilemap::detail::next_to;
+        CHECK(next_to("maps/town.ldtk", "../tiles/town.png") == "tiles/town.png");
+        CHECK(next_to("maps/town.ldtk", "rooms/inn.ldtkl") == "maps/rooms/inn.ldtkl");
+        CHECK(next_to("maps/town.ldtk", "./rooms/../rooms/inn.ldtkl") ==
+              "maps/rooms/inn.ldtkl");
+        CHECK(next_to("town.ldtk", "tiles/town.png") == "tiles/town.png");
+        // Not there from the map: its name at the top, as before.
+        CHECK(next_to("maps/town.ldtk", "../../art/flat.png") == "flat.png");
+        CHECK(next_to("maps/town.ldtk", "C:\\art\\flat.png") == "flat.png");
+        CHECK(next_to("town.ldtk", "/abs/flat.png") == "flat.png");
+        CHECK(next_to("maps/town.ldtk", "").empty());
+        CHECK(next_to("maps/town.ldtk", nullptr).empty());
     }
 }

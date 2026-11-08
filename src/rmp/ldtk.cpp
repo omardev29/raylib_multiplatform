@@ -215,7 +215,7 @@ void read_tilesets(const cJSON *defs, Project *project, MapData *data) {
         TilesetRef ref;
         ref.uid = integer(set, "uid", -1);
         ref.index = data->tilesets.size();
-        ref.image = file_name_of(text(set, "relPath"));
+        ref.image = next_to(project->name, text(set, "relPath"));
         project->tilesets.push_back(std::move(ref));
         data->tilesets.push_back(std::move(out));
     }
@@ -521,8 +521,9 @@ bool has_world(const std::string &layout) {
 const cJSON *external_layers(const cJSON *level, const char *project_name, Json *owner) {
     const char *path = text(level, "externalRelPath");
     if (path[0] == '\0') return nullptr;
-    const char *file = file_name_of(path);
-    const std::vector<unsigned char> bytes = rmp::assets::load_data(file);
+    const std::string named = next_to(project_name, path);
+    const char *file = named.c_str();
+    const std::vector<unsigned char> bytes = rmp::assets::load_data(named);
     if (bytes.empty()) {
         TraceLog(LOG_WARNING,
                  "MAP: [%s] keeps level \"%s\" in \"%s\", and that file is not in "

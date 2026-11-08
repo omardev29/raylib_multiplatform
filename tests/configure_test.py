@@ -8005,14 +8005,62 @@ class RresPackTest(unittest.TestCase):
         text.write_bytes(b'{"hello": "world"}\n')
         return [empty, text]
 
-    def pack(self, binary: Path, password: str, env=None):
+    def pack(self, binary: Path, password: str, env=None, names=None):
+        """Run inside the inputs' folder, as pack_resources runs inside
+        resources/, with each file by its path there."""
         import subprocess
         out = self.tmp / "out.rres"
         if out.exists():
             out.unlink()
-        got = subprocess.run([str(binary), str(out), password, *map(str, self.inputs())],
+        folder = self.tmp / "in"
+        made = [f.name for f in self.inputs()]
+        files = made if names is None else names
+        got = subprocess.run([str(binary), str(out), password, *files], cwd=folder,
                              capture_output=True, text=True, env=env, stdin=subprocess.DEVNULL)
         return got, out
+
+    @staticmethod
+    def names_in(chunk: bytes) -> list[str]:
+        """The file names of a CDIR chunk in the clear: its one property is
+        the count, then per entry id, offset, a reserved word, the name's
+        padded size and the name."""
+        import struct
+        props, count = struct.unpack_from("<II", chunk, 0)
+        at, names = 4 + 4 * props, []
+        for _ in range(count):
+            size = struct.unpack_from("<I", chunk, at + 12)[0]
+            names.append(chunk[at + 16:at + 16 + size].split(b"\0")[0].decode())
+            at += 16 + size
+        return names
+
+    def test_a_file_in_a_folder_is_stored_by_its_path(self):
+        """The pack was flat: the packer stored a file under its bare name and
+        the glob did not recurse, so nothing in resources/maps/ shipped in the
+        four releases that carry the pack alone. Run inside resources/, it
+        stores maps/town.ldtk as "maps/town.ldtk", the name a game loads."""
+        (self.tmp / "in" / "maps" / "rooms").mkdir(parents=True, exist_ok=True)
+        (self.tmp / "in" / "maps" / "rooms" / "inn.v2").write_bytes(b"inn")
+        (self.tmp / "in" / "maps" / "town.ldtk").write_bytes(b"{}")
+        got, out = self.pack(self.build("rres_pack"), "-",
+                             names=["maps/town.ldtk", "./maps/rooms/inn.v2", "hello.json"])
+        self.assertEqual(got.returncode, 0, got.stdout + got.stderr)
+        chunks = self.chunks(out.read_bytes())
+        self.assertEqual(self.names_in(chunks[-1]["packed"]),
+                         ["maps/town.ldtk", "maps/rooms/inn.v2", "hello.json"])
+        # The extension is the file's own, ".v2", in the chunk's properties.
+        self.assertEqual(chunks[1]["packed"],
+                         self.plaintext(self.tmp / "in" / "maps" / "rooms" / "inn.v2"))
+
+    def test_a_path_out_of_the_folder_is_refused(self):
+        binary = self.build("rres_pack")
+        self.inputs()
+        for name in ("../escape.txt", "/etc/hostname", "maps/../../x.txt", "a\\b.txt",
+                     "C:/x.txt"):
+            with self.subTest(name=name):
+                got, out = self.pack(binary, "-", names=[name])
+                self.assertNotEqual(got.returncode, 0)
+                self.assertIn("is not a path inside the folder the packer runs in",
+                              got.stderr + got.stdout)
 
     @staticmethod
     def plaintext(source: Path) -> bytes:
@@ -8082,7 +8130,7 @@ class RresPackTest(unittest.TestCase):
         if not Path("/dev/full").exists():
             self.skipTest("no /dev/full here")
         got = subprocess.run([str(self.build("rres_pack")), "/dev/full", "-",
-                              *map(str, self.inputs())],
+                              *[f.name for f in self.inputs()]], cwd=self.tmp / "in",
                              capture_output=True, text=True, stdin=subprocess.DEVNULL)
         self.assertEqual(got.returncode, 1, got.stdout + got.stderr)
         self.assertIn("cannot write", got.stderr)

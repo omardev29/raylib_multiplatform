@@ -14,7 +14,11 @@
 //
 // Usage:
 //   rres_pack <output.rres> <password|-> <file> [file ...]
-//   A '-' password disables encryption. Files are stored under their basename.
+//   A '-' password disables encryption. Each file is stored under the path it
+//   is given, relative to the folder the packer runs in -- CMake runs it inside
+//   resources/, so resources/maps/town.ldtk is "maps/town.ldtk", the name a
+//   game loads it by. A path that leaves that folder (absolute, or with a ..)
+//   names nothing a game could ask for, and is refused.
 
 #define RRES_IMPLEMENTATION
 #include "rres.h"
@@ -33,9 +37,22 @@
 #include <stdlib.h>
 #include <string.h>
 
-static const char *base_name(const char *path) {
-    const char *s = strrchr(path, '/');
-    return s ? s + 1 : path;
+// The name a game asks for: the path as given, without a leading "./". NULL
+// for one that leaves the folder or is not written with '/': on Windows a
+// backslash would be packed into the name, and no game writes it that way.
+static const char *pack_name(const char *path) {
+    while (path[0] == '.' && path[1] == '/') path += 2;
+    if (path[0] == '\0' || path[0] == '/' || strchr(path, '\\') != NULL ||
+        strchr(path, ':') != NULL)
+        return NULL;
+    for (const char *p = path; *p != '\0';) {
+        const char *end = strchr(p, '/');
+        const size_t len = end ? (size_t)(end - p) : strlen(p);
+        if (len == 2 && p[0] == '.' && p[1] == '.') return NULL;
+        if (!end) break;
+        p = end + 1;
+    }
+    return path;
 }
 
 // Every allocation goes through here. None of them was checked, and a NULL
@@ -138,7 +155,8 @@ int main(int argc, char **argv) {
     // Build each resource chunk
     for (int i = 0; i < fileCount; i++) {
         const char *path = files[i];
-        const char *name = base_name(path);
+        const char *name = pack_name(path);
+        if (!name) fail("is not a path inside the folder the packer runs in:", path);
 
         size_t fileSize = 0;
         unsigned char *fileData = read_file(path, &fileSize);
@@ -155,7 +173,9 @@ int main(int argc, char **argv) {
         unsigned char *plain = (unsigned char *)checked_calloc(baseSize);
         put_u32(plain + 0, 4);                       // propCount
         put_u32(plain + 4, (unsigned int)fileSize);  // props[0] = size
-        const char *dot = strrchr(name, '.');
+        // The extension of the file's own name, not of a folder above it.
+        const char *slash = strrchr(name, '/');
+        const char *dot = strrchr(slash ? slash + 1 : name, '.');
         const char *ext = dot ? dot : "";
         put_u32(plain + 8, pack_ext_be(ext, 0));     // props[1] = ext part 1
         put_u32(plain + 12, pack_ext_be(ext, 4));    // props[2] = ext part 2

@@ -1263,44 +1263,32 @@ target_include_directories(rres_pack PRIVATE tools)
 target_include_directories(rres_pack SYSTEM PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/rres")
 rmp_apply_warnings(rres_pack)
 
-# Pack every loose resource into resources.rres (AES-encrypted).
+# Pack every loose resource into resources.rres (AES-encrypted), the folders
+# below resources/ too: the packer runs inside resources/ and stores each file
+# under its path there ("maps/town.ldtk"), the name a game loads it by. The
+# pack used to be flat, and a file in a subfolder was not packed at all: the
+# four targets that ship resources.rres alone (Linux x64/arm64, Windows x64,
+# macOS) would have shipped a release without it.
 #
 # LIST_DIRECTORIES false is load-bearing. file(GLOB) lists directories by
-# default, and fopen() on a directory succeeds on glibc, so a resources/
-# containing a subfolder used to pack that subfolder as a resource — and drop
-# every file inside it.
-file(GLOB PACK_FILES LIST_DIRECTORIES false "${CMAKE_CURRENT_SOURCE_DIR}/resources/*")
+# default, and fopen() on a directory succeeds on glibc, so a folder would be
+# packed as a resource.
+#
+# Streamed music is the one thing a release still reads from outside the pack:
+# LoadMusicStream opens the file itself (drwav/drmp3/jar_xm take a path, by
+# design: the point is not to hold the song in memory), so it never reaches the
+# loader hook that serves everything else.
+set(_RES_DIR "${CMAKE_CURRENT_SOURCE_DIR}/resources")
+file(GLOB_RECURSE PACK_FILES LIST_DIRECTORIES false CONFIGURE_DEPENDS RELATIVE "${_RES_DIR}"
+     "${_RES_DIR}/*")
 list(FILTER PACK_FILES EXCLUDE REGEX "\\.rres$")
+list(SORT PACK_FILES)
 add_custom_target(pack_resources
-  COMMAND $<TARGET_FILE:rres_pack> "${CMAKE_CURRENT_SOURCE_DIR}/resources/resources.rres" "${RRES_PACK_PASSWORD}" ${PACK_FILES}
+  COMMAND $<TARGET_FILE:rres_pack> "${_RES_DIR}/resources.rres" "${RRES_PACK_PASSWORD}" ${PACK_FILES}
+  WORKING_DIRECTORY "${_RES_DIR}"
   DEPENDS rres_pack
   COMMENT "Packing resources into resources.rres (AES)"
 )
-# The pack is flat: names are bare file names and this glob does not recurse.
-# So a file in resources/textures/ is not packed, and the four targets that
-# ship resources.rres *alone* (Linux x64/arm64, Windows x64, macOS) would ship
-# a release without it — working in development, broken only once released.
-#
-# Streamed music is the other one. LoadMusicStream opens the file itself
-# (drwav/drmp3/jar_xm take a path, by design: the point is not to hold the song
-# in memory), so it never reaches the loader hook that serves everything else.
-set(_PACK_SUBDIRS "")
-file(GLOB _RES_ENTRIES "${CMAKE_CURRENT_SOURCE_DIR}/resources/*")
-foreach(_f ${_RES_ENTRIES})
-  if(IS_DIRECTORY "${_f}")
-    get_filename_component(_n "${_f}" NAME)
-    list(APPEND _PACK_SUBDIRS "${_n}")
-  endif()
-endforeach()
-if(_PACK_SUBDIRS AND PRODUCTION_BUILD)
-  string(JOIN ", " _d ${_PACK_SUBDIRS})
-  message(WARNING
-    "resources/ has subfolders the pack does not reach: ${_d}\n"
-    "  Resource names are flat, so nothing inside them is packed, and Linux, Windows x64 "
-    "and macOS releases ship resources.rres on its own.\n"
-    "  Move those files up into resources/, or ship the folder next to the executable "
-    "yourself. See TECHNICAL.md, \"Resources\".")
-endif()
 
 # --- unit tests (doctest) ---------------------------------------------------
 # No window, no GPU, milliseconds. Every tests/*_test.cpp except the one that

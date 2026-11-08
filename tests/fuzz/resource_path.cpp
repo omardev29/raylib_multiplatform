@@ -8,13 +8,13 @@
 //
 //   - it returns, whatever the bytes;
 //   - it agrees with a second reading written with nothing in common:
-//     std::filesystem's lexically_normal() -- the path is a file directly in
-//     the root's folder, by a name that is not "" "." or "..", and does not
-//     end in a separator;
+//     std::filesystem's lexically_normal() -- the path is a file in the
+//     root's folder or below it, whose last part is not "" "." or "..", and
+//     the name is its path below the root, joined by '/';
 //   - '\' and '/' are one separator where the system says so (Windows);
 //   - in_resources_dir() is the same answer, under that root;
-//   - a name it gives is a plain file name, and the root and that name find
-//     it again.
+//   - a name it gives is a relative path with no "" "." or ".." in it, and
+//     the root and that name find it again.
 //
 //   bash tools/fuzz.sh replay resource_path
 //   bash tools/fuzz.sh run resource_path 60
@@ -32,6 +32,7 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace {
 
@@ -61,16 +62,28 @@ std::optional<std::string> model(const std::string &root, const std::string &pat
     const std::size_t last = p.find_last_of('/');
     const std::string tail = last == std::string::npos ? p : p.substr(last + 1);
     if (tail.empty() || tail == "." || tail == "..") return std::nullopt;
-    const std::filesystem::path file = std::filesystem::path(p).lexically_normal();
-    std::string folder =
-        std::filesystem::path(forward(root)).lexically_normal().generic_string();
-    while (folder.size() > 1 && folder.back() == '/') folder.pop_back();
-    if (folder == ".") folder.clear();
-    std::string parent = file.parent_path().generic_string();
-    if (parent == ".") parent.clear();
-    std::string name = file.filename().generic_string();
-    if (name.empty() || name == "." || name == ".." || parent != folder)
+    // The parts of each, once normal, with "." and the empty name a trailing
+    // separator leaves dropped: what is left is folders and the file.
+    const auto parts = [](const std::string &text) {
+        std::vector<std::string> out;
+        for (const std::filesystem::path &part :
+             std::filesystem::path(text).lexically_normal()) {
+            const std::string s = part.generic_string();
+            if (!s.empty() && s != ".") out.push_back(s);
+        }
+        return out;
+    };
+    const std::vector<std::string> folder = parts(forward(root));
+    const std::vector<std::string> file = parts(p);
+    if (file.size() <= folder.size() ||
+        !std::equal(folder.begin(), folder.end(), file.begin()))
         return std::nullopt;
+    std::string name;
+    for (std::size_t i = folder.size(); i < file.size(); ++i) {
+        if (file[i] == "..") return std::nullopt;
+        if (!name.empty()) name += '/';
+        name += file[i];
+    }
     return name;
 }
 
@@ -103,9 +116,14 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t *data, std::size_t size
     require(rmp::assets::detail::in_resources_dir(path.c_str()) == name.has_value(),
             "the loader hook answers for exactly those paths");
     if (name) {
-        require(!name->empty() && name->find_first_of(SEPARATORS) == std::string::npos &&
-                    *name != "." && *name != "..",
-                "a name in the pack is a plain file name");
+        bool plain = !name->empty() && name->front() != '/' && name->back() != '/';
+        for (std::size_t at = 0; plain && at <= name->size();) {
+            const std::size_t end = std::min(name->find('/', at), name->size());
+            const std::string_view part = std::string_view(*name).substr(at, end - at);
+            plain = !part.empty() && part != "." && part != "..";
+            at = end + 1;
+        }
+        require(plain, "a name in the pack is a relative path, its parts joined by '/'");
         const std::string again = root +
             (root.empty() || SEPARATORS.find(root.back()) != std::string_view::npos
                  ? ""

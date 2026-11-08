@@ -294,10 +294,18 @@ std::optional<std::string> packed_name(std::string_view root, std::string_view p
     if (tail.empty() || tail == "." || tail == "..") return std::nullopt;
     const std::vector<std::string_view> folder = segments(root);
     const std::vector<std::string_view> file = segments(path);
-    if (file.size() != folder.size() + 1 ||
+    if (file.size() <= folder.size() ||
         !std::equal(folder.begin(), folder.end(), file.begin()))
         return std::nullopt;
-    return std::string(file.back());
+    // Below the folder, and never above it: segments() keeps a ".." only
+    // where a relative path starts, which is where an empty root would be.
+    std::string name;
+    for (std::size_t i = folder.size(); i < file.size(); ++i) {
+        if (file[i].empty() || file[i] == "..") return std::nullopt;
+        if (!name.empty()) name += '/';
+        name += file[i];
+    }
+    return name;
 }
 
 bool MemorySource::read(std::uint64_t offset, std::span<std::uint8_t> out) {

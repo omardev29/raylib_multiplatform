@@ -168,7 +168,7 @@ Notes for whoever maintains the framework: how the build, the resource pack, the
 │   ├── *_property_test.py    # Hypothesis, with hypothesis_profiles.py (ci: derandomized; nightly)
 │   ├── campaign_test.py      # the campaign's own gates: inputs, floors, the resilience list
 │   └── fixtures/             # LDtk projects (four saved by LDtk itself), Tiled maps, an Aseprite sheet, an empty rres pack, licence trees
-├── resources/                # Your assets (flat -- the pack does not recurse)
+├── resources/                # Your assets, in folders of your own (the pack keeps them)
 ├── branding/icon.png         # the source for every app icon; rename it in [icon] source
 ├── tools/
 │   ├── rmp.py                # `rmp`: every command, its help, the test stages, rmp new's manifest
@@ -507,10 +507,10 @@ Three details make the hook safe rather than clever:
   filesystem behind it. So a miss has to delegate by hand, and the exact way to delegate is to
   *unhook, call raylib, hook back*. That runs raylib's own reader, including the Android one, where
   `fopen` is redirected into the APK's asset manager and stdio of our own would find nothing.
-- **It only answers for files directly in `RMP_RESOURCES_PATH`.** The pack is keyed by bare file
-  name, so matching on the name alone would let a save file called `level1.json` anywhere on disk be
-  answered with the packed `level1.json`. The pack is flat, so `resources/sub/x.png` is read from
-  the disk; `./` and `..` are taken lexically, and `\` is a separator on Windows only.
+- **It only answers for files inside `RMP_RESOURCES_PATH`.** The pack is keyed by the path below
+  that folder (`maps/town.ldtk`), so matching on the name alone would let a save file called
+  `level1.json` anywhere on disk be answered with the packed `level1.json`; `resources/sub/x.png` is
+  the packed `sub/x.png`, `./` and `..` are taken lexically, and `\` is a separator on Windows only.
 - **Models come along for free.** `rmodels.c` loads `.obj` with `LoadFileText` and
   `.gltf`/`.glb`/`.iqm`/`.vox`/`.m3d` with `LoadFileData`, and it resolves the sibling files an
   `.obj` or `.gltf` refers to — the `.mtl`, the `.bin` buffers, the textures named inside the
@@ -535,10 +535,10 @@ bool             rmp::assets::using_pack();
 The resources are counted and release themselves (see `include/rmp/assets.h`): nothing to unload,
 and the same name twice is the same resource.
 
-`name` is the **bare file name** — `rmp::assets::load_sound("jump.wav")`. Not a path. `tools/rres_pack.c`
-stores every entry under its basename and the CMake glob does not recurse, so `resources/sfx/` is
-not packed at all and there is nothing for a nested name to resolve to. See the subfolder note
-below.
+`name` is the file's path below `resources/`, with `/` between folders —
+`rmp::assets::load_sound("sfx/jump.wav")`, or `"jump.wav"` for one at the top. `pack_resources`
+runs `tools/rres_pack.c` inside `resources/` over every file below it, and the packer stores each
+under that path, so a release finds the same name a development build does.
 
 Every one of them has the same shape: if in pack mode, look the name up, decrypt, decode from
 memory; if anything fails, **log a warning and fall back to the loose file**. A missing entry
@@ -572,10 +572,12 @@ price is that the *encoded* file stays in memory while it plays — a three-minu
 — and the decoding is still streamed, so the 30 MB of PCM it would decode to never exists at once.
 Only code that calls `LoadMusicStream` itself needs the song as a loose file.
 
-**Subfolders.** `file(GLOB …)` in `CMakeLists.txt` does not recurse and resource names are flat, so
-nothing inside `resources/art/` is packed.
+**Subfolders** are packed like the rest (`file(GLOB_RECURSE …)` in `CMakeLists.txt`), and every
+other target ships the folder whole. A map's tileset and its external levels are found next to the
+map: LDtk's `relPath` and Tiled's `source`/`image` are read relative to the map's own folder, and,
+when that file is not there, by its bare name at the top of `resources/`.
 
-For both: the files have to actually ship, and **the release packages are not uniform**:
+For streamed music: the files have to actually ship, and **the release packages are not uniform**:
 
 | Target | Packs? | What ships in the package |
 |---|---|---|
@@ -591,12 +593,10 @@ and no other.** On musl, riscv64, Windows arm64, Web, Android and iOS your asset
 files that anyone can open. If that matters, pack them yourself in the job that builds those
 targets — but see the Android note below before you try it there.
 
-So an un-packable file works in development, works on Web and Android — and is missing only in the
-packaged desktop builds of the first row. That is the worst possible failure mode, so
-`CMakeLists.txt` emits a `WARNING` at configure time when `PRODUCTION_BUILD=ON` and it finds a
-subfolder in `resources/`. If you need one anyway, extend the `package/` step in
-`.github/workflows/_linux.yml`, `_windows.yml`, `_apple.yml` and `_bsd.yml` to copy it alongside the
-pack.
+So a file the pack cannot serve -- a song `LoadMusicStream` opens itself -- works in development,
+works on Web and Android, and is missing only in the packaged desktop builds of the first row. If you
+need one, extend the `package/` step in `.github/workflows/_linux.yml`, `_windows.yml`, `_apple.yml`
+and `_bsd.yml` to copy it alongside the pack.
 
 > The pack is also never used on **Android**, whatever you do. rres opens the container with plain
 > `fopen`, and inside an APK there is no such file — raylib reaches its assets through

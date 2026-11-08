@@ -39,11 +39,12 @@ using Stretch = Key (*)(std::string_view password, const Salt &salt);
 std::vector<std::string_view> segments(std::string_view path);
 
 // The name in the pack that `path` means, when the resources folder is
-// `root`: a file directly in that folder, however the path spells it --
-// "resources/x.png", "./resources/x.png", "resources/sub/../x.png" -- and
-// nothing for a file below it (the packer stores every file under its bare
-// name and does not recurse), outside it, or a path that ends in a separator,
-// "." or "..", which names a folder. The loader hook asks this of the paths
+// `root`: the file's path below that folder, its parts joined by '/', however
+// the path spells it -- "resources/x.png" and "./resources/sub/../x.png" are
+// "x.png", "resources/maps/town.ldtk" is "maps/town.ldtk", the name the packer
+// stored it under (tools/rres_pack.c, run inside resources/) -- and nothing
+// for a file outside it, or a path that ends in a separator, "." or "..",
+// which names a folder. The loader hook asks this of the paths
 // raylib reads, and the loaders of root + the name they were given, so a
 // release finds exactly what a development build finds in resources/.
 std::optional<std::string> packed_name(std::string_view root, std::string_view path);

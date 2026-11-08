@@ -30,6 +30,7 @@
 
 #include "internal.h" // RMP_REPORT_ONCE_KEYED, loads.failed
 #include "json_internal.h" // CNumbers
+#include "pack_internal.h" // rres::packed_name(): a path, read lexically
 #include "tilemap_internal.h"
 
 #include <cute_tiled.h>
@@ -69,9 +70,9 @@ namespace {
 //
 // Returns the wrapper map, which OWNS the tileset; the caller frees it with
 // cute_tiled_free_map once it has copied what it needs.
-cute_tiled_map_t *load_external_tileset(const char *source) {
+cute_tiled_map_t *load_external_tileset(const char *source, const char *map) {
     const std::vector<unsigned char> bytes =
-        rmp::assets::load_data(tilemap::detail::file_name_of(source));
+        rmp::assets::load_data(tilemap::detail::next_to(map, source));
     if (bytes.empty()) return nullptr;
     const int size = static_cast<int>(bytes.size());
     std::string document;
@@ -281,7 +282,7 @@ MapPtr parse_tiled(const void *bytes, int size, const char *name) {
         cute_tiled_map_t *external = nullptr;
         const cute_tiled_tileset_t *from = set;
         if (source[0] != '\0' && set->tilecount <= 0) {
-            external = load_external_tileset(source);
+            external = load_external_tileset(source, name);
             if (external != nullptr && external->tilesets != nullptr &&
                 external->tilesets->tilecount > 0) {
                 from = external->tilesets;
@@ -336,10 +337,15 @@ MapPtr parse_tiled(const void *bytes, int size, const char *name) {
             }
         }
 
-        const char *image = tilemap::detail::file_name_of(from->image.ptr);
-        if (image[0] != '\0') {
+        // An external tileset's image is relative to the tileset's own file.
+        const std::string where = external != nullptr
+            ? tilemap::detail::next_to(name, source)
+            : std::string(name != nullptr ? name : "");
+        const std::string image = tilemap::detail::next_to(where, from->image.ptr);
+        if (!image.empty()) {
             out.texture = rmp::assets::load_texture(image);
-            if (!out.texture.valid()) tilemap::detail::report_tileset_image(image, "");
+            if (!out.texture.valid())
+                tilemap::detail::report_tileset_image(image.c_str(), "");
         }
         data->tilesets.push_back(std::move(out));
         if (external != nullptr) cute_tiled_free_map(external);
@@ -479,6 +485,17 @@ MapPtr parse_map(const void *bytes, int size, const char *name, std::string_view
         ldtk ? parse_ldtk(bytes, size, name, level) : parse_tiled(bytes, size, name);
     if (out != nullptr) out->source = file;
     return out;
+}
+
+std::string next_to(const std::string_view map, const char *path) {
+    if (path == nullptr || path[0] == '\0') return {};
+    const std::size_t slash = map.find_last_of("/\\");
+    const std::string_view folder =
+        slash == std::string_view::npos ? std::string_view() : map.substr(0, slash + 1);
+    const std::optional<std::string> near =
+        rmp::assets::detail::rres::packed_name("", std::string(folder) + path);
+    if (near && rmp::assets::detail::resource_exists(near->c_str())) return *near;
+    return file_name_of(path);
 }
 
 const char *file_name_of(const char *path) {
