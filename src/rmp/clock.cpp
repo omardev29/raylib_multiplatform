@@ -39,6 +39,7 @@ struct {
     float fixed = 0; // > 0: every frame is exactly this long
     float last = 0; // what step_delta() returned last
     bool stepped = false; // a runner has called step_delta(): its number is the frame's
+    std::uint64_t steps = 0; // how many times it has: the frame's number
     std::optional<std::uint64_t> seed; // what begin_run() seeds with
     // The clock of its own, for frames raylib did not time: a frame raylib
     // times starts in one EndDrawing() and ends in the next, so the frames
@@ -105,8 +106,11 @@ float step_delta() {
     timing.zero_once = false;
     timing.last = still ? 0.0f : clamped(raw);
     timing.stepped = true;
+    ++timing.steps;
     return timing.last;
 }
+
+std::uint64_t frame_number() { return timing.stepped ? timing.steps : 0; }
 
 // With no runner -- rmp::ui in a plain raylib loop of the game's own --
 // nothing calls step_delta(), and what it last returned would be 0 for

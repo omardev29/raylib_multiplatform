@@ -1307,6 +1307,36 @@ struct EmbeddedTalk {
 
 } // namespace
 
+TEST_CASE_FIXTURE(Fixture, "Talker: on_load comes once, before the first line") {
+    const std::vector<rmp::yarn::Source> sources{
+        { "bound.yarn",
+          "title: Start\n---\n<<declare $gold = 0>>\nYou have {$gold}.\n===\n" }
+    };
+    const std::vector<std::uint8_t> bytes =
+        rmp::yarn::to_bytes(rmp::yarn::compile(sources).program);
+    const std::vector<rmp::dialogue::detail::Embedded> table{ { "bound.yarn", bytes } };
+    rmp::dialogue::detail::set_embedded(table);
+    World world;
+    const rmp::Object &hero = box(world, { 0, 0 }, { 10, 10 });
+    rmp::Object &npc = box(world, { 10, 0 }, { 10, 10 });
+    int gold = 7;
+    int loads = 0;
+    std::string said;
+    npc.add<Talker>({ .dialogue = "bound.yarn",
+                      .player = hero.handle<>(),
+                      .action = "",
+                      .on_load =
+                          [&](rmp::Dialogue &d) {
+                              ++loads;
+                              d.bind("$gold", gold);
+                          },
+                      .on_talk = [&](rmp::Dialogue &d) { said = d.line().text; } });
+    frame(world);
+    CHECK(loads == 1);
+    CHECK(said == "You have 7.");
+    rmp::dialogue::detail::set_embedded({});
+}
+
 TEST_CASE_FIXTURE(Fixture,
                   "Talker: in range, on its action, it starts the conversation") {
     const EmbeddedTalk embedded;

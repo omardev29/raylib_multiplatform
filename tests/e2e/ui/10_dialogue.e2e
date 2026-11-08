@@ -1,0 +1,28 @@
+# examples/ui/10_dialogue, played: one conversation as a Box, a Bubble and a
+# Stage, switched while it runs. A click on a line's > shows all of it, the
+# next goes on. See tests/e2e/script.h for the grammar.
+
+# Mika's first line in the Box, her portrait beside it, her name on the frame.
+60 shot box
+61 click 668 352
+63 click 668 352
+# As a Bubble: the dropdown, its second item; Sora's line over his head.
+65 click 160 60
+75 click 176 126
+110 shot bubble
+111 click 680 66
+113 click 680 66
+# The choice: two cups -- and $cups is the scene's own int, bound.
+130 shot choice
+131 click 400 198
+160 shot cups
+# As a Stage for the rest: Yarn's own <<wait 1>>, the game's <<quake>>.
+161 click 160 60
+171 click 172 158
+190 click 729 380
+193 click 729 380
+290 shot stage
+291 click 729 380
+293 click 729 380
+300 shot quake
+330 end

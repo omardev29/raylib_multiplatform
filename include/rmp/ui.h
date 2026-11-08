@@ -1323,7 +1323,13 @@ template <class Body> void at(Vector2 world, Body &&body) {
 // or Aseprite slices dresses them. The line's markup ([wave], [color=]...)
 // moves and paints its letters; [speed=2]..[/speed] types faster and
 // [pause=0.4/] waits. Unhandled commands are passed (register them with
-// Dialogue::on_command()).
+// Dialogue::on_command()); while a command waits (Dialogue::wait_until(),
+// <<wait 2>>), nothing is drawn. Each speaker can have a box, a name plate
+// and a voice of their own (Speaker).
+//
+// A presenter of your own is the game's layout around two pieces:
+// dialogue_line() (the line typed out, its blips and voice, going on) and
+// dialogue_choices() (the choices and a timed choice's bar).
 // ---------------------------------------------------------------------------
 
 // A speaker's picture, and one for each mood a line's #mood:happy names.
@@ -1333,11 +1339,35 @@ struct Portrait {
     Picture picture{}; // a texture, an atlas region, a sprite's frame or a nine-slice
 };
 
+// Who speaks, as they look and sound: their lines in a box of their own,
+// their name plate, their voice. Unset fields are the presenter's.
+struct Speaker {
+    std::string name; // the name before the colon of a line: "Mika"
+    SoundName blip{}; // their blip; empty: the flow's
+    float pitch = 1; // their blip's pitch: 1.3 higher, 0.8 lower
+    Style style{}; // over the presenter's style, for their lines
+    Style name_style{}; // over the presenter's name_style
+};
+
+// Which side of the box a portrait sits on.
+enum class DialogueSide {
+    LEFT, // before the line
+    RIGHT, // after it
+};
+
+// Where a box puts the choices.
+enum class DialogueChoices {
+    IN_BOX, // in the box, in place of the line
+    ABOVE, // in a panel of their own above the box, at its right
+    CENTER, // in a panel in the middle of the screen
+};
+
 // How a presenter types a line out, and goes on.
 struct DialogueFlow {
     float letters_per_second = 45; // the typewriter; 0 = the whole line at once
     SoundName blip{}; // a sound as the letters appear
     int blip_every = 2; // letters between two blips
+    float blip_jitter = 0; // each blip's pitch moves by up to this: 0.08 = 8 %
     float auto_advance = 0; // seconds a whole line stays before it goes on; 0 = wait
     bool skip_seen = false; // a line already read goes by at once
     std::string voices{}; // a recorded line: the sound named voices + its id ("vo/hello")
@@ -1357,15 +1387,44 @@ struct DialogueMemory {
         history; // speaker, line: read so far
     std::vector<std::string> seen; // the ids of the lines read
     std::vector<std::string> stage; // DialogueStage: who is on stage, left to right
+    std::vector<float> entered; // DialogueStage: seconds each has been on stage
+    std::vector<float> focus; // DialogueStage: 0..1, how much each is the speaker
+    float shaking = -1; // DialogueStage: seconds into a shake(); -1 = none
+    float shake_strength = 0; // ...how far, in design units
+    float shake_seconds = 0; // ...how long
+    float flashing = -1; // DialogueStage: seconds into a flash(); -1 = none
+    float flash_seconds = 0; // ...how long
+    Color flash_color = WHITE; // ...of which colour
     bool showing_history = false; // toggle_history(): the backlog instead of the box
 };
+
+// A presenter's pieces, for a presenter of your own: the dialogue's line,
+// typed out where the call is in your layout -- its [speed] and [pause], its
+// blips and recorded voice, auto-advance, skip-seen, and a click or Enter
+// going on (on the line, or the next button it draws after it). True while
+// there is a line. The `flow` blip is the one played: a Speaker's is yours to
+// put in it.
+bool dialogue_line(rmp::Dialogue &dialogue, DialogueMemory &memory,
+                   const DialogueFlow &flow, const RichTextOptions &text = {});
+// The choices, as buttons in a column where the call is, and a timed
+// choice's bar. True while there are choices.
+bool dialogue_choices(rmp::Dialogue &dialogue, DialogueMemory &memory,
+                      const DialogueFlow &flow, const Style &choice_style = {});
 
 // The classic box: along the bottom of the screen, the speaker's portrait and
 // name beside the line, the choices as buttons under it.
 struct DialogueBox {
     std::vector<Portrait> portraits{}; // by speaker, and by mood
+    std::vector<Speaker> speakers{}; // a box, a name plate and a voice each
     DialogueFlow flow{}; // the typewriter, the blips, auto-advance, timed choices
     float height = 0; // design units; 0 = as the line needs
+    float width = 0; // design units; 0 = as wide as it is given
+    float portrait_size = 96; // design units, square
+    DialogueSide portrait_side = DialogueSide::LEFT; // which side of the line
+    // The name plate over the box's top edge, moved this far from its top-left
+    // corner ({ 16, -18 }: a tab on the frame); { 0, 0 } = above the line.
+    Vector2 name_offset{ 0, 0 };
+    DialogueChoices choices = DialogueChoices::IN_BOX; // where the choices go
     bool pauses_world = true; // for rmp::behavior::Talker: the scene below waits
     Style style{}; // the box
     Style name_style{}; // the name plate
@@ -1384,6 +1443,9 @@ struct BubbleSpeaker {
     rmp::Handle<rmp::Object>
         object{}; // what it is drawn over; empty: where the UI puts it
     Vector2 offset{ 0, -18 }; // from the object's position, in world units
+    SoundName blip{}; // their blip; empty: the flow's
+    float pitch = 1; // their blip's pitch
+    Style style{}; // over the bubble's style, for their lines
 };
 
 // A bubble over the speaker's head, in the world (rmp::ui::at()), the
@@ -1392,6 +1454,11 @@ struct DialogueBubble {
     std::vector<BubbleSpeaker> speakers{}; // who says what, and over which object
     DialogueFlow flow{}; // the typewriter, the blips, auto-advance, timed choices
     float width = 220; // design units: the line wraps inside it
+    float tail = 10; // design units: the tail under it, to the speaker; 0 = none
+    // The tail's colour; { 0, 0, 0, 0 } = the bubble's background, or the
+    // theme's panel. A bubble of art draws its own: give it a tail_picture.
+    Color tail_color = CLITERAL(Color){ 0, 0, 0, 0 };
+    Picture tail_picture{}; // drawn in the tail's place, 2 tails wide, 1 tall
     bool pauses_world = false; // the world goes on around a bubble
     Style style{}; // the bubble
     Style choice_style{}; // each choice
@@ -1406,8 +1473,17 @@ struct DialogueBubble {
 // front and the rest dimmed, and the line in a box under them.
 struct DialogueStage {
     std::vector<Portrait> portraits{}; // by speaker, and by mood
+    std::vector<Speaker> speakers{}; // a box, a name plate and a voice each
     DialogueFlow flow{}; // the typewriter, the blips, auto-advance, timed choices
     float portrait_height = 300; // design units
+    // Who comes on stage slides in from their side and fades in, in this long.
+    float enter_seconds = 0.3f;
+    float enter_offset = 80; // ...from this far, in design units
+    // The speaker comes forward -- full colour, a little higher and bigger --
+    // in this long, and whoever stops speaking goes back as long.
+    float focus_seconds = 0.15f;
+    float focus_lift = 10; // design units the speaker rises
+    float focus_scale = 1.04f; // the speaker's size against the rest
     bool pauses_world = true; // for rmp::behavior::Talker: the scene below waits
     Style style{}; // the box under the portraits
     Style name_style{}; // the name plate
@@ -1419,6 +1495,11 @@ struct DialogueStage {
     // Draws the stage, the line or the choices, and takes the player's
     // answer. True while the dialogue has something to show.
     bool show(rmp::Dialogue &dialogue);
+    // The whole stage shakes, from `strength` design units down to none: a
+    // command's, <<quake>> -> stage.shake().
+    void shake(float strength = 12, float seconds = 0.4f);
+    // The screen goes `color` and back, over `seconds`: a flash, a cut.
+    void flash(Color color = WHITE, float seconds = 0.3f);
 };
 
 // How tooltip() places its line, and how long it waits.

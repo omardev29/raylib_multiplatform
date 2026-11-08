@@ -1,0 +1,24 @@
+# examples/ui/11_localization, played: the stall in English, three lanterns
+# bought and a fourth refused, then Spanish -- the plurals, the placeholder --
+# everything sold, Japanese in its own font, and German from a file of its own.
+# See tests/e2e/script.h for the grammar.
+30 shot en
+# Three lanterns, three coins each, out of ten: a fourth is refused.
+31 click 400 235
+35 click 400 235
+39 click 400 235
+43 click 400 235
+60 shot not_enough
+# Español: one coin, three lanterns, in its plural forms.
+61 click 355 372
+90 shot es
+# Sell everything: a notice with two values in its placeholders.
+91 click 400 289
+120 shot es_sold
+# 日本語: the whole interface in jp.ttf; the other names keep their font.
+121 click 458 375
+150 shot ja
+# Deutsch, out of resources/lang/de.tsv.
+151 click 608 378
+180 shot de
+181 end

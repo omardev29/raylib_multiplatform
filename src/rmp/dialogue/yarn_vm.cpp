@@ -11,7 +11,6 @@
 
 #include <algorithm>
 #include <array>
-#include <charconv>
 #include <cmath>
 #include <cstdint>
 #include <cstdlib>
@@ -108,13 +107,135 @@ void Machine::choose(int index) {
     run();
 }
 
-void Machine::on_command(std::string_view name,
-                         rmp::Callback<std::span<const std::string>> handler) {
-    _commands.insert_or_assign(std::string(name), std::move(handler));
+void Machine::on_command(std::string_view name, Handler handler, Signature signature) {
+    _commands.insert_or_assign(std::string(name),
+                               Command{ std::move(handler), std::move(signature) });
 }
 
-void Machine::on_function(std::string_view name, Function function) {
-    _functions.insert_or_assign(std::string(name), std::move(function));
+void Machine::on_function(std::string_view name, Function function, Signature signature) {
+    _functions.insert_or_assign(std::string(name),
+                                Registered{ std::move(function), std::move(signature) });
+}
+
+void Machine::bind(std::string_view name, Binding binding) {
+    _bound.insert_or_assign(std::string(name), std::move(binding));
+    _vars.erase(std::string(name)); // the game's from now on
+}
+
+bool Machine::bound(std::string_view name) const { return _bound.contains(name); }
+
+bool Machine::has_function(std::string_view name) const {
+    return _functions.contains(name);
+}
+
+std::optional<Signature> Machine::signature(std::string_view name) const {
+    if (const auto f = _functions.find(name); f != _functions.end())
+        return f->second.signature;
+    if (const auto c = _commands.find(name); c != _commands.end())
+        return c->second.signature;
+    return std::nullopt;
+}
+
+namespace {
+
+std::string_view kind_name(Kind k) {
+    switch (k) {
+        case Kind::NUMBER:
+            return "a number";
+        case Kind::STRING:
+            return "a string";
+        case Kind::BOOL:
+            return "a bool";
+    }
+    return "a value";
+}
+
+} // namespace
+
+// Whether a command's word is a number as a script writes one: a sign, digits
+// with at most one point between or around them, and an exponent. By hand:
+// a floating-point from_chars is not in every C++ library this builds with
+// (emscripten's, Apple's), and it would bring its tables into every game.
+namespace {
+
+bool is_number_word(std::string_view w) {
+    std::size_t i = 0;
+    if (i < w.size() && (w[i] == '-' || w[i] == '+')) ++i;
+    int digits = 0;
+    bool point = false;
+    for (; i < w.size(); ++i) {
+        if (w[i] >= '0' && w[i] <= '9') {
+            ++digits;
+        } else if (w[i] == '.' && !point) {
+            point = true;
+        } else {
+            break;
+        }
+    }
+    if (digits == 0) return false;
+    if (i < w.size() && (w[i] == 'e' || w[i] == 'E')) {
+        ++i;
+        if (i < w.size() && (w[i] == '-' || w[i] == '+')) ++i;
+        const std::size_t from = i;
+        while (i < w.size() && w[i] >= '0' && w[i] <= '9') ++i;
+        if (i == from) return false;
+    }
+    return i == w.size();
+}
+
+} // namespace
+
+// The same for a command, whose arguments are words: a number must read as
+// one, a bool as true or false.
+bool Machine::command_fits(const std::string &name, const Signature &s,
+                           std::span<const std::string> words) {
+    if (s.arity >= 0 && std::cmp_not_equal(words.size(), s.arity)) {
+        fault("<<" + name + ">> takes " + std::to_string(s.arity) + " word" +
+              (s.arity == 1 ? "" : "s") + " after its name, and the script gives it " +
+              std::to_string(words.size()));
+        return false;
+    }
+    for (std::size_t k = 0; k < words.size() && k < s.params.size(); ++k) {
+        const std::optional<Kind> want = s.params[k];
+        if (!want) continue;
+        const std::string &w = words[k];
+        bool ok = true;
+        if (*want == Kind::NUMBER) {
+            ok = is_number_word(w);
+        } else if (*want == Kind::BOOL) {
+            ok = w == "true" || w == "false" || w == "True" || w == "False";
+        }
+        if (!ok) {
+            std::string said = "<<" + name;
+            said += ">>'s word " + std::to_string(k + 1) + " is ";
+            said += kind_name(*want);
+            said += ", and the script gives it '" + w + "'";
+            fault(said);
+            return false;
+        }
+    }
+    return true;
+}
+
+// Whether `args` are what the game said `name` takes; a fault when not.
+bool Machine::fits(const std::string &name, const Signature &s,
+                   std::span<const Value> args) {
+    if (s.arity >= 0 && std::cmp_not_equal(args.size(), s.arity)) {
+        fault(name + " takes " + std::to_string(s.arity) + " argument" +
+              (s.arity == 1 ? "" : "s") + ", and the script gives it " +
+              std::to_string(args.size()));
+        return false;
+    }
+    for (std::size_t k = 0; k < args.size() && k < s.params.size(); ++k) {
+        const std::optional<Kind> want = s.params[k];
+        if (want && *want != args[k].kind) {
+            fault(name + "'s argument " + std::to_string(k + 1) + " is " +
+                  std::string(kind_name(*want)) + ", and the script gives it " +
+                  std::string(kind_name(args[k].kind)));
+            return false;
+        }
+    }
+    return true;
 }
 
 void Machine::enter(int node) { _frames.push_back({ node, 0 }); }
@@ -166,6 +287,11 @@ int Machine::visits(std::string_view node) const {
 }
 
 Value Machine::read(std::string_view name) const {
+    if (const auto b = _bound.find(name); b != _bound.end()) {
+        Value v = Value::of(0.0f);
+        b->second.get(v);
+        return v;
+    }
     if (const auto it = _vars.find(std::string(name)); it != _vars.end())
         return it->second;
     for (const SmartVariable &s : _program.smart) {
@@ -181,6 +307,10 @@ Value Machine::read(std::string_view name) const {
 Value Machine::variable(std::string_view name) const { return read(name); }
 
 void Machine::set_variable(std::string_view name, Value value) {
+    if (const auto b = _bound.find(name); b != _bound.end()) {
+        b->second.set(value);
+        return;
+    }
     _vars.insert_or_assign(std::string(name), std::move(value));
 }
 
@@ -250,7 +380,8 @@ Value Machine::call(const std::string &name, std::span<const Value> args) {
     if (name == "neg") return Value::of(-num(0));
     if (const auto f = _functions.find(name); f != _functions.end()) {
         Value out;
-        f->second(out, args);
+        if (!fits(name + "()", f->second.signature, args)) return Value::of(false);
+        f->second.function(out, args);
         return out;
     }
     const auto truncate = [](float v) { return std::trunc(v); };
@@ -430,7 +561,23 @@ void Machine::step(const Instruction &i) {
             const std::vector<std::string> w = words(text);
             if (!w.empty()) {
                 if (const auto h = _commands.find(w.front()); h != _commands.end()) {
-                    h->second(std::span<const std::string>(w).subspan(1));
+                    const std::span<const std::string> rest =
+                        std::span<const std::string>(w).subspan(1);
+                    if (!command_fits(w.front(), h->second.signature, rest)) return;
+                    h->second.handler(rest);
+                    if (_hold) {
+                        _hold = false;
+                        _event = Event{ Event::Is::HOLD };
+                        _waiting = true;
+                    }
+                    return;
+                }
+                if (w.front() == "wait") {
+                    // Yarn's own <<wait 2>>, when the game has no "wait" of its own.
+                    _event = Event{ Event::Is::HOLD };
+                    _event.seconds =
+                        w.size() > 1 ? std::max(0.0f, Value::of(w[1]).as_number()) : 0.0f;
+                    _waiting = true;
                     return;
                 }
             }
@@ -487,7 +634,7 @@ void Machine::step(const Instruction &i) {
             _stack.push_back(read(i.s));
             break;
         case Op::STORE_VARIABLE:
-            if (!_stack.empty()) _vars[i.s] = _stack.back();
+            if (!_stack.empty()) set_variable(i.s, _stack.back());
             break;
         case Op::STOP:
             stop();

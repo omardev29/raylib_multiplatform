@@ -313,6 +313,21 @@ jobs:
         if: needs.config.outputs.framework == 'true'
         run: python3 -m unittest discover -s tests -p 'ink_to_yarn_test.py' -v
 
+      # Every .yarn of resources/ compiled by the framework's own compiler,
+      # against the types of the functions the C++ registers; a function a
+      # script calls that nothing registers fails it.
+      - name: The Yarn scripts
+        run: |
+          set -euo pipefail
+          cmake --preset debug > /dev/null
+          cmake --build --preset debug --target rmp_yarnc
+          python3 tools/yarn_tool.py check --yarnc build/debug/rmp_yarnc
+
+      # rmp yarn's checker and the .ysls.json it writes, each mistake planted.
+      - name: rmp yarn, checker and editor file
+        if: needs.config.outputs.framework == 'true'
+        run: python3 -m unittest discover -s tests -p 'yarn_tool_test.py' -v
+
       # `rmp` itself: every command's page, the push and deploy refusals
       # against a real git, the launchers under every shell the image has.
       - name: rmp itself

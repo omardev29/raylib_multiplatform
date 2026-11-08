@@ -100,6 +100,19 @@ class ScanTest(unittest.TestCase):
             self.assertEqual(wide.rows[0][wide.header.index("unused")], "")
 
 
+class LanguageNameTest(unittest.TestCase):
+    def test_scan_never_marks_the_language_name_unused(self):
+        # rmp::lang::name() reads it at runtime: no literal in the code names it.
+        with tree({"src/main.cpp": 'button("Play");',
+                   "resources/lang.tsv": "key\tcontext\ten\tunused\n"
+                                         "language.name\t\tEnglish\t\nGone\t\tGone\t\n"}) as tmp:
+            root = Path(tmp)
+            text_tool.scan(root)
+            rows = (root / "resources" / "lang.tsv").read_text(encoding="utf-8").splitlines()
+        self.assertIn("language.name\t\tEnglish\t", rows)
+        self.assertIn("Gone\t\tGone\tx", rows)
+
+
 class CheckTest(unittest.TestCase):
     TOML = '[lang]\nlanguages = ["en", "es", "ru"]\n'
 
@@ -159,6 +172,13 @@ class CheckTest(unittest.TestCase):
 
     def test_an_unused_row_is_not_held(self):
         got = self.problems("key\tcontext\ten\tes\tru\tunused\nOld\t\tOld\t\t\tx\n")
+        self.assertEqual(got, [])
+
+    def test_an_unused_row_is_not_held_through_a_language_file(self):
+        # Marked unused in lang.tsv, still in lang/de.tsv: retired in both.
+        got = self.problems("key\tcontext\ten\tes\tru\tunused\nOld\t\tOld\t\t\tx\n",
+                            toml="",
+                            extra={"resources/lang/de.tsv": "key\tcontext\ttext\nOld\t\tAlt\n"})
         self.assertEqual(got, [])
 
     def test_without_a_list_every_column_is_held(self):

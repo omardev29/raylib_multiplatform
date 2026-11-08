@@ -79,6 +79,10 @@ float clamp_delta(float raw, float max);
 // rmp::ui in a plain raylib loop of the game's own, which nothing steps --
 // the frame raylib timed, clamped the same way.
 float frame_delta();
+// The frame's number, counted by the runner's steps: something asked once a
+// frame can tell a second ask in the same frame. 0 with no runner, where
+// every ask is a frame of its own.
+std::uint64_t frame_number();
 
 // Back to no runner having stepped, for the tests of the line above.
 void forget_steps_for_tests();

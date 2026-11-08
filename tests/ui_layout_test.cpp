@@ -33,6 +33,7 @@
 #include "../src/rmp/text_internal.h"
 
 #include <rmp/app.h>
+#include <rmp/scene.h>
 #include <rmp/dialogue.h>
 #include <rmp/object.h> // rmp::Callback, for the report sink
 #include <rmp/ui.h>
@@ -3237,6 +3238,7 @@ void run_dialogue_presenters() {
 // that is not available, the Stage's cast, and a bubble over its speaker.
 struct {
     std::vector<std::string> names;
+    std::vector<float> pitches;
 } sounds_played;
 
 void run_dialogue_flow() {
@@ -3246,9 +3248,12 @@ void run_dialogue_flow() {
     rmp::lang::detail::set_persist(false);
     rmp::lang::detail::load_tables({});
     sounds_played.names.clear();
-    rmp::ui::detail::set_sound_player([](std::string_view name, float /*volume*/) {
-        sounds_played.names.emplace_back(name);
-    });
+    sounds_played.pitches.clear();
+    rmp::ui::detail::set_sound_player(
+        [](std::string_view name, float /*volume*/, float pitch) {
+            sounds_played.names.emplace_back(name);
+            sounds_played.pitches.push_back(pitch);
+        });
     const auto count = [](std::string_view name) {
         return std::ranges::count(sounds_played.names, std::string(name));
     };
@@ -3389,6 +3394,262 @@ void run_dialogue_flow() {
     rmp::ui::detail::set_test_frame_time(0);
 }
 
+// The presenters for a real game: a voice and a box per speaker, the box's
+// layout, a bubble's tail, the Stage's entrances and focus, a command's
+// wait, and a presenter of the game's own out of the two public pieces.
+void show_frame(const rmp::Callback<> &body) {
+    rmp::ui::begin({ .placement = rmp::ui::Align::BOTTOM_CENTER, .grow = true });
+    body();
+    rmp::ui::end();
+}
+
+bool has_element(std::string_view label) {
+    Clay_BoundingBox b{};
+    return rmp::ui::detail::bounds_of(label, 0, 0, &b);
+}
+
+void run_dialogue_pro() {
+    rmp::ui::detail::set_test_viewport(1280, 720);
+    rmp::ui::detail::set_test_frame_time(1.0f / 60);
+    rmp::lang::detail::reset_for_tests();
+    rmp::lang::detail::set_persist(false);
+    rmp::lang::detail::load_tables({});
+    sounds_played.names.clear();
+    sounds_played.pitches.clear();
+    rmp::ui::detail::set_sound_player(
+        [](std::string_view name, float /*volume*/, float pitch) {
+            sounds_played.names.emplace_back(name);
+            sounds_played.pitches.push_back(pitch);
+        });
+    namespace dd = rmp::dialogue::detail;
+    const std::string two = "title: Start\n---\nMika: Hello there, friend.\n"
+                            "Sora: And hello to you.\n===\n";
+
+    // A voice each: Mika's blip, higher; Sora's the flow's.
+    {
+        rmp::Dialogue d = dd::compile_text(two);
+        d.start();
+        rmp::ui::DialogueBox box{
+            .speakers = { { .name = "Mika", .blip = "mika", .pitch = 1.5f } },
+            .flow = { .letters_per_second = 60,
+                      .blip = "blip",
+                      .blip_every = 2,
+                      .auto_advance = 0.05f }
+        };
+        for (int i = 0; i < 400 && d.running(); ++i) show_frame([&] { box.show(d); });
+        bool mika_high = false;
+        bool sora_plain = false;
+        for (std::size_t i = 0; i < sounds_played.names.size(); ++i) {
+            if (sounds_played.names[i] == "mika")
+                mika_high = sounds_played.pitches[i] == 1.5f;
+            if (sounds_played.names[i] == "blip")
+                sora_plain = sounds_played.pitches[i] == 1.0f;
+        }
+        check(mika_high, "a speaker's own blip, at their pitch");
+        check(sora_plain, "a speaker without one: the flow's blip, at 1");
+    }
+
+    // The jitter moves each blip's pitch, within its bounds.
+    {
+        sounds_played.names.clear();
+        sounds_played.pitches.clear();
+        rmp::Dialogue d = dd::compile_text(two);
+        d.start();
+        rmp::ui::DialogueBox box{ .flow = { .letters_per_second = 60,
+                                            .blip = "blip",
+                                            .blip_every = 1,
+                                            .blip_jitter = 0.1f } };
+        for (int i = 0; i < 60; ++i) show_frame([&] { box.show(d); });
+        const auto [lo, hi] = std::ranges::minmax(sounds_played.pitches);
+        check(!sounds_played.pitches.empty() && lo >= 0.9f && hi <= 1.1f && hi > lo,
+              "a jittered blip varies, within the jitter");
+    }
+
+    // The portrait's side, the name plate on the frame, the box's width.
+    {
+        float box_width = 500;
+        const auto line_x = [&](rmp::ui::DialogueSide side, Vector2 name_offset,
+                                float &line_y, float &portrait_x, float &width) {
+            rmp::Dialogue d = dd::compile_text(two);
+            d.start();
+            rmp::ui::DialogueBox box{ .portraits = { { .speaker = "Mika" } },
+                                      .flow = { .letters_per_second = 0 },
+                                      .width = box_width,
+                                      .portrait_side = side,
+                                      .name_offset = name_offset };
+            show_frame([&] { box.show(d); });
+            show_frame([&] { box.show(d); });
+            const Box line = box_of("dialogue_line");
+            portrait_x = box_of("dialogue_portrait").x;
+            line_y = line.y;
+            width = box_of("dialogue_next").x + box_of("dialogue_next").w;
+            return line.x;
+        };
+        float y_left = 0;
+        float y_float = 0;
+        float p_left = 0;
+        float p_right = 0;
+        float w = 0;
+        float w2 = 0;
+        const float left = line_x(rmp::ui::DialogueSide::LEFT, {}, y_left, p_left, w);
+        const float right = line_x(rmp::ui::DialogueSide::RIGHT, {}, y_left, p_right, w2);
+        check(p_left < left, "a LEFT portrait sits before the line");
+        check(p_right > right, "a RIGHT portrait sits after it");
+        check(right < left, "and the line moves over to where it was");
+        (void)line_x(rmp::ui::DialogueSide::LEFT, { 16, -18 }, y_float, p_left, w);
+        float y_plain = 0;
+        (void)line_x(rmp::ui::DialogueSide::LEFT, {}, y_plain, p_left, w);
+        check(y_float < y_plain, "a name plate on the frame leaves the line its room");
+        float y_wide = 0;
+        float p_wide = 0;
+        float w_wide = 0;
+        box_width = 0;
+        (void)line_x(rmp::ui::DialogueSide::LEFT, {}, y_wide, p_wide, w_wide);
+        check(w < w_wide && w > 0, "a box of a width is narrower");
+    }
+
+    // The choices: in the box, above it at its right, in the middle.
+    {
+        const std::string ask = "title: Start\n---\n-> Yes\n-> No\n===\n";
+        const auto choice_at = [&](rmp::ui::DialogueChoices where) {
+            rmp::Dialogue d = dd::compile_text(ask);
+            d.start();
+            rmp::ui::DialogueBox box{ .choices = where };
+            show_frame([&] { box.show(d); });
+            show_frame([&] { box.show(d); });
+            return box_of("dialogue_choice_0");
+        };
+        const Box in_box = choice_at(rmp::ui::DialogueChoices::IN_BOX);
+        const Box above = choice_at(rmp::ui::DialogueChoices::ABOVE);
+        const Box middle = choice_at(rmp::ui::DialogueChoices::CENTER);
+        check(above.x > 1280 / 2.0f && above.w < in_box.w,
+              "ABOVE: a panel of their own, at the right");
+        check(std::abs(middle.x + middle.w / 2 - 640) < 4 &&
+                  std::abs(middle.y - 360) < 80,
+              "CENTER: in the middle of the screen");
+    }
+
+    // A command's wait: nothing drawn, still running, then the line.
+    {
+        rmp::app::detail::set_fixed_delta(1.0f / 60);
+        rmp::Dialogue d =
+            dd::compile_text("title: Start\n---\n<<wait 0.1>>\nAfter.\n===\n");
+        d.start();
+        rmp::ui::DialogueBox box{ .flow = { .letters_per_second = 0 } };
+        bool showing = false;
+        show_frame([&] { showing = box.show(d); });
+        check(showing && d.waiting() && !has_element("dialogue_line"),
+              "while a command waits, nothing is drawn, and it is not over");
+        for (int i = 0; i < 30 && d.waiting(); ++i) {
+            (void)rmp::app::detail::step_delta();
+            show_frame([&] { box.show(d); });
+        }
+        show_frame([&] { box.show(d); });
+        check(d.has_line() && has_element("dialogue_line"), "and after it, the line");
+        rmp::app::detail::set_fixed_delta(0);
+        rmp::app::detail::forget_steps_for_tests();
+    }
+
+    // A bubble's tail: under the bubble, pointing at the speaker, its colour.
+    {
+        rmp::Scene room;
+        const rmp::Object &npc = room.spawn({ .position = Vector2{ 400, 300 } });
+        rmp::Dialogue d = dd::compile_text("title: Start\n---\nNpc: Over here.\n===\n");
+        d.start();
+        rmp::ui::DialogueBubble bubble{
+            .speakers = { { .name = "Npc", .object = npc.handle() } },
+            .flow = { .letters_per_second = 0 },
+            .tail = 12,
+            .style = { .background = Color{ 10, 20, 30, 255 } }
+        };
+        REQUIRE(npc.handle().get());
+        show_frame([&] { bubble.show(d); });
+        show_frame([&] { bubble.show(d); });
+        const Box line = box_of("dialogue_bubble_line");
+        bool found = false;
+        const Clay_RenderCommandArray cmds = rmp::ui::detail::last_pass_commands();
+        for (int32_t i = 0; i < cmds.length; ++i) {
+            const auto t = rmp::ui::detail::tail_record(cmds.internalArray[i]);
+            if (!t) continue;
+            const Clay_BoundingBox b = cmds.internalArray[i].boundingBox;
+            found = b.y > line.y && t->color.r == 10 && t->color.b == 30 &&
+                b.width == 2 * b.height;
+        }
+        check(found, "a bubble's tail under it, in its colour, twice as wide as tall");
+        rmp::ui::DialogueBubble none{ .speakers = { { .name = "Npc",
+                                                      .object = npc.handle() } },
+                                      .flow = { .letters_per_second = 0 },
+                                      .tail = 0 };
+        show_frame([&] { none.show(d); });
+        bool any = false;
+        const Clay_RenderCommandArray again = rmp::ui::detail::last_pass_commands();
+        for (int32_t i = 0; i < again.length; ++i)
+            any = any ||
+                static_cast<bool>(rmp::ui::detail::tail_record(again.internalArray[i]));
+        check(!any, "tail = 0: none");
+    }
+
+    // The Stage: in from the side and faded, then still; the speaker forward.
+    {
+        rmp::Dialogue d =
+            dd::compile_text("title: Start\n---\nMika: One.\nSora: Two.\n===\n");
+        d.start();
+        rmp::ui::DialogueStage stage{ .portraits = { { .speaker = "Mika" },
+                                                     { .speaker = "Sora" } },
+                                      .flow = { .letters_per_second = 0 },
+                                      .enter_seconds = 0.5f,
+                                      .focus_seconds = 0.2f };
+        show_frame([&] { stage.show(d); });
+        check(stage.ours.entered.size() == 1 && stage.ours.entered[0] < 0.1f,
+              "who speaks first comes on stage");
+        for (int i = 0; i < 40; ++i) show_frame([&] { stage.show(d); });
+        check(stage.ours.focus[0] == doctest::Approx(1.0f), "the speaker comes forward");
+        d.advance();
+        for (int i = 0; i < 6; ++i) show_frame([&] { stage.show(d); });
+        check(stage.ours.focus.size() == 2 && stage.ours.focus[0] < 1 &&
+                  stage.ours.focus[1] > 0,
+              "the one who stopped goes back as the next comes forward");
+        stage.shake(10, 0.2f);
+        stage.flash(RED, 0.2f);
+        show_frame([&] { stage.show(d); });
+        check(stage.ours.shaking > 0 && stage.ours.flashing > 0,
+              "a shake and a flash run");
+        for (int i = 0; i < 20; ++i) show_frame([&] { stage.show(d); });
+        check(stage.ours.shaking < 0 && stage.ours.flashing < 0,
+              "and stop by themselves");
+    }
+
+    // A presenter of the game's own: its layout around the two pieces.
+    {
+        rmp::Dialogue d =
+            dd::compile_text("title: Start\n---\nHi.\n-> A\n    a\n-> B\n===\n");
+        d.start();
+        rmp::ui::DialogueMemory memory;
+        const rmp::ui::DialogueFlow flow{ .letters_per_second = 0 };
+        bool line = false;
+        show_frame([&] {
+            rmp::ui::row({ .grow_x = true }, [&] {
+                line = rmp::ui::dialogue_line(d, memory, flow);
+                (void)rmp::ui::dialogue_choices(d, memory, flow);
+            });
+        });
+        check(line && has_element("dialogue_line"), "dialogue_line() draws the line");
+        fake_nav.state.activate = true;
+        show_frame([&] { (void)rmp::ui::dialogue_line(d, memory, flow); });
+        fake_nav.state = rmp::ui::detail::NavState{};
+        bool choices = false;
+        show_frame([&] { choices = rmp::ui::dialogue_choices(d, memory, flow); });
+        show_frame([&] { choices = rmp::ui::dialogue_choices(d, memory, flow); });
+        check(choices && has_element("dialogue_choice_1"),
+              "dialogue_choices() the choices");
+        check(!rmp::ui::dialogue_line(d, memory, flow),
+              "and no line while there are choices");
+    }
+
+    rmp::ui::detail::set_sound_player({});
+    rmp::ui::detail::set_test_frame_time(0);
+}
+
 TEST_CASE("the menu, centred: small window (800x600)") {
     run_at(800, 600, "small window");
 }
@@ -3403,6 +3664,9 @@ TEST_CASE("a grid that fits its columns") { run_grid_fit(); }
 TEST_CASE("interaction") { run_interaction(); }
 TEST_CASE("dialogue presenters and rich text") { run_dialogue_presenters(); }
 TEST_CASE("dialogue presenters: the flow between the lines") { run_dialogue_flow(); }
+TEST_CASE("dialogue presenters: speakers, layout, tail, stage, own") {
+    run_dialogue_pro();
+}
 TEST_CASE("dropdown") { run_dropdown(); }
 TEST_CASE("focus by name") { run_focus_by_name(); }
 TEST_CASE("slider: keyboard and gamepad") { run_slider_nav(); }

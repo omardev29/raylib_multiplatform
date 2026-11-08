@@ -2,19 +2,29 @@
 // rmp_yarnc -- the framework's Yarn compiler, on the build machine.
 //
 //     rmp_yarnc OUT.cpp RESOURCES_DIR a.yarn talk/b.yarn ...
+//     rmp_yarnc --check [--function NAME=TYPES>RESULT ...] a.yarn b.yarn ...
 //
 // Compiles each .yarn of a game's resources/ with the compiler the game
 // itself carries (src/rmp/dialogue/), and writes OUT.cpp: each program as
 // bytes and the table rmp::assets::load_dialogue() looks in first. Built and
 // run by CMake when [dialogue] build is "embedded" (or "auto" in a release):
 // a script with an error fails the build, with file:line:column.
+//
+// --check is `rmp yarn check`'s: each file compiled, its errors said as
+// file:line:column, and what it uses printed -- "function FILE NAME" and
+// "command FILE NAME", a line each -- for tools/yarn_tool.py to hold against
+// the game's C++. Each --function is one the game registers, typed for the
+// checker ("has_item=string,number>bool"; "" or "any" is any type).
 // ===========================================================================
 
 #include "../src/rmp/dialogue/yarn.h"
 
 #include <array>
 #include <cstdio>
+#include <span>
+#include <string_view>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -39,9 +49,89 @@ std::string escape(const std::string &s) {
     return out;
 }
 
+std::vector<std::string> split(std::string_view s, char by) {
+    std::vector<std::string> out;
+    std::size_t from = 0;
+    while (from <= s.size()) {
+        const std::size_t at = s.find(by, from);
+        const std::size_t end = at == std::string_view::npos ? s.size() : at;
+        out.emplace_back(s.substr(from, end - from));
+        if (at == std::string_view::npos) break;
+        from = at + 1;
+    }
+    return out;
+}
+
+// "name=string,number>bool" as the checker's FunctionType.
+std::optional<rmp::yarn::FunctionType> function_type(std::string_view spec) {
+    const std::size_t eq = spec.find('=');
+    const std::size_t gt = spec.rfind('>');
+    if (eq == std::string_view::npos || gt == std::string_view::npos || gt < eq) return {};
+    rmp::yarn::FunctionType f;
+    f.name = std::string(spec.substr(0, eq));
+    const std::string_view params = spec.substr(eq + 1, gt - eq - 1);
+    if (!params.empty()) {
+        for (std::string p : split(params, ',')) f.params.push_back(p == "any" ? "" : p);
+    }
+    f.result = std::string(spec.substr(gt + 1));
+    if (f.result == "any") f.result.clear();
+    return f;
+}
+
+int check(std::span<char *> args) {
+    std::vector<rmp::yarn::FunctionType> functions;
+    std::vector<std::string> files;
+    for (std::size_t i = 0; i < args.size(); ++i) {
+        const std::string_view a = args[i];
+        if (a == "--function" && i + 1 < args.size()) {
+            const std::optional<rmp::yarn::FunctionType> f = function_type(args[++i]);
+            if (!f) {
+                std::fprintf(stderr, "rmp_yarnc: --function %s: want NAME=TYPES>RESULT\n",
+                             args[i]);
+                return 2;
+            }
+            functions.push_back(*f);
+        } else {
+            files.emplace_back(a);
+        }
+    }
+    int failed = 0;
+    for (const std::string &name : files) {
+        std::string text;
+        if (!read(name, text)) {
+            std::fprintf(stderr, "rmp_yarnc: cannot read %s\n", name.c_str());
+            ++failed;
+            continue;
+        }
+        const std::vector<rmp::yarn::Source> sources{ { name, text } };
+        const rmp::yarn::Compiled c = rmp::yarn::compile(sources, functions);
+        for (const rmp::yarn::Diagnostic &d : c.errors) {
+            std::fprintf(stderr, "%s\n", d.str().c_str());
+        }
+        if (!c.ok()) {
+            ++failed;
+            continue;
+        }
+        for (const std::string &f : rmp::yarn::functions_called(c.program)) {
+            if (!rmp::yarn::is_builtin_function(f))
+                std::printf("function %s %s\n", name.c_str(), f.c_str());
+        }
+        for (const std::string &cmd : rmp::yarn::commands_run(c.program)) {
+            std::printf("command %s %s\n", name.c_str(), cmd.c_str());
+        }
+    }
+    if (failed > 0) {
+        std::fprintf(stderr, "rmp_yarnc: %d script(s) did not compile\n", failed);
+        return 1;
+    }
+    return 0;
+}
+
 } // namespace
 
 int main(int argc, char **argv) {
+    const std::span<char *> all(argv, static_cast<std::size_t>(argc));
+    if (argc >= 2 && std::string_view(argv[1]) == "--check") return check(all.subspan(2));
     if (argc < 3) {
         std::fprintf(stderr, "usage: rmp_yarnc OUT.cpp RESOURCES_DIR [file.yarn ...]\n");
         return 2;

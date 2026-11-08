@@ -19,6 +19,7 @@
 #include "internal.h"
 #include "../internal.h" // RMP_REPORT_ONCE
 
+#include <algorithm>
 #include <cmath>
 #include <list>
 #include <numbers>
@@ -338,6 +339,7 @@ struct {
         inherited; // cumulative: each entry is the one below with a `children` over it
     std::list<LookFrame> stack; // the widgets being declared, innermost last
     std::list<DrawRecord> draws;
+    std::list<TailRecord> tails;
     std::list<TextRecord> texts;
     rmp::Callback<const Event &> hook;
     unsigned frame = 0;
@@ -347,7 +349,7 @@ struct {
 // constructor (sound.cpp) puts rmp::audio::play() here: so the decoders come
 // into a game with the first sound it names, and never into one with none.
 struct {
-    rmp::Callback<std::string_view, float> play;
+    rmp::Callback<std::string_view, float, float> play;
 } player;
 
 // Per element, across frames: what it was doing (for the events), when it
@@ -581,6 +583,7 @@ void begin_frame_looks() {
     rich_begin_frame();
     looks.draws.clear();
     looks.texts.clear();
+    looks.tails.clear();
     // Forget what has not been declared for a while: a screen that is gone.
     auto &table = memory();
     for (auto it = table.begin(); it != table.end();) {
@@ -673,6 +676,45 @@ rmp::Ref<DrawRecord> decorate(Clay_ElementDeclaration &d, Clay_ElementId id,
     return rmp::Ref<DrawRecord>(r);
 }
 
+void open_moved(Vector2 offset, float alpha, float scale, bool grow_x) {
+    Clay_ElementDeclaration d{};
+    d.layout.layoutDirection = CLAY_TOP_TO_BOTTOM;
+    if (grow_x) d.layout.sizing.width = CLAY_SIZING_GROW(0);
+    Clay__OpenElement();
+    DrawRecord &r = looks.draws.emplace_back();
+    r.element = Clay_GetOpenElementId();
+    r.offset = Vector2{ px(offset.x), px(offset.y) };
+    r.alpha = std::clamp(std::isfinite(alpha) ? alpha : 1.0f, 0.0f, 1.0f);
+    r.scale = std::isfinite(scale) && scale > 0 ? scale : 1.0f;
+    r.carrier = true;
+    d.backgroundColor = Clay_Color{ 0, 0, 0, 1 };
+    d.userData = &r;
+    Clay__ConfigureOpenElement(d);
+}
+
+void close_moved() { Clay__CloseElement(); }
+
+void open_tail(float width, float height, Color color) {
+    TailRecord &t = looks.tails.emplace_back();
+    t.color = color;
+    Clay_ElementDeclaration d{};
+    d.layout.sizing.width = CLAY_SIZING_FIXED(px(width));
+    d.layout.sizing.height = CLAY_SIZING_FIXED(px(height));
+    d.custom.customData = &t;
+    Clay__OpenElement();
+    Clay__ConfigureOpenElement(d);
+    Clay__CloseElement();
+}
+
+rmp::Ref<const TailRecord> tail_record(const Clay_RenderCommand &cmd) {
+    // Only a record of this frame's, found by its address: a custom element
+    // is rich text, an overlay's catcher or a tail.
+    for (const TailRecord &t : looks.tails) {
+        if (&t == cmd.renderData.custom.customData) return rmp::Ref<const TailRecord>(t);
+    }
+    return {};
+}
+
 rmp::Ref<DrawRecord> picture_record(const Picture &picture, Color tint) {
     if (picture.empty()) return {};
     DrawRecord &r = looks.draws.emplace_back();
@@ -725,14 +767,14 @@ void open_text(Clay_String text, Clay_TextElementConfig config) {
 // Events
 // ---------------------------------------------------------------------------
 
-void set_sound_player(rmp::Callback<std::string_view, float> play) {
+void set_sound_player(rmp::Callback<std::string_view, float, float> play) {
     player.play = std::move(play);
 }
 
 bool has_sound_player() { return static_cast<bool>(player.play); }
 
-void play_sound(const SoundName &sound, float volume) {
-    if (!sound.empty() && player.play) player.play(sound.view(), volume);
+void play_sound(const SoundName &sound, float volume, float pitch) {
+    if (!sound.empty() && player.play) player.play(sound.view(), volume, pitch);
 }
 
 void emit(EventKind kind, WidgetKind widget, std::string_view name) {
@@ -743,7 +785,8 @@ void emit(EventKind kind, WidgetKind widget, std::string_view name) {
         sound && !sound->empty() && player.play) {
         player.play(
             sound->view(),
-            usable(s.sounds.volume.value_or(1.0f), 1.0f, 0.0f, 1.0f, "sounds.volume"));
+            usable(s.sounds.volume.value_or(1.0f), 1.0f, 0.0f, 1.0f, "sounds.volume"),
+            1.0f);
     }
     if (looks.hook) {
         const Event e{ kind, widget, name };
@@ -780,6 +823,16 @@ Edges track(Clay_ElementId id, WidgetKind kind, std::string_view name,
 void start_shake(uint32_t element, WidgetKind widget, std::string_view name) {
     remember(element).shaking = 0;
     emit(EventKind::SHAKE, widget, name);
+}
+
+Style overlay(const Style &base, const Style &top) {
+    Style out = base;
+    merge(out, top);
+    return out;
+}
+
+Style resolved(WidgetKind kind, const Style &own) {
+    return resolve(kind, rmp::Ref<const Style>(own));
 }
 
 } // namespace detail
