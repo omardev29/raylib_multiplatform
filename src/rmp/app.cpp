@@ -102,6 +102,12 @@ struct {
     bool refused = false;
 } test_window;
 
+// Whether open_window() has run: RMP_GAME calls it before it makes the first
+// scene, and start() again after, which does nothing the second time.
+struct {
+    bool opened = false;
+} window;
+
 // A boot that logged RAY_TEST_BOOT_FAIL -- no window (a DRM game with no
 // card), a save that did not come back, a RAY_TEST_WINDOW start() could not
 // read -- and the status the run ends with, in end_stop(). It ended with 0,
@@ -487,7 +493,9 @@ void end_stop() {
 // same in every project, and taking them from [window] in the .toml is what
 // lets the same source describe an 800x450 laptop window and a phone held
 // sideways.
-void start(std::unique_ptr<rmp::Scene> first) {
+void open_window() {
+    if (window.opened) return;
+    window.opened = true;
     // [window] vsync: wait for the screen's refresh. raylib's default is not
     // to, and then a desktop game draws as fast as the GPU allows.
     SetConfigFlags(RMP_WINDOW_VSYNC != 0 ? FLAG_WINDOW_RESIZABLE | FLAG_VSYNC_HINT
@@ -525,6 +533,21 @@ void start(std::unique_ptr<rmp::Scene> first) {
     const rmp::scenes::detail::WindowSize size = wanted.size.value_or(
         rmp::scenes::detail::WindowSize{ RMP_WINDOW_WIDTH, RMP_WINDOW_HEIGHT });
     InitWindow(size.width, size.height, RMP_WINDOW_TITLE);
+    rmp::assets::detail::window_opened();
+    // A texture, a font or a sheet loaded before this line has no picture:
+    // one made at namespace scope, or in the constructor of a scene made
+    // before the window by hand. RMP_GAME makes the first scene after it.
+    if (const auto early = rmp::assets::detail::loaded_before_window()) {
+        RMP_REPORT_ONCE("ASSETS: '%s'%s was loaded before the window opened, so it has "
+                        "nothing to draw: a texture, a font or a sheet needs the window. "
+                        "Load it in a scene (its members or _ready()), not at namespace "
+                        "scope.",
+                        early->first.c_str(), early->count > 1 ? " (and others)" : "");
+    }
+}
+
+void start(std::unique_ptr<rmp::Scene> first) {
+    open_window();
     rmp::scenes::detail::start(std::move(first));
 }
 

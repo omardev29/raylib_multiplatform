@@ -442,6 +442,13 @@ here so that nobody "fixes" one back.
   up by name says `JNIEXPORT` (`ANativeActivity_onCreate`, raymob's
   callbacks), which keeps it exported. arm64-v8a went from 3091080 bytes to
   1108688, measured with the image's NDK r28.
+- **The first scene is made with the window open, and a load before it is
+  said** (Omar, 2026-11-08). `RMP_GAME` calls `open_window()` before it makes
+  the first scene, so a texture, a font or a sheet in a scene's members loads
+  like one in `_ready()`. A texture, font or sheet asked for before the window
+  opened (at namespace scope, in a global's constructor) has nothing to draw:
+  `open_window()` names the first one through `RMP_REPORT_ONCE`, and a run that
+  never opens a window -- every unit test -- never hears it.
 - **`src/main.cpp` is a dozen lines and ends at `RMP_GAME(MainMenuScene);`**
   -- phase 4 did that, and it stays that way. The user's game lives in
   `src/scenes/` and `src/objects/`; new mechanics go to `examples/`, never here.

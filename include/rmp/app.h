@@ -180,10 +180,13 @@ void end_frame(); // advance the CI frame budget, feed the music stream
 void begin_stop(); // the UI closes here, BEFORE your stop hook: see below
 void end_stop(); // the asset pack and the sound device close here, AFTER it
 
-// The three that RMP_GAME wires to the hooks above. start() opens the window
-// and enters your first scene, frame() runs one turn of the scene stack, and
-// stop() closes the window. The scene stack owns `first` from then on;
-// RMP_GAME makes it and hands it over on the same line.
+// What RMP_GAME wires to the hooks above. open_window() opens the window at
+// the .toml's size; RMP_GAME calls it BEFORE it makes your first scene, so a
+// texture or a font your scene's members load has a window to go to. start()
+// enters that scene (opening the window first if nothing has), frame() runs
+// one turn of the scene stack, and stop() closes the window. The scene stack
+// owns `first` from then on.
+void open_window();
 void start(std::unique_ptr<rmp::Scene> first); // owns it from here on
 void frame(float delta);
 void stop();
@@ -444,6 +447,7 @@ template <class T> T &global() {
 // on the way out. It is RMP_ENTRY_POINT with the three hooks written for you.
 #define RMP_GAME(SceneType)                                                    \
   static void rmp_game_ready() {                                               \
+    rmp::app::detail::open_window();                                           \
     rmp::app::detail::start(std::make_unique<SceneType>());                    \
   }                                                                            \
   static void rmp_game_frame(float delta) { rmp::app::detail::frame(delta); }  \

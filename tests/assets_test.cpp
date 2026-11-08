@@ -1362,3 +1362,26 @@ TEST_SUITE("assets: loads") {
         rmp::detail::release_all();
     }
 }
+
+TEST_SUITE("assets: before the window") {
+    // What rmp::app::detail::open_window() says once the window is open: the
+    // first texture, font or sheet asked for before it, and how many were.
+    // Every load here has no window (a unit test opens none), so each counts
+    // until window_opened(), and none after.
+    TEST_CASE("a load that needs the window is noted until the window opens") {
+        (void)rmp::assets::load_texture("not_there_before_window.png");
+        const auto first = rmp::assets::detail::loaded_before_window();
+        REQUIRE(first.has_value());
+        CHECK_FALSE(first->first.empty());
+        (void)rmp::assets::load_font("not_there_before_window.ttf", 12);
+        (void)rmp::assets::load_sheet("not_there_before_window.aseprite");
+        const auto more = rmp::assets::detail::loaded_before_window();
+        REQUIRE(more.has_value());
+        CHECK(more->first == first->first);
+        CHECK(more->count >= first->count + 1);
+        rmp::assets::detail::window_opened();
+        (void)rmp::assets::load_texture("not_there_after_window.png");
+        CHECK(rmp::assets::detail::loaded_before_window()->count == more->count);
+        rmp::detail::release_all();
+    }
+}

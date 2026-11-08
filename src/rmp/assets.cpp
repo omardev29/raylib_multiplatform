@@ -44,6 +44,31 @@ struct {
 } resources;
 } // namespace
 
+namespace {
+// Loads that needed the window before it opened. An optional, not a
+// std::string, for the reason `resources` is one: a game's object at
+// namespace scope can load before this file's own are made, and an optional
+// is ready from the start (constant initialisation).
+struct {
+    bool window = false;
+    std::optional<std::string> first;
+    int count = 0;
+} early;
+} // namespace
+
+void note_gpu_load(const std::string_view name) {
+    if (early.window) return;
+    if (!early.first) early.first = std::string(name);
+    ++early.count;
+}
+
+void window_opened() { early.window = true; }
+
+std::optional<EarlyLoads> loaded_before_window() {
+    if (!early.first) return std::nullopt;
+    return EarlyLoads{ *early.first, early.count };
+}
+
 const char *resources_root() {
     return resources.root ? resources.root->c_str() : RMP_RESOURCES_PATH;
 }
@@ -218,6 +243,7 @@ namespace {
 }
 
 Texture2D load_texture_raw(const char *name) {
+    detail::note_gpu_load(name);
     // Counts the request, and a file that is missing or does not decode.
     const ::Image img = load_image_raw(name);
     if (img.data == nullptr) return Texture2D{};
@@ -274,6 +300,7 @@ Texture2D load_texture_raw(const char *name) {
     // always, so that never comes back.
     if (codepoints.empty()) codepoints = detail::default_codepoints();
     const int count = static_cast<int>(codepoints.size());
+    detail::note_gpu_load(name);
     ++detail::loads.requested;
     if (detail::pack_is_open()) {
         // The extension has to come from the name: rres stores the file verbatim
@@ -498,6 +525,7 @@ rmp::SpriteSheet load_sheet(std::string_view name_view) {
 
     // Every frame into ONE image, side by side, then one texture. A hundred
     // enemies from the same sheet is then one bind rather than a hundred.
+    detail::note_gpu_load(name_view);
     sheet.texture = rmp::animation::detail::upload_sheet(bytes.data(), size, sheet);
 
     auto *slot = rmp::detail::adopt_named(ResourceKind::SHEET, name, 0, sheet);

@@ -264,6 +264,20 @@ std::span<const int> default_codepoints();
 rmp::Font load_font_glyphs(std::string_view name, int font_size,
                            std::span<const int> codepoints);
 
+// A texture, a font or a sheet needs the window: raylib's GL calls have
+// nowhere to go before InitWindow(), and what they make is empty. Every such
+// load says its name here; the first one before the window opened is kept,
+// and rmp::app::detail::open_window() says it once the window is open (a game
+// that never opens one -- every unit test -- never hears it).
+void note_gpu_load(std::string_view name);
+void window_opened();
+// The first name loaded before the window, and how many were; empty: none.
+struct EarlyLoads {
+    std::string first;
+    int count = 0;
+};
+[[nodiscard]] std::optional<EarlyLoads> loaded_before_window();
+
 } // namespace rmp::assets::detail
 
 // A printf format the compiler checks: RMP_PRINTF_FORMAT(2, 3) says argument 2
