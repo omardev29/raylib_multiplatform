@@ -938,7 +938,7 @@ STAGES = [
                     "gates_red_test.py"])]),
     Stage("text", "every language [lang] ships has every text",
           [("run", ["{python}", "tools/text_tool.py", "check"])], scope="both"),
-    Stage("yarn", "every Yarn script compiles, and calls only what the C++ registers",
+    Stage("yarn", "every Yarn script compiles, against what the C++ registers",
           [("configure", []),
            ("build", "rmp_yarnc"),
            ("run", ["{python}", "tools/yarn_tool.py", "check", "--yarnc",
@@ -2554,7 +2554,7 @@ COMMANDS = {
          ("rmp text check", "what a translation lacks or got wrong")],
         cmd_text),
     "yarn": Command(
-        "yarn check|ysls", "the Yarn scripts: compile them against the C++, or tell the editor",
+        "yarn check|ysls", "the Yarn scripts, checked against the C++; the editor told",
         "check compiles every resources/**/*.yarn with the framework's own compiler "
         "(rmp_yarnc --check), each error as file:line:column, with the types of the "
         "functions the C++ registers (on_function(\"name\", [&](std::string s) -> bool "
@@ -2565,7 +2565,7 @@ COMMANDS = {
         "extension for VS Code reads to complete and check them.",
         [("rmp yarn check", "every script, against the game's C++"),
          ("rmp yarn check resources/intro.yarn", "one script"),
-         ("rmp yarn ysls", "the editor learns the game's commands and functions")],
+         ("rmp yarn ysls", "VS Code learns the C++ commands")],
         cmd_yarn),
     "unpack": Command(
         "unpack", "delete the pack; the game reads resources/ again",

@@ -317,7 +317,11 @@ jobs:
       # against the types of the functions the C++ registers; a function a
       # script calls that nothing registers fails it.
       - name: The Yarn scripts
-        run: ./rmp yarn check
+        run: |
+          set -euo pipefail
+          cmake --preset debug > /dev/null
+          cmake --build --preset debug --target rmp_yarnc
+          python3 tools/yarn_tool.py check --yarnc build/debug/rmp_yarnc
 
       # rmp yarn's checker and the .ysls.json it writes, each mistake planted.
       - name: rmp yarn, checker and editor file
