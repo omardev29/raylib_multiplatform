@@ -80,7 +80,9 @@ std::optional<std::string> model(const std::string &root, const std::string &pat
         return std::nullopt;
     std::string name;
     for (std::size_t i = folder.size(); i < file.size(); ++i) {
-        if (file[i] == "..") return std::nullopt;
+        // Above the root, or an absolute path under a relative root (its
+        // first part is the root directory, "/").
+        if (file[i] == ".." || file[i] == "/") return std::nullopt;
         if (!name.empty()) name += '/';
         name += file[i];
     }
