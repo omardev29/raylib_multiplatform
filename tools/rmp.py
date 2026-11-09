@@ -692,7 +692,7 @@ class TerminalState:
     rcore_drm.c: no echo, no line editing, no Ctrl+C, O_NONBLOCK, K_XLATE) and
     puts them back from an atexit handler, which a crash, a sanitizer's report
     or a kill never runs -- and the shell after it is left with no echo and
-    no Ctrl+C. src/rmp/console.cpp puts them back from inside the game; this
+    no Ctrl+C. src/rmp/app/console.cpp puts them back from inside the game; this
     is what still does it after a SIGKILL, which nothing inside can catch."""
 
     def __init__(self, fd: int, attrs, flags: int, kbmode):

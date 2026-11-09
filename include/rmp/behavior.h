@@ -48,7 +48,7 @@
 
 // <rmp/input.h> is NOT here, and that is deliberate: nothing this header
 // declares names a type or a function from rmp::input -- the catalogue reads
-// actions in src/rmp/behaviors.cpp, which includes it there. Here it would cost
+// actions in src/rmp/behavior/behaviors.cpp, which includes it there. Here it would cost
 // 52 ms of every translation unit with a behavior in it, which is every
 // gameplay file, for a header none of them need. tools/header_check.sh compiles
 // this one on its own, which is what says it is not needed.

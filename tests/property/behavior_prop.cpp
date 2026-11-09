@@ -19,7 +19,7 @@
 //   - and the pure halves -- TopDown's sector, Parallax's tiling, Spawner's
 //     jitter -- hold for any input.
 //
-// The behavior ENGINE (src/rmp/behavior.cpp: attach, detach, the walks) has
+// The behavior ENGINE (src/rmp/behavior/behavior.cpp: attach, detach, the walks) has
 // its own property at the end: any sequence of add, remove, destroy and
 // update over a few objects keeps what a model of it says. Its public face is
 // rmp::Object's (object.h), whose waivers are another package's, so it covers
@@ -70,9 +70,9 @@
 #include "check.h"
 #include "gen.h"
 
-#include "../../src/rmp/behavior_internal.h"
+#include "../../src/rmp/behavior/behavior_internal.h"
 #include "../../src/rmp/internal.h"
-#include "../../src/rmp/object_internal.h"
+#include "../../src/rmp/scene/object_internal.h"
 
 #include <rmp/assets.h> // rmp::detail::release_all
 #include <rmp/behavior.h>

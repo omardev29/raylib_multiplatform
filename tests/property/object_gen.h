@@ -19,7 +19,7 @@
 // also sees what a division by zero in a game hands the framework.
 // ---------------------------------------------------------------------------
 
-#include "../../src/rmp/object_internal.h"
+#include "../../src/rmp/scene/object_internal.h"
 #include "gen.h"
 
 #include <rmp/object.h>

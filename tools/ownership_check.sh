@@ -14,7 +14,7 @@
 #       a leak and a second one is a double free. The names are read live from
 #       raylib.h and rres-raylib.h, so a raylib update brings its new ones.
 #   O3  no cute_aseprite_load_from_memory or cute_aseprite_load_from_file
-#       outside src/rmp/animation.cpp, under include/, src/, tests/ and
+#       outside src/rmp/assets/animation.cpp, under include/, src/, tests/ and
 #       examples/, in C and C++. cute_aseprite trusts the file: it asserts on
 #       a broken one, leaks on some real ones and loops on linked cels that
 #       link in a circle. So bytes reach it only through load() there, which
@@ -52,7 +52,7 @@ RULES = {
     "O2": "a raylib resource made or freed outside its owner: load it through "
           "rmp::assets, which frees it with the handle",
     "O3": "cute_aseprite handed bytes prepare_aseprite() never walked: load a sheet "
-          "through rmp::assets, which goes through src/rmp/animation.cpp",
+          "through rmp::assets, which goes through src/rmp/assets/animation.cpp",
 }
 
 # Files allowed to keep their calls, and why. THE LIST ONLY SHRINKS.
@@ -60,28 +60,28 @@ ALLOWED = {
     "O1": {
         # raylib's LoadFileData contract: the buffer is RL_MALLOC'd by us and
         # RL_FREE'd by raylib's caller. C ABI, not ours to own.
-        "src/rmp/loader_hook.cpp",
+        "src/rmp/assets/loader_hook.cpp",
     },
     "O2": {
         # The loaders: every resource rmp::assets hands out is made here, into
         # the handle whose last release frees it.
-        "src/rmp/assets.cpp",
+        "src/rmp/assets/assets.cpp",
         # The resource table: where a handle's last release calls Unload*.
-        "src/rmp/resource.cpp",
+        "src/rmp/assets/resource.cpp",
         # rmp::audio's voices and music streams, made and freed by the mixer
         # that owns them.
-        "src/rmp/audio.cpp",
+        "src/rmp/audio/audio.cpp",
         # An aseprite sheet: its frames are packed into an Image, freed on the
         # spot, and a Texture the sheet owns.
-        "src/rmp/animation.cpp",
+        "src/rmp/assets/animation.cpp",
         # raylib's file-loading callback, which IS LoadFileData's contract.
-        "src/rmp/loader_hook.cpp",
+        "src/rmp/assets/loader_hook.cpp",
         # A chunk of the rres pack, decoded and handed to the loaders above.
-        "src/rmp/pack.cpp",
+        "src/rmp/assets/pack.cpp",
     },
     "O3": {
         # The one load(): prepare_aseprite() first, cute_aseprite on its copy.
-        "src/rmp/animation.cpp",
+        "src/rmp/assets/animation.cpp",
         # Reads back the pictures cute_aseprite composes from what
         # prepare_aseprite() handed over (prepared()), to hold the sheet's
         # texture to them.

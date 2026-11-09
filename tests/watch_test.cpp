@@ -1,7 +1,7 @@
 // ===========================================================================
 // Hot reload: a Value read with rmp::assets::load_value() and a texture read
 // with load_texture() remember their file in resources/, and changed() says
-// when it differs from what they hold (src/rmp/watch.cpp).
+// when it differs from what they hold (src/rmp/app/watch.cpp).
 //
 //   WHAT CHANGED() SEES. An edit that changes the bytes; not an editor saving
 //   the same bytes again, not a file that is gone for a moment.

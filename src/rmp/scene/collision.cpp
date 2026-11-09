@@ -1,0 +1,1339 @@
+// ---------------------------------------------------------------------------
+// Arcade collision: shapes, a uniform grid, solid separation, the swept test
+// against tunnelling, raycasting, and the pointer.
+//
+// WHY THIS IS OURS AND NOT BOX2D, because it is the right question. Box2D 3.x
+// is plain C with CMake and no dependencies and would compile on all seventeen
+// targets without a fight. The problem is not portability, it is that Box2D is
+// not a collision library -- it is a model of the world. Bodies, fixtures,
+// density, an iterative solver, its own fixed Step, and its own units (metres,
+// not pixels, which is the classic first mistake). Adopting it means
+// rmp::Object::position stops being where the position lives and becomes a
+// mirror of a b2Body transform, and then everything else has to be re-expressed
+// in its terms: Edge::CLAMP stops being a comparison and becomes a static body,
+// on_drag stops writing position and becomes a mouse joint, velocity stops
+// being a field.
+//
+// And the simple case gets harder, which is the rule that outranks the others
+// answering by itself: a Pong ball goes from one line to a dynamic body, a
+// circle shape, density, restitution 1, friction 0, linear damping 0 and
+// gravity disabled on that body.
+//
+// So: arcade collision, about six hundred lines, tested without a GPU. The door
+// to Box2D stays open in the only way that matters -- position, rotation and
+// velocity are public fields, so a game that genuinely needs rigid bodies (a
+// tower that collapses, a car, a ragdoll) can link Box2D, Step it in _update
+// and write position from the body. rmp::Object does not stand in the way, and
+// when a real game asks, it enters as an example and not as a layer.
+//
+// WHAT IS DELIBERATELY ABSENT: rotation in collision, polygons, friction,
+// restitution, joints, and anything else that is the beginning of a physics
+// engine.
+// ---------------------------------------------------------------------------
+
+#include <rmp/input.h>
+#include <rmp/object.h>
+#include <rmp/scene.h>
+
+#include "../internal.h"
+#include "object_internal.h"
+
+#include <algorithm>
+#include <climits>
+#include <cmath>
+#include <cstddef>
+#include <cstdint>
+#include <cstdlib>
+#include <optional>
+#include <span>
+#include <vector>
+
+namespace rmp {
+
+namespace {
+
+constexpr float NEAR_ZERO = 0.0001f;
+
+float clampf(float v, float lo, float hi) { return v < lo ? lo : (v > hi ? hi : v); }
+
+bool finite(Vector2 v) { return std::isfinite(v.x) && std::isfinite(v.y); }
+
+// A box whose four edges are numbers: x, y, its size, and where it ends.
+bool finite_box(const Rectangle &r) {
+    return std::isfinite(r.x) && std::isfinite(r.y) && std::isfinite(r.width) &&
+        std::isfinite(r.height) && std::isfinite(r.x + r.width) &&
+        std::isfinite(r.y + r.height);
+}
+
+// A shape placed in the world. The collision pass works with this and not with
+// the AABB, which is what makes a circle collide as a circle -- the difference
+// shows the moment a Pong ball meets the end of a paddle, because the bounce
+// normal is the one of the side it actually hit rather than an approximation.
+struct Placed {
+    ShapeKind kind = ShapeKind::NONE;
+    Vector2 centre{};
+    Vector2 half{}; // RECTANGLE
+    float radius = 0; // CIRCLE
+};
+
+Rectangle aabb_of(const Placed &p);
+
+// A shape somewhere no float can say -- a NaN or an infinity in the position,
+// the size or the scale, or a box whose edges are past FLT_MAX -- is nowhere,
+// and collides with nothing. Left in, a NaN centre overlapped every rectangle
+// (each comparison with it is false, and "not outside" read as inside), an
+// infinite one pushed whatever it touched to infinity, and its cell in the
+// grid was a float-to-int cast of NaN: undefined behaviour, and then a write
+// past the grid's arrays.
+Placed checked(Placed p) {
+    if (p.kind != ShapeKind::NONE && !finite_box(aabb_of(p))) p.kind = ShapeKind::NONE;
+    return p;
+}
+
+Placed placed_of(const Object &object) {
+    Placed p;
+    const Shape &shape =
+        object.collider.kind != ShapeKind::NONE ? object.collider : object.shape;
+
+    if (shape.kind == ShapeKind::CIRCLE) {
+        p.kind = ShapeKind::CIRCLE;
+        // One axis, because a circle scaled unevenly is an ellipse and this
+        // layer does not have ellipses. circle_scale() is that one axis, and it
+        // lives in object_internal.h because the drawing and world_bounds() ask
+        // the same question and all three have to give the same answer. A
+        // negative radius is a disc that size, as a mirrored scale is.
+        p.radius = std::fabs(shape.radius) * circle_scale(object.scale);
+        p.centre = Vector2{ object.position.x + shape.offset.x,
+                            object.position.y + shape.offset.y };
+        return checked(p);
+    }
+    if (shape.kind == ShapeKind::RECTANGLE) {
+        p.kind = ShapeKind::RECTANGLE;
+        // A mirrored scale, or a negative size, is still a size: the same box.
+        // Signed, a half-width of -10 made the box overlap nothing, and its
+        // AABB ran backwards -- in no cell of the grid, and in the O(n^2)
+        // loop's answer all the same.
+        p.half = Vector2{ std::fabs(shape.size.x * object.scale.x) / 2,
+                          std::fabs(shape.size.y * object.scale.y) / 2 };
+        p.centre = Vector2{ object.position.x + shape.offset.x,
+                            object.position.y + shape.offset.y };
+        return checked(p);
+    }
+
+    // No shape and no collider: fall back to the sprite's frame, which is what
+    // world_bounds() already works out. An object with neither is a point, and
+    // a point collides with nothing -- it has no area, and saying it collides
+    // with whatever it is inside would make every logic object a trigger.
+    const Rectangle box = object.world_bounds();
+    // Said as what it must be and not as what it must not: a NaN size is
+    // neither <= 0 nor > 0, and the box made from it would be NaN.
+    const bool has_area = box.width > 0 && box.height > 0;
+    if (!has_area) return p; // kind stays NONE
+    p.kind = ShapeKind::RECTANGLE;
+    p.half = Vector2{ box.width / 2, box.height / 2 };
+    p.centre = Vector2{ box.x + box.width / 2, box.y + box.height / 2 };
+    return checked(p);
+}
+
+Rectangle aabb_of(const Placed &p) {
+    if (p.kind == ShapeKind::CIRCLE) {
+        return Rectangle{ p.centre.x - p.radius, p.centre.y - p.radius, p.radius * 2,
+                          p.radius * 2 };
+    }
+    return Rectangle{ p.centre.x - p.half.x, p.centre.y - p.half.y, p.half.x * 2,
+                      p.half.y * 2 };
+}
+
+// The union of two boxes: a moving object's start and end, for the broad phase.
+Rectangle merge(const Rectangle &a, const Rectangle &b) {
+    const float x0 = a.x < b.x ? a.x : b.x;
+    const float y0 = a.y < b.y ? a.y : b.y;
+    const float x1 = (a.x + a.width) > (b.x + b.width) ? a.x + a.width : b.x + b.width;
+    const float y1 =
+        (a.y + a.height) > (b.y + b.height) ? a.y + a.height : b.y + b.height;
+    return Rectangle{ x0, y0, x1 - x0, y1 - y0 };
+}
+
+bool boxes_overlap(const Rectangle &a, const Rectangle &b) {
+    return a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height &&
+        b.y < a.y + a.height;
+}
+
+// ---------------------------------------------------------------------------
+// The narrow phase. Three pairs and no more, and that is the whole reason there
+// are two shapes and not five: these are the three that can be resolved
+// honestly. A capsule that drew as a capsule and collided as a box would be a
+// lie in the API, and that is the kind of lie that costs an afternoon.
+//
+// Each returns whether they overlap and, if so, the MINIMUM TRANSLATION VECTOR:
+// the shortest push that separates them, pointing from `b` towards `a`.
+// ---------------------------------------------------------------------------
+
+bool overlap_rect_rect(const Placed &a, const Placed &b, Vector2 *mtv) {
+    const float dx = a.centre.x - b.centre.x;
+    const float dy = a.centre.y - b.centre.y;
+    const float px = (a.half.x + b.half.x) - (dx < 0 ? -dx : dx);
+    const float py = (a.half.y + b.half.y) - (dy < 0 ? -dy : dy);
+    if (px <= 0 || py <= 0) return false;
+
+    // The axis of least penetration, which is the one that makes a character
+    // land on top of a platform instead of being shoved out sideways.
+    if (px < py) {
+        *mtv = Vector2{ dx < 0 ? -px : px, 0 };
+    } else {
+        *mtv = Vector2{ 0, dy < 0 ? -py : py };
+    }
+    return true;
+}
+
+bool overlap_circle_circle(const Placed &a, const Placed &b, Vector2 *mtv) {
+    const float dx = a.centre.x - b.centre.x;
+    const float dy = a.centre.y - b.centre.y;
+    const float sum = a.radius + b.radius;
+    const float d2 = dx * dx + dy * dy;
+    if (d2 >= sum * sum) return false;
+
+    const float d = std::sqrt(d2);
+    if (d < NEAR_ZERO) {
+        // Exactly concentric. There is no direction to push in, so one is
+        // chosen rather than dividing by zero and producing NaN positions that
+        // spread to everything they touch afterwards.
+        *mtv = Vector2{ sum, 0 };
+        return true;
+    }
+    const float push = sum - d;
+    *mtv = Vector2{ dx / d * push, dy / d * push };
+    return true;
+}
+
+// `a` is the circle, `b` the rectangle. The MTV still points towards `a`.
+bool overlap_circle_rect(const Placed &a, const Placed &b, Vector2 *mtv) {
+    const float nearest_x =
+        clampf(a.centre.x, b.centre.x - b.half.x, b.centre.x + b.half.x);
+    const float nearest_y =
+        clampf(a.centre.y, b.centre.y - b.half.y, b.centre.y + b.half.y);
+    const float dx = a.centre.x - nearest_x;
+    const float dy = a.centre.y - nearest_y;
+    const float d2 = dx * dx + dy * dy;
+
+    if (d2 > NEAR_ZERO * NEAR_ZERO) {
+        // The centre is outside the rectangle: the nearest point is on an edge
+        // or a corner, and the normal runs through it. This is the branch that
+        // makes a Pong ball leave the corner of a paddle at the right angle.
+        if (d2 >= a.radius * a.radius) return false;
+        const float d = std::sqrt(d2);
+        const float push = a.radius - d;
+        *mtv = Vector2{ dx / d * push, dy / d * push };
+        return true;
+    }
+
+    // The centre is inside the rectangle. The nearest exit is the nearest face,
+    // and it always overlaps.
+    const float left = a.centre.x - (b.centre.x - b.half.x);
+    const float right = (b.centre.x + b.half.x) - a.centre.x;
+    const float up = a.centre.y - (b.centre.y - b.half.y);
+    const float down = (b.centre.y + b.half.y) - a.centre.y;
+    float best = left;
+    Vector2 dir{ -1, 0 };
+    if (right < best) {
+        best = right;
+        dir = Vector2{ 1, 0 };
+    }
+    if (up < best) {
+        best = up;
+        dir = Vector2{ 0, -1 };
+    }
+    if (down < best) {
+        best = down;
+        dir = Vector2{ 0, 1 };
+    }
+    const float push = best + a.radius;
+    *mtv = Vector2{ dir.x * push, dir.y * push };
+    return true;
+}
+
+// Dispatch, with the shapes put in the order each test expects.
+bool overlap(const Placed &a, const Placed &b, Vector2 *mtv) {
+    if (a.kind == ShapeKind::NONE || b.kind == ShapeKind::NONE) return false;
+    if (a.kind == ShapeKind::RECTANGLE && b.kind == ShapeKind::RECTANGLE) {
+        return overlap_rect_rect(a, b, mtv);
+    }
+    if (a.kind == ShapeKind::CIRCLE && b.kind == ShapeKind::CIRCLE) {
+        return overlap_circle_circle(a, b, mtv);
+    }
+    if (a.kind == ShapeKind::CIRCLE) return overlap_circle_rect(a, b, mtv);
+
+    // b is the circle: run it the other way and flip the push, so that the MTV
+    // still points at `a`.
+    Vector2 flipped{};
+    if (!overlap_circle_rect(b, a, &flipped)) return false;
+    *mtv = Vector2{ -flipped.x, -flipped.y };
+    return true;
+}
+
+// ---------------------------------------------------------------------------
+// Rays
+// ---------------------------------------------------------------------------
+
+// Slab method. `t` comes back in [0,1] along from->to, and the normal is the
+// face that was entered.
+bool ray_rect(Vector2 from, Vector2 to, const Placed &box, float *t, Vector2 *normal) {
+    const Vector2 d{ to.x - from.x, to.y - from.y };
+    const float min_x = box.centre.x - box.half.x;
+    const float max_x = box.centre.x + box.half.x;
+    const float min_y = box.centre.y - box.half.y;
+    const float max_y = box.centre.y + box.half.y;
+
+    float near = 0;
+    float far = 1;
+    Vector2 axis{ 0, 0 };
+
+    // x, then y, written out rather than looped: a Vector2 has named members
+    // and indexing one through a cast is exactly the sort of cleverness that
+    // stops compiling on a target nobody is looking at.
+    for (int i = 0; i < 2; ++i) {
+        const float origin = i == 0 ? from.x : from.y;
+        const float dir = i == 0 ? d.x : d.y;
+        const float lo = i == 0 ? min_x : min_y;
+        const float hi = i == 0 ? max_x : max_y;
+
+        if (dir > -NEAR_ZERO && dir < NEAR_ZERO) {
+            // Parallel to this pair of faces: either inside the slab for the
+            // whole ray, or never.
+            if (origin < lo || origin > hi) return false;
+            continue;
+        }
+        float t0 = (lo - origin) / dir;
+        float t1 = (hi - origin) / dir;
+        Vector2 n0 = i == 0 ? Vector2{ -1, 0 } : Vector2{ 0, -1 };
+        if (t0 > t1) {
+            const float swap = t0;
+            t0 = t1;
+            t1 = swap;
+            n0 = i == 0 ? Vector2{ 1, 0 } : Vector2{ 0, 1 };
+        }
+        if (t0 > near) {
+            near = t0;
+            axis = n0;
+        }
+        if (t1 < far) far = t1;
+        if (near > far) return false;
+    }
+
+    *t = near;
+    // Starting inside gives near == 0 and no face was crossed. The normal then
+    // points back down the ray, which is the only answer that is not a lie.
+    if (axis.x == 0 && axis.y == 0) {
+        const float len = std::sqrt(d.x * d.x + d.y * d.y);
+        axis = len > NEAR_ZERO ? Vector2{ -d.x / len, -d.y / len } : Vector2{ 0, -1 };
+    }
+    *normal = axis;
+    return true;
+}
+
+bool ray_circle(Vector2 from, Vector2 to, const Placed &circle, float *t,
+                Vector2 *normal) {
+    const Vector2 d{ to.x - from.x, to.y - from.y };
+    const Vector2 m{ from.x - circle.centre.x, from.y - circle.centre.y };
+    const float a = d.x * d.x + d.y * d.y;
+    if (a < NEAR_ZERO) return false;
+    const float b = 2 * (m.x * d.x + m.y * d.y);
+    const float c = m.x * m.x + m.y * m.y - circle.radius * circle.radius;
+
+    const float disc = b * b - 4 * a * c;
+    // Written so a NaN fails it: a circle on the far side of the floats from
+    // the ray's origin squares to infinity, b * b - 4 * a * c is then inf -
+    // inf, and `disc < 0` is false for the NaN -- which came back as a hit at
+    // t = NaN.
+    if (!(disc >= 0)) return false;
+    const float root = std::sqrt(disc);
+    float hit = (-b - root) / (2 * a);
+    if (hit < 0) hit = (-b + root) / (2 * a); // the origin is inside
+    if (hit < 0 || hit > 1) return false;
+
+    *t = hit;
+    const Vector2 point{ from.x + d.x * hit, from.y + d.y * hit };
+    const Vector2 n{ point.x - circle.centre.x, point.y - circle.centre.y };
+    const float len = std::sqrt(n.x * n.x + n.y * n.y);
+    *normal = len > NEAR_ZERO ? Vector2{ n.x / len, n.y / len } : Vector2{ 0, -1 };
+    return true;
+}
+
+bool ray_shape(Vector2 from, Vector2 to, const Placed &shape, float *t, Vector2 *normal) {
+    if (shape.kind == ShapeKind::CIRCLE) return ray_circle(from, to, shape, t, normal);
+    if (shape.kind == ShapeKind::RECTANGLE) return ray_rect(from, to, shape, t, normal);
+    return false;
+}
+
+// Is a point already inside a shape? The sweep asks it about the grown shape,
+// which is the Minkowski sum -- so "the mover's centre started inside" means
+// "the two were already overlapping when the step began".
+bool point_inside(const Placed &shape, Vector2 point) {
+    if (shape.kind == ShapeKind::CIRCLE) {
+        const float dx = point.x - shape.centre.x;
+        const float dy = point.y - shape.centre.y;
+        return (dx * dx) + (dy * dy) <= shape.radius * shape.radius;
+    }
+    if (shape.kind == ShapeKind::RECTANGLE) {
+        const float dx = point.x - shape.centre.x;
+        const float dy = point.y - shape.centre.y;
+        return (dx < 0 ? -dx : dx) <= shape.half.x && (dy < 0 ? -dy : dy) <= shape.half.y;
+    }
+    return false;
+}
+
+// The swept test, and the other half of the answer to tunnelling.
+//
+// [app] max_delta stops a stalled frame teleporting everything. It does not
+// help with the second case, which happens at a perfectly normal frame rate: a
+// bullet at 900 u/s moves 15 units a frame, and against a wall 10 units thick
+// there is no frame on which the two overlap. The overlap test is never true
+// and the bullet goes through.
+//
+// So a fast mover is tested against the SEGMENT it travelled rather than
+// against the box it ended in. Minkowski: grow the stationary shape by the
+// mover's extents and cast a ray from the old centre to the new one. For
+// rect-against-rect and circle-against-circle that is exact. For a circle
+// against a rectangle the true sum is a rounded rectangle and this uses the
+// square one, which over-reports by at most a corner -- the error is a hit
+// reported a fraction of a unit early, never one missed.
+bool sweep(const Placed &mover, Vector2 from, const Placed &other, float *t,
+           Vector2 *normal) {
+    Placed grown = other;
+    if (mover.kind == ShapeKind::CIRCLE) {
+        if (other.kind == ShapeKind::CIRCLE) {
+            grown.radius += mover.radius;
+        } else {
+            grown.half.x += mover.radius;
+            grown.half.y += mover.radius;
+        }
+    } else {
+        if (other.kind == ShapeKind::CIRCLE) {
+            // A circle grown by a box is a rounded box; the box is the
+            // conservative stand-in, same as above and in the same direction.
+            grown.kind = ShapeKind::RECTANGLE;
+            grown.half =
+                Vector2{ other.radius + mover.half.x, other.radius + mover.half.y };
+        } else {
+            grown.half.x += mover.half.x;
+            grown.half.y += mover.half.y;
+        }
+    }
+
+    // A ray that starts inside reports a hit at t = 0, which is the right
+    // answer for a RAYCAST and the wrong one for a sweep: rewinding to t = 0 is
+    // rewinding to where the object already was -- inside. An object that
+    // starts overlapping and leaves during the step was then put straight back
+    // every frame and never got out, which is what a bullet spawned at a muzzle
+    // inside the shooter, or anything a level editor placed in a wall, does.
+    // There is nothing for the sweep to say about a pair that was already
+    // touching: the overlap test and the MTV are what separate those, and they
+    // do it on the frame the overlap is real.
+    if (point_inside(grown, from)) return false;
+
+    return ray_shape(from, mover.centre, grown, t, normal);
+}
+
+// ---------------------------------------------------------------------------
+// The broad phase: a uniform grid.
+//
+// With three hundred objects the difference against the O(n^2) loop is already
+// visible, and the grid is forty lines. It has to be CONSERVATIVE -- every
+// pair that really overlaps must reach the narrow phase -- and
+// tests/collision_test.cpp proves that the hard way, by running both over a
+// thousand random objects and comparing the sets.
+// ---------------------------------------------------------------------------
+
+struct Entry {
+    Object *object = nullptr;
+    Placed shape;
+    Rectangle swept; // start box merged with end box
+    Vector2 from{}; // where its centre was before this frame's integration
+    bool moved_fast = false;
+};
+
+struct Pair {
+    int a = 0;
+    int b = 0;
+};
+
+// Which cells a box covers, first to last on each axis.
+struct CellSpan {
+    int x0 = 0;
+    int y0 = 0;
+    int x1 = 0;
+    int y1 = 0;
+};
+
+// FLAT, and that is the whole of what changed here: it used to be a
+// vector-of-vectors, `assign`ed to as many empty vectors as there were cells
+// every time it was built -- up to a million of them -- with a heap allocation
+// behind the first push_back into each non-empty one. 2 000 small objects
+// spread over a level clamp the cell to its floor and ask for a quarter of a
+// million buckets: six megabytes of assign and two thousand mallocs before any
+// collision work happens, every frame, and again for every single raycast.
+//
+// Two integer arrays and a counting sort do the same job with no per-cell
+// allocation: `starts` holds where each cell's run of items begins (cells + 1
+// entries, so a cell's run is starts[c]..starts[c+1]) and `items` holds the
+// entry indices, sorted by cell. Both live in the scratch below and are
+// cleared rather than freed, so a steady scene allocates nothing at all.
+struct Grid {
+    float cell = 64;
+    int min_x = 0;
+    int min_y = 0;
+    int cols = 1;
+    int rows = 1;
+    std::vector<int> starts;
+    std::vector<int> items;
+    std::vector<CellSpan> spans; // each entry's, while the grid is built
+
+    int index_of(int cx, int cy) const { return (cy - min_y) * cols + (cx - min_x); }
+    int cell_count() const { return cols * rows; }
+    bool empty() const { return starts.empty(); }
+    void clear() {
+        starts.clear();
+        items.clear();
+        cols = 0;
+        rows = 0;
+    }
+};
+
+// floor(v / cell) as an int -- or nothing, when it is not one: a NaN, an
+// infinity, or a cell past int's range. Casting any of those to int is
+// undefined behaviour (UBSan's float-cast-overflow), and the grid did it with
+// whatever position an object had: a NaN among finite objects came back as
+// INT_MIN on x86, and the cell index made from it wrote outside the grid.
+std::optional<int> cell_floor(float v, float cell) {
+    const float f = std::floor(v / cell);
+    // 2^31 is a float and INT_MAX is not: [-2^31, 2^31) is int's range exactly.
+    constexpr float END = 2147483648.0f;
+    const bool in_range = f >= -END && f < END; // false for a NaN, too
+    if (!in_range) return std::nullopt;
+    return static_cast<int>(f);
+}
+
+// THE broad-phase index: every object of one scene that has a shape, placed,
+// with the grid over them. One per world version, shared by the collision pass
+// and by every raycast in it -- which is what rmp/object.h has always said a
+// raycast is ("it walks the GRID, not the list ... nearly free precisely
+// BECAUSE the grid is already there for the collision pass") and what this file
+// did not do: it built a whole new one, from a fresh copy of the object list,
+// for every single ray. One ray over a 500-object scene cost as much as the
+// entire collision pass, and a platformer issues one per character per frame.
+//
+// What makes sharing safe is world_version(): the framework bumps it on every
+// spawn, every destroy, the collect, a scene release, and at the top of every
+// update and collision pass. So the index is rebuilt the moment anything the
+// framework can see has changed, and a raycast inside a _collision -- which the
+// header promises works -- sees the positions that pass resolved.
+//
+// What it cannot see is a position written by hand with no pass in between.
+// Such a ray answers from the start of the current pass, which is what a
+// physics engine with a stepped world does and is the price of the grid being
+// shared at all. Any spawn, destroy or frame boundary makes it current again.
+struct Index {
+    const Scene *scene = nullptr;
+    unsigned version = 0;
+    bool built = false;
+    std::vector<Entry> entries;
+    Grid grid;
+    std::vector<int> cursor; // the counting sort's write head per cell
+};
+
+// The broad phase: the index, and scratch for the two walks over it. Separate
+// scratch, because a raycast may be issued from inside a _collision callback
+// and the collision pass must not have its own working memory rewritten
+// underneath it. The dot at every use says "file state".
+struct {
+    Index index;
+    std::vector<Pair> pairs;
+    std::vector<int> candidates;
+} broad;
+
+std::optional<CellSpan> span_of(float left, float top, float right, float bottom,
+                                float cell) {
+    const std::optional<int> x0 = cell_floor(left, cell);
+    const std::optional<int> y0 = cell_floor(top, cell);
+    const std::optional<int> x1 = cell_floor(right, cell);
+    const std::optional<int> y1 = cell_floor(bottom, cell);
+    if (!x0 || !y0 || !x1 || !y1) return std::nullopt;
+    return CellSpan{ *x0, *y0, *x1, *y1 };
+}
+
+std::optional<CellSpan> span_of(const Rectangle &box, float cell) {
+    return span_of(box.x, box.y, box.x + box.width, box.y + box.height, cell);
+}
+
+void build_grid(const std::vector<Entry> &entries, Grid *grid, std::vector<int> *cursor) {
+    grid->clear();
+    if (entries.empty()) return;
+
+    // The cell is the size of the average object, which is the choice that
+    // keeps both failure modes away: cells much smaller than the objects put
+    // every object in dozens of buckets, and cells much larger put every object
+    // in one.
+    float total = 0;
+    for (const Entry &e : entries) {
+        total += (e.swept.width > e.swept.height ? e.swept.width : e.swept.height);
+    }
+    grid->cell = clampf(total / static_cast<float>(entries.size()), 8.0f, 2048.0f);
+
+    // The grid is sized to the OBJECTS and not to the world. A level four
+    // thousand units across with two thousand four-unit objects in it wants a
+    // cell of 8 by the rule above, which is 250 000 cells for 2 000 things --
+    // and the cost of a cell is paid whether or not anything is in it. Doubling
+    // the cell quarters the count, so a few steps bring any world within a
+    // budget proportional to what is actually in it, and the broad phase stays
+    // a broad phase instead of falling back to the O(n^2) loop on exactly the
+    // scenes that need it most.
+    //
+    // The grid is the span of the entries' own cells, so every entry's cells
+    // are inside it by construction: a cell outside would be a write outside.
+    // Every entry's shape is a finite box (index_for leaves out the rest), but
+    // a swept one can run past FLT_MAX from a previous position near it, and
+    // a world can spread past what an int counts in cells even at the largest
+    // cell: neither has cells, and the grid cannot describe it.
+    const auto budget = static_cast<std::int64_t>(entries.size()) * 4 + 1024;
+    std::vector<CellSpan> &spans = grid->spans;
+    bool fits = false;
+    for (int step = 0; step < 64 && !fits; ++step) {
+        spans.clear();
+        CellSpan all = { INT_MAX, INT_MAX, INT_MIN, INT_MIN };
+        for (const Entry &e : entries) {
+            const std::optional<CellSpan> s = span_of(e.swept, grid->cell);
+            if (!s) break;
+            spans.push_back(*s);
+            all = CellSpan{ std::min(all.x0, s->x0), std::min(all.y0, s->y0),
+                            std::max(all.x1, s->x1), std::max(all.y1, s->y1) };
+        }
+        if (spans.size() == entries.size()) {
+            const std::int64_t cols = std::int64_t{ all.x1 } - all.x0 + 1;
+            const std::int64_t rows = std::int64_t{ all.y1 } - all.y0 + 1;
+            // Divided, not multiplied: two counts near 2^32 overflow 64 bits.
+            if (cols <= budget && rows <= budget / cols) {
+                grid->min_x = all.x0;
+                grid->min_y = all.y0;
+                grid->cols = static_cast<int>(cols);
+                grid->rows = static_cast<int>(rows);
+                fits = true;
+            }
+        }
+        if (!fits) grid->cell *= 2;
+    }
+
+    // Nothing the doublings could bring within budget: the grid says so by
+    // staying empty, and the caller falls back to the loop it is an
+    // optimisation of, which is correct however strange the input is.
+    if (!fits) {
+        grid->clear();
+        return;
+    }
+    const auto total_cells = static_cast<std::int64_t>(grid->cols) * grid->rows;
+
+    // Counting sort, two passes. First how many entries each cell holds...
+    const auto cells = static_cast<std::size_t>(total_cells);
+    grid->starts.assign(cells + 1, 0);
+    std::int64_t total_items = 0;
+    for (const CellSpan &s : spans) {
+        for (int cy = s.y0; cy <= s.y1; ++cy) {
+            for (int cx = s.x0; cx <= s.x1; ++cx) {
+                ++grid->starts[static_cast<std::size_t>(grid->index_of(cx, cy)) + 1];
+                ++total_items;
+            }
+        }
+    }
+    // ...then where each cell's run begins, and then the entries themselves.
+    for (std::size_t c = 0; c < cells; ++c) grid->starts[c + 1] += grid->starts[c];
+    grid->items.assign(static_cast<std::size_t>(total_items), 0);
+    *cursor = grid->starts;
+    for (std::size_t i = 0; i < entries.size(); ++i) {
+        const CellSpan &s = spans[i];
+        for (int cy = s.y0; cy <= s.y1; ++cy) {
+            for (int cx = s.x0; cx <= s.x1; ++cx) {
+                const auto c = static_cast<std::size_t>(grid->index_of(cx, cy));
+                grid->items[static_cast<std::size_t>((*cursor)[c])] = static_cast<int>(i);
+                ++(*cursor)[c];
+            }
+        }
+    }
+}
+
+// Two objects interact when either one's mask touches the other's layer.
+bool layers_interact(const Object &a, const Object &b) {
+    return (a.collision_mask & b.collision_layer) != 0 ||
+        (b.collision_mask & a.collision_layer) != 0;
+}
+
+void candidate_pairs(const std::vector<Entry> &entries, const Grid &grid,
+                     std::vector<Pair> *out) {
+    out->clear();
+    const int n = static_cast<int>(entries.size());
+
+    if (grid.empty()) {
+        // No grid: either nothing to do, or a world the cells could not
+        // describe. Every pair, which is correct and is what the grid is an
+        // optimisation of.
+        for (int i = 0; i < n; ++i) {
+            for (int j = i + 1; j < n; ++j) out->push_back(Pair{ i, j });
+        }
+    } else {
+        const int cells = grid.cell_count();
+        for (int c = 0; c < cells; ++c) {
+            const auto from =
+                static_cast<std::size_t>(grid.starts[static_cast<std::size_t>(c)]);
+            const auto to =
+                static_cast<std::size_t>(grid.starts[static_cast<std::size_t>(c) + 1]);
+            for (std::size_t i = from; i < to; ++i) {
+                for (std::size_t j = i + 1; j < to; ++j) {
+                    const int a =
+                        grid.items[i] < grid.items[j] ? grid.items[i] : grid.items[j];
+                    const int b =
+                        grid.items[i] < grid.items[j] ? grid.items[j] : grid.items[i];
+                    out->push_back(Pair{ a, b });
+                }
+            }
+        }
+        // An object spanning several cells meets the same neighbour in each of
+        // them. Sorting and collapsing is cheaper than a hash set and keeps the
+        // order deterministic, which matters: the differential test compares
+        // this against the O(n^2) loop, and a set ordered by pointer would make
+        // the comparison depend on the allocator.
+        std::ranges::sort(*out, [](const Pair &x, const Pair &y) {
+            return x.a != y.a ? x.a < y.a : x.b < y.b;
+        });
+        const auto dup = std::ranges::unique(
+            *out, [](const Pair &x, const Pair &y) { return x.a == y.a && x.b == y.b; });
+        out->erase(dup.begin(), dup.end());
+    }
+}
+
+// What one touching pair amounts to. Detection produces these and changes
+// nothing; resolution applies them afterwards.
+//
+// Splitting the two is not tidiness. Resolving as each pair is found makes the
+// result depend on the ORDER the pairs came out in, which is the one thing a
+// broad phase is allowed to change -- and then the grid and the O(n^2) loop can
+// disagree while both being right, and the differential test in
+// tests/collision_test.cpp could not exist. Detecting first makes the pair set
+// a pure function of the world.
+struct Touch {
+    Object *a = nullptr;
+    Object *b = nullptr;
+    Vector2 mtv{};
+    Object *rewind = nullptr; // the swept case: who to pull back to contact
+    Vector2 rewind_to{};
+};
+
+// Build the index for one scene, or hand back the one that is already current.
+// Everything that walks the world in this file goes through here.
+const Index &index_for(const Scene &scene) {
+    if (broad.index.built && broad.index.scene == &scene &&
+        broad.index.version == objects::detail::world_version()) {
+        return broad.index;
+    }
+
+    broad.index.scene = &scene;
+    broad.index.version = objects::detail::world_version();
+    broad.index.built = true;
+
+    std::vector<Entry> &entries = broad.index.entries;
+    entries.clear();
+    for (Object *object : objects::detail::live_objects(scene)) {
+        Entry e;
+        e.object = object;
+        e.shape = placed_of(*object);
+        if (e.shape.kind == ShapeKind::NONE) continue; // nothing to collide with
+        // The centre moves with the position, so the old centre is the new one
+        // minus however far the position travelled.
+        const Vector2 was = Storage::previous_position(*object);
+        e.from = Vector2{ e.shape.centre.x - (object->position.x - was.x),
+                          e.shape.centre.y - (object->position.y - was.y) };
+        // From somewhere no float can say -- a NaN position the game has
+        // since written over -- is a teleport, and a teleport is not a sweep.
+        if (!finite(e.from)) e.from = e.shape.centre;
+        const Rectangle now = aabb_of(e.shape);
+
+        // "Fast" is more than half its own smaller dimension in one step, which
+        // is exactly the threshold at which an overlap test starts being able
+        // to miss.
+        const float travel_x = e.shape.centre.x - e.from.x;
+        const float travel_y = e.shape.centre.y - e.from.y;
+        const float travel2 = travel_x * travel_x + travel_y * travel_y;
+        const float smaller = now.width < now.height ? now.width : now.height;
+        e.moved_fast = travel2 > (smaller * smaller) / 4;
+
+        if (e.moved_fast) {
+            Placed start = e.shape;
+            start.centre = e.from;
+            e.swept = merge(now, aabb_of(start));
+        } else {
+            e.swept = now;
+        }
+        entries.push_back(e);
+    }
+
+    build_grid(entries, &broad.index.grid, &broad.index.cursor);
+    return broad.index;
+}
+
+std::vector<Touch> detect(const Scene &scene, bool use_grid) {
+    std::vector<Touch> touching;
+
+    const std::vector<Entry> &entries = index_for(scene).entries;
+    if (entries.size() < 2) return touching;
+
+    std::vector<Pair> &pairs = broad.pairs;
+    pairs.clear();
+    if (use_grid) {
+        candidate_pairs(entries, broad.index.grid, &pairs);
+    } else {
+        const int n = static_cast<int>(entries.size());
+        for (int i = 0; i < n; ++i) {
+            for (int j = i + 1; j < n; ++j) pairs.push_back(Pair{ i, j });
+        }
+    }
+
+    for (const Pair &pair : pairs) {
+        const Entry &ea = entries[static_cast<std::size_t>(pair.a)];
+        const Entry &eb = entries[static_cast<std::size_t>(pair.b)];
+        Object &a = *ea.object;
+        Object &b = *eb.object;
+
+        if (!layers_interact(a, b)) continue;
+        if (!boxes_overlap(ea.swept, eb.swept)) continue;
+
+        Touch touch;
+        touch.a = &a;
+        touch.b = &b;
+        if (overlap(ea.shape, eb.shape, &touch.mtv)) {
+            touching.push_back(touch);
+            continue;
+        }
+        if (!ea.moved_fast && !eb.moved_fast) continue;
+
+        // The swept test, for the pair the overlap test cannot see. The one
+        // that travelled further is treated as the mover, because that is the
+        // one more likely to have jumped the other.
+        const float da =
+            (ea.shape.centre.x - ea.from.x) * (ea.shape.centre.x - ea.from.x) +
+            (ea.shape.centre.y - ea.from.y) * (ea.shape.centre.y - ea.from.y);
+        const float db =
+            (eb.shape.centre.x - eb.from.x) * (eb.shape.centre.x - eb.from.x) +
+            (eb.shape.centre.y - eb.from.y) * (eb.shape.centre.y - eb.from.y);
+        const bool a_moves = da >= db;
+        const Entry &mover = a_moves ? ea : eb;
+        const Entry &fixed = a_moves ? eb : ea;
+
+        float t = 0;
+        Vector2 normal{};
+        if (!sweep(mover.shape, mover.from, fixed.shape, &t, &normal)) continue;
+
+        // Where the mover should end up: at the moment of contact, not inside
+        // or beyond. Recorded rather than applied, so detection stays pure.
+        Object &moving = a_moves ? a : b;
+        touch.rewind = &moving;
+        touch.rewind_to =
+            Vector2{ moving.position.x + (mover.from.x - mover.shape.centre.x) * (1 - t),
+                     moving.position.y +
+                         (mover.from.y - mover.shape.centre.y) * (1 - t) };
+        // Contact with no depth: the MTV is the contact normal, pointing at a.
+        touch.mtv = a_moves ? Vector2{ normal.x * NEAR_ZERO, normal.y * NEAR_ZERO }
+                            : Vector2{ -normal.x * NEAR_ZERO, -normal.y * NEAR_ZERO };
+        touching.push_back(touch);
+    }
+    return touching;
+}
+
+} // namespace
+
+// ---------------------------------------------------------------------------
+// The public halves
+// ---------------------------------------------------------------------------
+
+Rectangle Object::world_collider() const {
+    const Placed p = placed_of(*this);
+    if (p.kind == ShapeKind::NONE) return Rectangle{ position.x, position.y, 0, 0 };
+    return aabb_of(p);
+}
+
+namespace objects::detail {
+
+void collide(Scene &scene) {
+    // Every object of this scene has just been integrated, one at a time, so
+    // whatever the index was built from -- including a ground-check raycast
+    // issued halfway through that pass -- is a snapshot of the world partway
+    // through it. The collision pass is the one thing that must see where
+    // everything actually ended up, so it starts by saying the world moved.
+    bump_world_version();
+
+    const std::vector<Touch> touching = detect(scene, true);
+
+    // Rewinds first: an object caught by the swept test is put back where it
+    // met the other one, and then separation works from a sane position.
+    //
+    // ONLY when both are solid, and that is the same rule the separation below
+    // follows because it is the same kind of act: a rewind RESOLVES a contact,
+    // and `solid` is the field that says whether a contact resolves. Applied to
+    // a pair that is not solid it pins the mover at the thing it was passing --
+    // a bullet stopped dead by a coin, a projectile parked inside a trigger
+    // dealing damage sixty times a second. The notification below still
+    // happens, which is the whole point of the swept test for a trigger: you
+    // are told it went through, and it goes through.
+    for (const Touch &touch : touching) {
+        if (touch.rewind == nullptr || !touch.rewind->alive()) continue;
+        if (!touch.a->solid || !touch.b->solid) continue;
+        touch.rewind->position = touch.rewind_to;
+    }
+
+    // THE MAP OUTRANKS A PUSH. Separation moves objects without looking at
+    // the map, so a platform the game moves by hand could shove a player into
+    // a wall -- and once it was more than halfway in, the shortest way out
+    // was the far side. So whoever separation is about to move is noted with
+    // where it was and whether it was clear of the map, and a push that ends
+    // inside a solid cell is undone below: the player stays against the wall,
+    // overlapping what pushed it, which is a crush to resolve and not a
+    // teleport through the level.
+    struct Before {
+        Object *object;
+        Vector2 position;
+    };
+    std::vector<Before> before;
+    if (scene.map.valid()) {
+        for (const Touch &touch : touching) {
+            if (!touch.a->solid || !touch.b->solid) continue;
+            for (Object *o : { touch.a, touch.b }) {
+                if (o->immovable || !o->alive()) continue;
+                const bool listed = std::ranges::any_of(
+                    before, [o](const Before &b) { return b.object == o; });
+                if (!listed && !scene.map.solid_in(o->world_collider())) {
+                    before.push_back({ o, o->position });
+                }
+            }
+        }
+    }
+
+    // Then separation, for the pairs that are both solid. Whoever is pushed is
+    // noted with the direction it was pushed in, for the velocity step below.
+    struct Pushed {
+        Object *object;
+        Vector2 out; // unit, the way it was pushed: away from the contact
+    };
+    std::vector<Pushed> pushed;
+    for (const Touch &touch : touching) {
+        Object &a = *touch.a;
+        Object &b = *touch.b;
+        if (!a.alive() || !b.alive()) continue;
+        if (!a.solid || !b.solid) continue;
+        const float depth =
+            std::sqrt(touch.mtv.x * touch.mtv.x + touch.mtv.y * touch.mtv.y);
+        // A push too long to square has no direction a float can give: no
+        // velocity is taken away for it, below.
+        const Vector2 n = depth > 0 && std::isfinite(depth)
+            ? Vector2{ touch.mtv.x / depth, touch.mtv.y / depth }
+            : Vector2{};
+        // And a push that ends where no float can say is not made: two shapes
+        // the size of the world, overlapping near FLT_MAX, threw each other to
+        // infinity -- and from there every sum is a NaN. Finite in, finite
+        // out; the pair is still told it touched, below.
+        if (!a.immovable && !b.immovable) {
+            const Vector2 to_a{ a.position.x + touch.mtv.x / 2,
+                                a.position.y + touch.mtv.y / 2 };
+            const Vector2 to_b{ b.position.x - touch.mtv.x / 2,
+                                b.position.y - touch.mtv.y / 2 };
+            if (!finite(to_a) || !finite(to_b)) continue;
+            a.position = to_a;
+            b.position = to_b;
+            pushed.push_back({ &a, n });
+            pushed.push_back({ &b, Vector2{ -n.x, -n.y } });
+        } else if (!a.immovable) {
+            const Vector2 to{ a.position.x + touch.mtv.x, a.position.y + touch.mtv.y };
+            if (!finite(to)) continue;
+            a.position = to;
+            pushed.push_back({ &a, n });
+        } else if (!b.immovable) {
+            const Vector2 to{ b.position.x - touch.mtv.x, b.position.y - touch.mtv.y };
+            if (!finite(to)) continue;
+            b.position = to;
+            pushed.push_back({ &b, Vector2{ -n.x, -n.y } });
+        }
+        // Two immovable objects overlapping is a mistake in the level, not
+        // something to solve at runtime. Doing nothing is right: moving one
+        // would be inventing an answer.
+    }
+    for (const Before &b : before) {
+        if (scene.map.solid_in(b.object->world_collider()))
+            b.object->position = b.position;
+    }
+
+    // Notification last, so that by the time the user's code runs, the
+    // positions it reads are the resolved ones. The other order hands them an
+    // overlap that is about to be undone.
+    for (const Touch &touch : touching) {
+        Object &a = *touch.a;
+        Object &b = *touch.b;
+        // Each side is told while IT is still alive; the other side may already
+        // be dying, and it is handed over anyway. It used to stop the moment
+        // either died, and that made Projectile's destroy_on_hit -- the
+        // default -- cancel the very hit it was reporting: the bullet died in
+        // its own _collision and the alien's on_collision and Health never ran.
+        // Which of the pair went first was the entry order, so it was a coin
+        // flip per pair. Memory is not the question: destruction is deferred
+        // to the end of the frame, so `other` is a valid object whose alive()
+        // says false. A hook that cares can ask.
+        //
+        // And each side's hooks run if it was alive when THIS pair started: a
+        // Health that kills its object in the behavior step must not swallow
+        // the on_collision that reports the killing blow (the shot that killed
+        // it is the one a game counts). An object killed by an EARLIER pair
+        // this frame gets nothing more.
+        const bool a_was = a.alive();
+        const bool b_was = b.alive();
+        if (!a_was && !b_was) continue;
+        if (a_was) {
+            a._collision(b);
+            collide_behaviors(a, b);
+        }
+        if (b_was) {
+            b._collision(a);
+            collide_behaviors(b, a);
+        }
+        if (a_was) Storage::notify_collision(a, b);
+        if (b_was) Storage::notify_collision(b, a);
+    }
+
+    // A push takes away the velocity INTO the contact, the way the map does:
+    // a box resting on another under gravity is pushed back up every frame,
+    // and without this its downward speed grew every frame too, so when the
+    // one underneath moved away it dropped at whatever a minute of falling
+    // adds up to. Only the part going INTO the contact -- what is moving away
+    // keeps moving away, so a jump off a box is a jump.
+    //
+    // After the notification, so a _collision reads the velocity it hit with:
+    // a bounce that flips it (`self.velocity.x = -self.velocity.x`) turns it
+    // away from the contact and loses nothing here, and a game that measures
+    // the impact gets the impact.
+    for (const Pushed &p : pushed) {
+        Object &o = *p.object;
+        // `into < 0` is false for a NaN. And only what leaves a number is
+        // taken away: a speed into the contact past FLT_MAX (an overflow to
+        // -inf) makes the velocity infinite or NaN, and so does a finite one
+        // taken from a velocity near FLT_MAX across the contact -- (FLT_MAX,
+        // -FLT_MAX) pushed out along (3, 4) kept 1.12 FLT_MAX of x.
+        const float into = o.velocity.x * p.out.x + o.velocity.y * p.out.y;
+        if (into < 0) {
+            const Vector2 after{ o.velocity.x - p.out.x * into,
+                                 o.velocity.y - p.out.y * into };
+            if (finite(after)) o.velocity = after;
+        }
+    }
+}
+
+int touching_pairs_for_tests(const Scene &scene, bool use_grid, Object **out, int max) {
+    const std::vector<Touch> touching = detect(scene, use_grid);
+    int written = 0;
+    for (const Touch &touch : touching) {
+        if (written + 1 > max) break;
+        const auto slot = static_cast<std::size_t>(written) * 2;
+        out[slot] = touch.a;
+        out[slot + 1] = touch.b;
+        ++written;
+    }
+    return written;
+}
+
+// ---------------------------------------------------------------------------
+// The pointer
+// ---------------------------------------------------------------------------
+
+namespace {
+// The object a press landed on, and where.
+struct {
+    Handle<Object> captured;
+    Vector2 at{};
+} press;
+} // namespace
+
+void pointer(Scene &scene) {
+    // The UI gets first refusal. Without this, a button drawn over the world
+    // fires the gun underneath it, which is the single most common complaint
+    // about hand-rolled input in a game with a HUD.
+    if (rmp::input::consumed_pointer()) {
+        press.captured = Handle<Object>();
+        return;
+    }
+
+    // In WORLD units: the objects live there, and the pointer arrives in
+    // pixels. Per scene, because each scene has its own camera.
+    const Vector2 at = scene.camera.to_world(rmp::input::pointer_screen());
+
+    if (rmp::input::pointer_pressed()) {
+        // A new press holds nothing until it finds something, and clearing it
+        // HERE rather than only on release is what makes that true. A release
+        // can go missing -- the window loses focus mid-drag, the platform drops
+        // the up event, the UI takes the pointer for exactly that frame -- and
+        // the old capture then survived a press over empty space and fired
+        // on_click on the next release, on an object nobody had pressed.
+        press.captured = Handle<Object>();
+
+        // Topmost first: the last thing drawn is the first thing clicked, which
+        // is the order a player sees. draw_order() is layer then creation, so
+        // walking it backwards is exactly that.
+        const std::vector<Object *> &order = draw_order(scene);
+        for (std::size_t i = order.size(); i > 0; --i) {
+            const Object *object = order[i - 1];
+            if (!object->alive()) continue;
+            if (!Storage::has_pointer_callback(*object)) continue;
+            const Placed p = placed_of(*object);
+            if (p.kind == ShapeKind::NONE) continue;
+            Placed point;
+            point.kind = ShapeKind::CIRCLE;
+            point.centre = at;
+            point.radius = 0;
+            Vector2 ignored{};
+            if (overlap(point, p, &ignored)) {
+                press.captured = object->handle();
+                press.at = at;
+                break;
+            }
+        }
+        return;
+    }
+
+    const Ref<Object> captured = press.captured.get();
+    if (!captured) return;
+
+    if (rmp::input::pointer_down()) {
+        // In WORLD units, like `at`, because what a drag is for is
+        // `self.position += moved`: in pixels, a camera zoomed to 2 moved the
+        // object twice as far as the finger and it slid out from under it.
+        // The difference of two points through the camera, and not the pixels
+        // divided by the zoom, so a rotated camera drags the right way too.
+        const Vector2 pixels = rmp::input::pointer_delta();
+        if (pixels.x != 0 || pixels.y != 0) {
+            const Vector2 screen = rmp::input::pointer_screen();
+            const Vector2 was = scene.camera.to_world(
+                Vector2{ screen.x - pixels.x, screen.y - pixels.y });
+            Storage::notify_drag(*captured, Vector2{ at.x - was.x, at.y - was.y });
+        }
+        return;
+    }
+
+    if (rmp::input::pointer_released()) {
+        // A click is a press and a release on the same object, which is what
+        // every UI on every platform means by one and what lets a player change
+        // their mind by dragging off the thing before letting go.
+        const Placed p = placed_of(*captured);
+        Placed point;
+        point.kind = ShapeKind::CIRCLE;
+        point.centre = at;
+        point.radius = 0;
+        Vector2 ignored{};
+        if (p.kind != ShapeKind::NONE && overlap(point, p, &ignored)) {
+            Storage::notify_click(*captured);
+        }
+        press.captured = Handle<Object>();
+    }
+}
+
+void reset_pointer_for_tests() { press.captured = Handle<Object>(); }
+
+} // namespace objects::detail
+
+// ---------------------------------------------------------------------------
+// Raycasting
+// ---------------------------------------------------------------------------
+
+namespace {
+
+// Everything the ray hits, nearest first. The grid is walked with a DDA so only
+// the cells the line crosses are looked at.
+int cast(const Scene &scene, const RayQuery &query, std::span<RayHit> out,
+         bool use_grid = true) {
+    if (out.empty()) return 0;
+
+    // A ray from or to somewhere no float can say, or longer than a float can
+    // square, hits nothing. Let through, a NaN end hit the first box it was
+    // tested against at t = 0 with a NaN normal, a circle came back at t = NaN,
+    // and its cell in the grid was a float-to-int cast of NaN.
+    const Vector2 d{ query.to.x - query.from.x, query.to.y - query.from.y };
+    if (!finite(query.from) || !finite(query.to) ||
+        !std::isfinite((d.x * d.x) + (d.y * d.y))) {
+        RMP_REPORT_ONCE("SCENE: a raycast from (%g, %g) to (%g, %g) hits nothing: an end "
+                        "is not a number, or the ray is longer than a float can square. "
+                        "A NaN here is usually a division by zero.",
+                        static_cast<double>(query.from.x),
+                        static_cast<double>(query.from.y),
+                        static_cast<double>(query.to.x), static_cast<double>(query.to.y));
+        return 0;
+    }
+
+    // The shared index, built at most once per world version -- not a private
+    // copy of the world rebuilt per ray, which is what this used to do and what
+    // made one ray as expensive as the entire collision pass.
+    //
+    // `ignore`, the mask and solid_only are applied to the CANDIDATES rather
+    // than to what goes in: the index has to serve every query, and a filter
+    // baked into it would be one index per caller. The grid's boxes are the
+    // swept ones, which only ever makes a candidate list longer.
+    const Index &index = index_for(scene);
+    const std::vector<Entry> &entries = index.entries;
+    if (entries.empty()) return 0;
+    const Grid &grid = index.grid;
+
+    // The cells the ray starts and ends in, when there is a grid to walk and
+    // an int can count them. A ray across more cells than the grid has rows
+    // and columns crosses all of it: every object costs what that walk would,
+    // and the walk's count of steps is what would overflow. Every object is
+    // what the walk is an optimisation of, so the answer is the same.
+    std::optional<CellSpan> ends;
+    if (!grid.empty() && use_grid) {
+        ends = span_of(query.from.x, query.from.y, query.to.x, query.to.y, grid.cell);
+    }
+    if (ends &&
+        std::abs(std::int64_t{ ends->x1 } - ends->x0) +
+                std::abs(std::int64_t{ ends->y1 } - ends->y0) >
+            std::int64_t{ grid.cols } + grid.rows) {
+        ends.reset();
+    }
+
+    std::vector<int> &candidates = broad.candidates;
+    candidates.clear();
+    if (!ends) {
+        candidates.reserve(entries.size());
+        for (std::size_t i = 0; i < entries.size(); ++i) {
+            candidates.push_back(static_cast<int>(i));
+        }
+    } else {
+        // Amanatides-Woo: step cell by cell along the line, taking whichever
+        // axis boundary comes first. Only the cells the ray actually crosses.
+        // In 64 bits: a walk that overshoots one axis goes on to its limit,
+        // and a cell next to INT_MAX plus one is signed overflow.
+        const float cell = grid.cell;
+        std::int64_t cx = ends->x0;
+        std::int64_t cy = ends->y0;
+        const std::int64_t cx_end = ends->x1;
+        const std::int64_t cy_end = ends->y1;
+        const int step_x = d.x > 0 ? 1 : (d.x < 0 ? -1 : 0);
+        const int step_y = d.y > 0 ? 1 : (d.y < 0 ? -1 : 0);
+
+        const float big = 1e30f;
+        const float t_delta_x = step_x == 0 ? big : cell / (d.x < 0 ? -d.x : d.x);
+        const float t_delta_y = step_y == 0 ? big : cell / (d.y < 0 ? -d.y : d.y);
+        float t_max_x = big;
+        float t_max_y = big;
+        if (step_x != 0) {
+            const float boundary =
+                (static_cast<float>(cx) + (step_x > 0 ? 1.0f : 0.0f)) * cell;
+            t_max_x = (boundary - query.from.x) / d.x;
+        }
+        if (step_y != 0) {
+            const float boundary =
+                (static_cast<float>(cy) + (step_y > 0 ? 1.0f : 0.0f)) * cell;
+            t_max_y = (boundary - query.from.y) / d.y;
+        }
+
+        // A bound on the steps, because a NaN or an infinity in the input would
+        // otherwise be an infinite loop rather than an empty result.
+        //
+        // The bound is the RAY's own span and not the grid's size. Using the
+        // grid's meant a ray that starts outside it ran out of steps before
+        // reaching it: a shot from the origin at a target twenty units wide two
+        // hundred units away got six steps to cross nine cells, and came back
+        // as a miss. Two raycast tests and the differential caught it.
+        const std::int64_t limit = std::abs(cx_end - cx) + std::abs(cy_end - cy) + 2;
+        for (std::int64_t step = 0; step <= limit; ++step) {
+            if (cx >= grid.min_x && cy >= grid.min_y &&
+                cx < std::int64_t{ grid.min_x } + grid.cols &&
+                cy < std::int64_t{ grid.min_y } + grid.rows) {
+                const auto c = static_cast<std::size_t>(
+                    grid.index_of(static_cast<int>(cx), static_cast<int>(cy)));
+                candidates.insert(
+                    candidates.end(),
+                    grid.items.begin() + static_cast<std::ptrdiff_t>(grid.starts[c]),
+                    grid.items.begin() + static_cast<std::ptrdiff_t>(grid.starts[c + 1]));
+            }
+            if (cx == cx_end && cy == cy_end) break;
+            if (t_max_x < t_max_y) {
+                if (step_x == 0) break;
+                t_max_x += t_delta_x;
+                cx += step_x;
+            } else {
+                if (step_y == 0) break;
+                t_max_y += t_delta_y;
+                cy += step_y;
+            }
+        }
+        std::ranges::sort(candidates);
+        const auto dup = std::ranges::unique(candidates);
+        candidates.erase(dup.begin(), dup.end());
+    }
+
+    // The index alongside the hit, so that two objects at the SAME distance come
+    // back in creation order. Sorting by the object pointer instead made the
+    // answer depend on where malloc happened to put things, which is not a
+    // detail -- a ray starting inside two overlapping objects hits both at
+    // distance zero, which is common, and the result then changed depending on
+    // what had run earlier in the process. The differential test caught it by
+    // passing on its own and failing in the suite.
+    struct Ordered {
+        RayHit hit;
+        int order = 0;
+    };
+    std::vector<Ordered> hits;
+    for (const int i : candidates) {
+        const Entry &e = entries[static_cast<std::size_t>(i)];
+        const Object *object = e.object;
+        if (object->handle() == query.ignore) continue;
+        if ((query.mask & object->collision_layer) == 0) continue;
+        // solid_only is dropped here rather than after the hit: the caller
+        // wants the nearest SOLID thing, so a trigger in front of the floor
+        // must not be the answer -- and must not hide the floor behind it
+        // either, which is what filtering a single-hit result would do.
+        if (query.solid_only && !object->solid) continue;
+        float t = 0;
+        Vector2 normal{};
+        if (!ray_shape(query.from, query.to, e.shape, &t, &normal)) continue;
+        RayHit hit;
+        hit.object = e.object->handle();
+        hit.point = Vector2{ query.from.x + (query.to.x - query.from.x) * t,
+                             query.from.y + (query.to.y - query.from.y) * t };
+        hit.normal = normal;
+        const float dx = hit.point.x - query.from.x;
+        const float dy = hit.point.y - query.from.y;
+        hit.distance = std::sqrt(dx * dx + dy * dy);
+        hits.push_back(Ordered{ hit, i });
+    }
+
+    std::ranges::sort(hits, [](const Ordered &x, const Ordered &y) {
+        if (x.hit.distance != y.hit.distance) return x.hit.distance < y.hit.distance;
+        return x.order < y.order; // creation order, which is stable
+    });
+
+    const std::size_t count = hits.size() < out.size() ? hits.size() : out.size();
+    for (std::size_t i = 0; i < count; ++i) out[i] = hits[i].hit;
+    return static_cast<int>(count);
+}
+
+} // namespace
+
+RayHit Scene::raycast(Vector2 from, Vector2 to) const {
+    return raycast(RayQuery{ .from = from, .to = to });
+}
+
+RayHit Scene::raycast(const RayQuery &query) const {
+    RayHit hit;
+    cast(*this, query, std::span<RayHit>(&hit, 1));
+    return hit;
+}
+
+int Scene::raycast_all(const RayQuery &query, std::span<RayHit> out) const {
+    return cast(*this, query, out);
+}
+
+int objects::detail::raycast_for_tests(const Scene &scene, const RayQuery &query,
+                                       bool use_grid, std::span<RayHit> out) {
+    return cast(scene, query, out, use_grid);
+}
+
+} // namespace rmp

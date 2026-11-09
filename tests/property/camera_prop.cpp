@@ -41,7 +41,7 @@
 #include "gen.h"
 
 #include "../../src/rmp/internal.h"
-#include "../../src/rmp/object_internal.h"
+#include "../../src/rmp/scene/object_internal.h"
 
 #include <rmp/app.h>
 #include <rmp/object.h>
@@ -136,7 +136,7 @@ std::string_view name_of(const Stretch mode) {
 // the world at 1:1 over the whole window; LETTERBOX fits the design in it,
 // centred, at the scale that keeps its shape; EXPAND scales the same and gives
 // the camera the whole window. Written from those words, in double -- not from
-// src/rmp/stretch.cpp.
+// src/rmp/app/stretch.cpp.
 // ---------------------------------------------------------------------------
 
 struct Screen {

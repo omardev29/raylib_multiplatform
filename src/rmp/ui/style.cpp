@@ -63,7 +63,7 @@ Color mix_color(Color a, Color b, float t) {
 }
 
 void anim_begin_frame() {
-    // frame_time(): the game's own step (frame_delta(), src/rmp/clock.cpp),
+    // frame_time(): the game's own step (frame_delta(), src/rmp/app/clock.cpp),
     // 0 in test mode -- there is no window, so no frame time either, and a
     // headless run must produce the same numbers every time it is run.
     anim.delta = frame_time();

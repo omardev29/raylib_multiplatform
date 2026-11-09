@@ -1,5 +1,5 @@
 // ---------------------------------------------------------------------------
-// The Tiled reader (src/rmp/tilemap.cpp over thirdparty/cute_tiled), fuzzed.
+// The Tiled reader (src/rmp/tilemap/tilemap.cpp over thirdparty/cute_tiled), fuzzed.
 //
 // The input is the bytes of a .json map, exactly as rmp::assets::load_data
 // hands them over: no NUL after them. The oracle is the reader's promise --
@@ -19,7 +19,7 @@
 #include "harness.h"
 #include "map_walk.h"
 
-#include "../../src/rmp/tilemap_internal.h"
+#include "../../src/rmp/tilemap/tilemap_internal.h"
 
 #include <rmp/tilemap.h>
 

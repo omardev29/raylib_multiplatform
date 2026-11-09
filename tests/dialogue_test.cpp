@@ -9,7 +9,7 @@
 
 #include "../src/rmp/dialogue/dialogue_internal.h"
 #include "../src/rmp/dialogue/yarn.h"
-#include "../src/rmp/text_internal.h"
+#include "../src/rmp/text/text_internal.h"
 
 #include <rmp/dialogue.h>
 #include <rmp/save.h>

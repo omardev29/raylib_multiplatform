@@ -28,7 +28,7 @@
 #include "floating.h"
 #include "internal.h"
 #include "../internal.h"
-#include "../scene_internal.h" // running(): is there a scene stack to draw after
+#include "../scene/scene_internal.h" // running(): is there a scene stack to draw after
 
 #include <array>
 #include <cmath>

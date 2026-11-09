@@ -9,7 +9,7 @@
 # checks a later one makes equivalent (a NaN cell, a column one past the
 # layer that gid_at's size check or solid_in's clamp already refuses).
 kind     cxx
-sources  src/rmp/tilemap.cpp
+sources  src/rmp/tilemap/tilemap.cpp
 tests    unit_test -sf=*tilemap_test.cpp,*map_collision_test.cpp,*ldtk_test.cpp
 tests    property_test -ts=*tilemap,*ldtk
 floor    80

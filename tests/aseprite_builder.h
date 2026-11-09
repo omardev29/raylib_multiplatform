@@ -3,7 +3,7 @@
 // .aseprite files written byte by byte from the published format
 // (https://github.com/aseprite/aseprite/blob/main/docs/ase-file-specs.md), for
 // the tests of the reader that stands in front of cute_aseprite
-// (src/rmp/aseprite.cpp): tests/animation_test.cpp builds the file each case
+// (src/rmp/assets/aseprite.cpp): tests/animation_test.cpp builds the file each case
 // is about, tests/property/animation_prop.cpp generates them, and both break
 // them on purpose.
 //

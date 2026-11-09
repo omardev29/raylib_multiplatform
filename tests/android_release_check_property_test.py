@@ -39,7 +39,7 @@ _spec.loader.exec_module(arc)
 
 VARIANTS = ["RelWithDebInfo", "Release", "MinSizeRel", "Debug"]
 KINDS = {
-    "game": ["/w/src/scenes/main_menu.cpp", "/w/src/rmp/app.cpp", "C:\\w\\src\\main.cpp"],
+    "game": ["/w/src/scenes/main_menu.cpp", "/w/src/rmp/app/app.cpp", "C:\\w\\src\\main.cpp"],
     "raylib": ["/w/thirdparty/raylib/src/rcore.c", "/w/thirdparty/raylib/src/rtext.c"],
     "other": ["/w/thirdparty/clay/clay_impl.cpp", "/w/raymob/native_app_glue.c",
               "/w/thirdparty/src/vendored.c"],
@@ -186,7 +186,7 @@ class OneMistakeTest(unittest.TestCase):
         good = {"kind": "game", "file": "/w/src/main.cpp", "form": "arguments",
                 "flags": release}
         for mistake in ONE_AWAY:
-            for kind, file in (("game", "/w/src/rmp/app.cpp"),
+            for kind, file in (("game", "/w/src/rmp/app/app.cpp"),
                                ("raylib", "/w/thirdparty/raylib/src/rcore.c"),
                                ("other", "/w/thirdparty/src/vendored.c")):
                 with self.subTest(mistake=mistake, kind=kind):

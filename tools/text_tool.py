@@ -32,7 +32,7 @@ TEXT_FUNCS = ("button", "text", "checkbox", "slider", "dropdown", "text_input", 
               "notify", "Text", "translate")
 FIELDS = ("text", "placeholder")
 
-# CLDR forms per language, as src/rmp/text.cpp counts them (0 = any).
+# CLDR forms per language, as src/rmp/text/text.cpp counts them (0 = any).
 PLURAL_COUNTS = {}
 for _codes, _n in ((("ja", "zh", "ko", "th", "vi", "id", "ms", "lo", "my", "km"), 1),
                    (("en", "de", "es", "it", "nl", "sv", "da", "nb", "nn", "no", "fi", "et",
@@ -272,7 +272,7 @@ def escape(cell: str) -> str:
 
 
 def parse_tsv(text: str) -> list[list[str]]:
-    """As src/rmp/text.cpp reads it: comments and blank lines skipped."""
+    """As src/rmp/text/text.cpp reads it: comments and blank lines skipped."""
     if text.startswith("\ufeff"):
         text = text[1:]
     rows = []

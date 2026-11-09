@@ -52,7 +52,7 @@
 #include "backdrop.h"
 #include "internal.h"
 #include "../internal.h"
-#include "../scene_internal.h" // running(): an app with scenes, or a frame of the game's own
+#include "../scene/scene_internal.h" // running(): an app with scenes, or a frame of the game's own
 
 #include <raylib.h>
 #include <rlgl.h>

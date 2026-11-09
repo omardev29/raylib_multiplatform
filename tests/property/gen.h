@@ -27,7 +27,7 @@
 // may do.
 // ---------------------------------------------------------------------------
 
-#include "../../src/rmp/save_internal.h"
+#include "../../src/rmp/save/save_internal.h"
 
 #include <rmp/save.h>
 

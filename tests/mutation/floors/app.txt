@@ -2,7 +2,7 @@
 # Measured by the weekly run on GitHub, 2026-10-12 (38182204715, main e2ea300):
 # 22 of 25, 88.00%.
 kind     cxx
-sources  src/rmp/app.cpp src/rmp/clock.cpp
+sources  src/rmp/app/app.cpp src/rmp/app/clock.cpp
 tests    unit_test -tse=*device*
 tests    property_test -sf=*clock_prop.cpp
 # clamp_delta(), step_delta() and frame_delta() against any reading and ceiling.

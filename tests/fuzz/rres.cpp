@@ -1,5 +1,5 @@
 // ---------------------------------------------------------------------------
-// The rres pack, fuzzed: src/rmp/pack.cpp's reader, from memory and from the
+// The rres pack, fuzzed: src/rmp/assets/pack.cpp's reader, from memory and from the
 // file a game opens.
 //
 // An input is a mode byte and then the pack. The mode's bits edit the pack the
@@ -36,7 +36,7 @@
 
 #include "harness.h"
 
-#include "../../src/rmp/pack_internal.h"
+#include "../../src/rmp/assets/pack_internal.h"
 #include "../pack_writer.h"
 
 #include <rmp/assets.h>

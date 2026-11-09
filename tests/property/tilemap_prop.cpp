@@ -50,8 +50,8 @@
 #include "gen.h"
 #include "map_gen.h"
 
-#include "../../src/rmp/object_internal.h"
-#include "../../src/rmp/tilemap_internal.h"
+#include "../../src/rmp/scene/object_internal.h"
+#include "../../src/rmp/tilemap/tilemap_internal.h"
 
 #include <rmp/object.h>
 #include <rmp/scene.h>

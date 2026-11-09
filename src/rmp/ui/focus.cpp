@@ -13,7 +13,7 @@
 
 #include "internal.h"
 
-#include "../scene_internal.h" // running(): which of the two says who is playing
+#include "../scene/scene_internal.h" // running(): which of the two says who is playing
 
 #include <algorithm>
 #include <array>

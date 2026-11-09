@@ -81,13 +81,13 @@ FOREIGN_TRAILING = {"class_"}
 # R5: a vendored library is configured by #defining ITS names, in the one file
 # that compiles it. Listed by file, so the same name anywhere else still fails.
 VENDOR_KNOBS = {
-    "src/rmp/aseprite_impl.cpp": {"CUTE_ASEPRITE_IMPLEMENTATION"},
-    "src/rmp/tiled_impl.cpp": {"CUTE_TILED_IMPLEMENTATION", "CUTE_TILED_WARNING",
+    "src/rmp/assets/aseprite_impl.cpp": {"CUTE_ASEPRITE_IMPLEMENTATION"},
+    "src/rmp/tilemap/tiled_impl.cpp": {"CUTE_TILED_IMPLEMENTATION", "CUTE_TILED_WARNING",
                                "CUTE_TILED_NO_EXTERNAL_TILESET_WARNING"},
-    "src/rmp/rres_impl.cpp": {"RRES_IMPLEMENTATION", "RRES_RAYLIB_IMPLEMENTATION",
+    "src/rmp/assets/rres_impl.cpp": {"RRES_IMPLEMENTATION", "RRES_RAYLIB_IMPLEMENTATION",
                               "RRES_SUPPORT_ENCRYPTION_AES",
                               "RRES_SUPPORT_ENCRYPTION_XCHACHA20"},
-    "src/rmp/cjson_impl.c": {"CJSON_NESTING_LIMIT"},
+    "src/rmp/save/cjson_impl.c": {"CJSON_NESTING_LIMIT"},
     "src/rmp/ui/clay_impl.cpp": {"CLAY_IMPLEMENTATION"},
     "tests/unit_test.cpp": {"DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN"},
     "tests/property/main.cpp": {"DOCTEST_CONFIG_IMPLEMENT"},

@@ -405,7 +405,7 @@ public:
 
 private:
     // The non-template halves, so that the templates above stay three lines
-    // and the stack itself is compiled once, in src/rmp/scene.cpp.
+    // and the stack itself is compiled once, in src/rmp/scene/scene.cpp.
     //
     // Each TAKES OWNERSHIP of `next`: the template above makes it with
     // std::make_unique and moves it in on the same line, so no caller ever

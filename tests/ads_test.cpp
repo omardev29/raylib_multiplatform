@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------------
 // rmp::ads off Android: the stubs of thirdparty/raymob/admob.h, through the
-// wrapper in src/rmp/ads.cpp. What a game that shows ads does on a desktop,
+// wrapper in src/rmp/ads/ads.cpp. What a game that shows ads does on a desktop,
 // a browser or a CI runner -- every call compiles, links and does nothing --
 // is what this holds. The real ads are Android's, and only a phone shows one.
 // ---------------------------------------------------------------------------

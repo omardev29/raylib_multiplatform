@@ -319,7 +319,7 @@ namespace detail {
 // A number per type, without RTTI: the first time type_id<T>() is asked for,
 // T gets the next one, and keeps it -- the static lives in an inline function
 // template, so it is one per program, whichever file asks. What tells one
-// behavior, and one scene, from another. The counter is in src/rmp/object.cpp.
+// behavior, and one scene, from another. The counter is in src/rmp/scene/object.cpp.
 int next_type_id();
 template <class T> int type_id() {
     static const int ID = next_type_id();
@@ -328,7 +328,7 @@ template <class T> int type_id() {
 
 // Said once per type, the first time an empty Ref is reached through * or ->;
 // and, for a type there is no stand-in for (one with no default constructor,
-// or an abstract one), the end of the program. Both in src/rmp/object.cpp.
+// or an abstract one), the end of the program. Both in src/rmp/scene/object.cpp.
 void report_empty_ref(int type);
 [[noreturn]] void no_stand_in(int type);
 
@@ -423,7 +423,7 @@ private:
 // ---------------------------------------------------------------------------
 
 namespace detail {
-// Defined in src/rmp/object.cpp, where the storage lives.
+// Defined in src/rmp/scene/object.cpp, where the storage lives.
 Ref<Object> resolve(unsigned index, unsigned generation);
 } // namespace detail
 
@@ -541,7 +541,7 @@ template <class B> const BehaviorOps &ops_for() {
 
 // Takes the behavior -- a shared_ptr<void> because that is what carries B's
 // deleter without a `delete` of ours -- and returns a non-owning pointer to
-// it. `type` is type_id<B>(). Defined in src/rmp/behavior.cpp.
+// it. `type` is type_id<B>(). Defined in src/rmp/behavior/behavior.cpp.
 void *attach(Object &self, int type, const BehaviorOps &ops, std::shared_ptr<void> data);
 void *find_behavior(const Object &self, int type);
 void detach(Object &self, int type);
@@ -629,7 +629,7 @@ struct ObjectOptions {
 class Object {
 public:
     Object() = default;
-    // Out of line, in src/rmp/object.cpp, because it has work to do: an object
+    // Out of line, in src/rmp/scene/object.cpp, because it has work to do: an object
     // that goes away WITHOUT destroy() -- a stack variable, a member, anything
     // a test builds -- still owns its behaviors, and nothing else would ever
     // free them. Without it they would leak, and the engine would keep a record
@@ -899,7 +899,7 @@ private:
     friend struct Storage;
 
     // The private half the engine reaches, through Storage in
-    // src/rmp/object_internal.h and Scene's spawn. Each says what it takes or
+    // src/rmp/scene/object_internal.h and Scene's spawn. Each says what it takes or
     // sets, so no other object ever names these fields. Defined in object.cpp.
     void attach(Scene &scene, unsigned index, unsigned generation, Vector2 at);
     [[nodiscard]] Ref<Scene> spawned_in() const { return _scene; }

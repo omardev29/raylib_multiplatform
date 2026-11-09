@@ -6,7 +6,7 @@
 # Measured by the weekly run on GitHub, 2026-10-12 (38182204715, main e2ea300):
 # 625 of 752, 83.11%.
 kind     cxx
-sources  src/rmp/animation.cpp src/rmp/aseprite.cpp
+sources  src/rmp/assets/animation.cpp src/rmp/assets/aseprite.cpp
 tests    unit_test -sf=*animation_test.cpp
 tests    property_test -ts=*animation
 floor    80

@@ -11,7 +11,7 @@
 # decided by timing, and the floor is the lower score's, 75 -- it was raised
 # to 80 on the first run alone, and the second showed that was one run's luck.
 kind     cxx
-sources  src/rmp/loader_hook.cpp
+sources  src/rmp/assets/loader_hook.cpp
 tests    unit_test -ts=assets:?loader?hook
 tests    property_test -tc=which?paths*
 floor    75

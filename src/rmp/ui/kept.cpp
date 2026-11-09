@@ -16,7 +16,7 @@
 // ===========================================================================
 
 #include "internal.h"
-#include "../animation_internal.h" // advance(): an Image's sprite plays
+#include "../assets/animation_internal.h" // advance(): an Image's sprite plays
 
 #include <string>
 #include <string_view>

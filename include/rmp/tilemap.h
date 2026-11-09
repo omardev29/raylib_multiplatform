@@ -31,7 +31,7 @@
 //          modern editor -- auto-layers, IntGrid, entities with typed fields,
 //          worlds of many levels, a documented JSON format, stable since 1.5 --
 //          and keeping two readers at the same level of testing is more than
-//          it is worth. src/rmp/ldtk.cpp, on cJSON.
+//          it is worth. src/rmp/tilemap/ldtk.cpp, on cJSON.
 //   .json  Tiled, through thirdparty/cute_tiled. It stays wired up for whoever
 //          uses it, with the tests it has, and that is all: it gets nothing new
 //          and no guarantees. Its layers must be saved as CSV, and the message
@@ -60,7 +60,7 @@ namespace rmp {
 
 namespace tilemap::detail {
 // The parsed map. A forward declaration so that the parsers and their vectors
-// stay out of this header; src/rmp/tilemap_internal.h defines it. The owning pointer
+// stay out of this header; src/rmp/tilemap/tilemap_internal.h defines it. The owning pointer
 // carries its deleter as a plain function, so a translation unit can hold and
 // drop one without ever seeing the complete type.
 struct MapData;
@@ -69,7 +69,7 @@ using MapPtr = std::unique_ptr<MapData, void (*)(MapData *)>;
 // One parsed object of the map: its strings and its properties.
 struct ObjectInfo;
 // How the loader hands a Tilemap what it parsed, and how the engine and the
-// tests read it back. src/rmp/tilemap_internal.h defines it.
+// tests read it back. src/rmp/tilemap/tilemap_internal.h defines it.
 struct Access;
 } // namespace tilemap::detail
 

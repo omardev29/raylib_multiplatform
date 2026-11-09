@@ -2686,7 +2686,7 @@ targets:
         embed: true
       - framework: ../thirdparty/raylib-ios/deps/ANGLE/libGLESv2.xcframework
         embed: true
-      # The player's language: src/rmp/text.cpp asks CoreFoundation.
+      # The player's language: src/rmp/text/text.cpp asks CoreFoundation.
       - sdk: CoreFoundation.framework
     settings:
       base:

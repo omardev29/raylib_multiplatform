@@ -23,7 +23,7 @@
 // asset pack. Naming rmp::ui::shutdown() or rmp::assets::init() here would make
 // every translation unit with an entry point pay for the whole interface layer.
 // So the macros DO nothing themselves: they call the functions in
-// rmp::app::detail, compiled once in src/rmp/app.cpp, which is where those
+// rmp::app::detail, compiled once in src/rmp/app/app.cpp, which is where those
 // includes live. A macro is only the platform's entry-point shape.
 //
 // The rule that comes out of it, and it governs every header we add:
@@ -171,7 +171,7 @@ float step_delta();
 // The pieces of a run around your code. Not for you — RMP_ENTRY_POINT calls
 // them, and they exist so that this header names nothing from rmp::input,
 // rmp::ui or rmp::assets. Their bodies, and the includes they need, are in
-// src/rmp/app.cpp.
+// src/rmp/app/app.cpp.
 void begin_run(); // smoke test on, chdir next to the resources in a release, assets open
 void after_ready(); // Escape stops closing the window; tell CI if an asset failed
 bool keep_running(); // the window is open, the frame budget is not spent, no quit
@@ -194,7 +194,7 @@ void stop();
 // Hands one rmp::global<T>() instance to the registry, which owns it from here
 // on, together with the function that clears the header's cached pointer when
 // it is destroyed. Called once per type, the first time that type is asked
-// for. Both live in src/rmp/global.cpp, on their own, so that a test binary
+// for. Both live in src/rmp/app/global.cpp, on their own, so that a test binary
 // can reach them without an entry point. A std::shared_ptr<void> because it
 // carries T's deleter with it: no `delete` anywhere in our code, and no
 // <functional> for the erasure.
@@ -235,10 +235,10 @@ namespace rmp {
 // THE ORDER IT IS DESTROYED IN is reverse of first use, and it happens while
 // the window is still open — so a global holding an rmp::Texture releases it
 // against a GL context that still exists. That is not free of charge to get
-// right; see begin_stop() in src/rmp/app.cpp.
+// right; see begin_stop() in src/rmp/app/app.cpp.
 // ---------------------------------------------------------------------------
 template <class T> T &global() {
-    // NON-OWNING. The registry in src/rmp/global.cpp owns the instance and
+    // NON-OWNING. The registry in src/rmp/app/global.cpp owns the instance and
     // clears this through `forget` when it destroys it, so a global asked for
     // after shutdown is built again rather than handed a dangling pointer.
     static T *instance = nullptr;
@@ -278,7 +278,7 @@ template <class T> T &global() {
 //                                       names it. (`main` collides too, but
 //                                       "duplicate symbol _main" does not say
 //                                       which of your files to look at.)
-//   NO entry point at all            -> src/rmp/app.cpp references it, so the
+//   NO entry point at all            -> src/rmp/app/app.cpp references it, so the
 //                                       linker asks for it by this name, next
 //                                       to the "undefined reference to `main`"
 //                                       that alone tells a newcomer nothing

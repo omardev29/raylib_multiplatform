@@ -19,7 +19,7 @@
 #include <doctest.h>
 
 #include "../src/rmp/internal.h"
-#include "../src/rmp/scene_internal.h"
+#include "../src/rmp/scene/scene_internal.h"
 #include "../src/rmp/ui/internal.h"
 
 #include <rmp/input.h>
@@ -68,7 +68,7 @@ using B = Probe<'B'>;
 using C = Probe<'C'>;
 
 // One turn of the loop, minus the drawing calls the app makes around it. The
-// order is the one in src/rmp/app.cpp, and keeping the two in step is what
+// order is the one in src/rmp/app/app.cpp, and keeping the two in step is what
 // makes this file a test of the real thing rather than of itself.
 void run_frame() {
     // The UI frame boundary is part of the order, so it is part of the replica.

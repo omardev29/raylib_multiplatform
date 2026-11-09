@@ -22,7 +22,7 @@ const { PNG } = require('pngjs');
 
 // ray_test_save=1 asks the game for the boot-time save round trip that the
 // native targets do under RAY_TEST_MAX_FRAMES: cmake/web/rmp_web.js turns it
-// into RAY_TEST_SAVE in the module's ENV, and src/rmp/app.cpp then writes a
+// into RAY_TEST_SAVE in the module's ENV, and src/rmp/app/app.cpp then writes a
 // save into IndexedDB, reads it back and removes it before RAY_TEST_BOOT_OK.
 // Without it the web target never exercised its own save folder.
 const base = process.argv[2] || 'http://localhost:8000/index.html';

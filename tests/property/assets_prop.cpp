@@ -37,7 +37,7 @@
 #include "gen.h"
 
 #include "../../src/rmp/internal.h"
-#include "../../src/rmp/pack_internal.h"
+#include "../../src/rmp/assets/pack_internal.h"
 #include "../pack_writer.h"
 
 #include <rmp/assets.h>

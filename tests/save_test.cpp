@@ -17,7 +17,7 @@
 #include <doctest.h>
 
 #include "../src/rmp/internal.h"
-#include "../src/rmp/save_internal.h"
+#include "../src/rmp/save/save_internal.h"
 
 #include <rmp/save.h>
 

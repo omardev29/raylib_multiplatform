@@ -35,7 +35,7 @@
 // Emscripten's files live in memory, so a save written there is gone when the
 // tab reloads -- a bug nobody sees in development, because nobody reloads.
 // IDBFS mirrors a folder into the browser's IndexedDB, but only when asked:
-// FS.syncfs(true) fills the folder from IndexedDB, and src/rmp/save.cpp calls
+// FS.syncfs(true) fills the folder from IndexedDB, and src/rmp/save/save.cpp calls
 // FS.syncfs(false) after every write to push it back.
 //
 // The fill is asynchronous, and the game reads its save in its first scene's
@@ -52,7 +52,7 @@
 // through its callback: the error is logged, the dependency released, and
 // the game runs the same way. Needs -lidbfs.js, which rmp_add_game() links
 // next to this file.
-// After every write and remove, src/rmp/save.cpp calls Module.rmpPersist().
+// After every write and remove, src/rmp/save/save.cpp calls Module.rmpPersist().
 // One FS.syncfs at a time: a game that saves twice in a frame -- the score,
 // then the settings -- would otherwise start two, and Emscripten reports that
 // on console.error. A sync asked for while one runs is folded into one more
@@ -91,7 +91,7 @@ Module['preRun'] = Module['preRun'] || [];
 if (typeof Module['preRun'] === 'function') Module['preRun'] = [Module['preRun']];
 // The CI boot test opens the page with ?ray_test_save=1. A browser has no
 // environment variables, so this puts it into the module's own ENV, where
-// getenv("RAY_TEST_SAVE") in src/rmp/app.cpp finds it: the web's way into the
+// getenv("RAY_TEST_SAVE") in src/rmp/app/app.cpp finds it: the web's way into the
 // boot-time save round trip the native targets do under RAY_TEST_MAX_FRAMES.
 Module['preRun'].push(function () {
   if (typeof location !== 'undefined' && /[?&]ray_test_save=1(&|$)/.test(location.search)) {

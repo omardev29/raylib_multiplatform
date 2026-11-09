@@ -1,0 +1,630 @@
+// ===========================================================================
+// rmp::app — see include/rmp/app.h.
+//
+// This file is where the entry point's includes live. rmp/app.h names nothing
+// from rmp::ui or rmp::assets on purpose, so that a translation unit with an
+// entry point does not drag the whole interface layer in; the detail functions
+// below are what the macro calls instead.
+// ===========================================================================
+
+#include <rmp/app.h>
+
+#include "../audio/audio_internal.h"
+#include "../dialogue/dialogue_internal.h"
+#include "../internal.h"
+#include "../scene/scene_internal.h"
+#include "../text/text_internal.h"
+#include "../ui/ui_internal.h"
+
+#include <raylib.h>
+#include <rmp/assets.h>
+#include <rmp/config.h>
+#include <rmp/input.h>
+#include <rmp/object.h> // rmp::Callback, for the report sink
+#include <rmp/random.h>
+#include <rmp/save.h>
+#include <rmp/scene.h>
+#include <rmp/ui.h>
+#include <smoke_test.h>
+
+#include <chrono> // the value rmp::random is seeded from
+#include <cstdlib>
+#include <cstring>
+#include <filesystem> // the executable's folder, wide on Windows
+#include <memory> // std::exit() on the iOS CI path
+#include <string>
+#include <system_error>
+#include <utility>
+
+// Every build system defines RMP_PRODUCTION_BUILD: CMake from its option, raymob
+// from the Gradle variant, the Xcode project per configuration. A game may write
+// `#if RMP_PRODUCTION_BUILD`, and an undefined macro there is not an error but 0
+// -- which is how Android and iOS once ran every game's debug-only code in
+// release. So a build system that forgets fails here, on its own platform.
+#if !defined(RMP_PRODUCTION_BUILD)
+#error "RMP_PRODUCTION_BUILD is not defined: the build system has to pass it (0 or 1)"
+#endif
+
+// The other half of the entry-point guard in rmp/app.h. Referencing the symbol
+// here is what turns a program with no RMP_GAME and no RMP_ENTRY_POINT into a
+// link error that names the thing you forgot, instead of "undefined reference
+// to `main`".
+//
+// A STATIC INITIALIZER, and nothing less will do. This used to be a constant
+// pointer to the symbol, which nothing read, so the compiler dropped it and the
+// object file asked for nothing: a program with no entry point got exactly the
+// "undefined reference to `main`" this exists to replace. Nor would a call from
+// one of the functions below do: with no entry point nothing calls them, and
+// --gc-sections discards them -- undefined references and all -- before the
+// linker reports anything. A constructor of a namespace-scope object is the
+// one code in this file every linker keeps (.init_array, __mod_init_func,
+// .CRT$XCU, __wasm_call_ctors). At run time it calls an empty function, once.
+extern "C" void rmp_entry_point_is_declared_exactly_once();
+namespace {
+struct RequireEntryPoint {
+    RequireEntryPoint() noexcept { rmp_entry_point_is_declared_exactly_once(); }
+};
+const RequireEntryPoint REQUIRE_ENTRY_POINT;
+} // namespace
+
+#if defined(PLATFORM_ANDROID)
+#include <raymob.h> // GetAndroidApp()
+#include <android_native_app_glue.h> // struct android_app::activity
+#include <android/native_activity.h> // ANativeActivity_finish()
+#endif
+
+// A production build on a desktop, where "./resources/" has to mean the folder
+// the executable is in. Not the web (a virtual file system with resources/ at
+// its root), not Android (the APK's asset manager) and not iOS (which moves into
+// its bundle on its own, below).
+#if RMP_PRODUCTION_BUILD && !defined(PLATFORM_WEB) && !defined(__EMSCRIPTEN__) && \
+    !defined(PLATFORM_ANDROID) && !defined(__ANDROID__) && !defined(PLATFORM_IOS)
+#if defined(_WIN32)
+// Declared by hand, as src/rmp/save/save.cpp does and for its reason: <windows.h>
+// does not compile next to raylib.h. raylib's own declaration, character for
+// character.
+extern "C" __declspec(dllimport) unsigned long __stdcall
+GetModuleFileNameW(struct HINSTANCE__ *hModule, wchar_t *lpFilename, unsigned long nSize);
+#endif
+#endif
+
+namespace rmp::app {
+
+namespace {
+struct {
+    bool quit_requested = false;
+} loop;
+
+// RAY_TEST_WINDOW, when the smoke test was handed one it could not read: the
+// boot is not reported, so a typo in a CI step fails it instead of booting at
+// the design size, where every [window] stretch draws the same picture.
+struct {
+    bool refused = false;
+} test_window;
+
+// Whether open_window() has run: RMP_GAME calls it before it makes the first
+// scene, and start() again after, which does nothing the second time.
+struct {
+    bool opened = false;
+} window;
+
+// A boot that logged RAY_TEST_BOOT_FAIL -- no window (a DRM game with no
+// card), a save that did not come back, a RAY_TEST_WINDOW start() could not
+// read -- and the status the run ends with, in end_stop(). It ended with 0,
+// so a boot step that read the status and not the log passed a game that
+// never opened.
+struct {
+    bool failed = false;
+} boot;
+
+#if RMP_PRODUCTION_BUILD && !defined(PLATFORM_WEB) && !defined(__EMSCRIPTEN__) && \
+    !defined(PLATFORM_ANDROID) && !defined(__ANDROID__) && !defined(PLATFORM_IOS)
+// Where the executable is, or an empty path where the system will not say.
+std::filesystem::path executable_folder() {
+#if defined(_WIN32)
+    // The wide API: GetApplicationDirectory() asks for the ANSI path, which
+    // cannot spell a folder whose name is outside the code page, and
+    // SetCurrentDirectory on that path would then fail for that player alone.
+    std::wstring name(32768, L'\0');
+    const unsigned long length =
+        GetModuleFileNameW(nullptr, name.data(), static_cast<unsigned long>(name.size()));
+    if (length == 0 || length >= name.size()) return {};
+    name.resize(length);
+    return std::filesystem::path(name).parent_path();
+#else
+    // raylib answers "" on NetBSD and OpenBSD, which it has no code for, and
+    // "./" where the call it makes fails (no /proc). Neither is a place.
+    const char *dir = GetApplicationDirectory();
+    if (dir == nullptr || dir[0] == '\0' || std::strcmp(dir, "./") == 0) return {};
+    return std::filesystem::path(dir);
+#endif
+}
+
+// A released game reads RMP_RESOURCES_PATH, "./resources/", and "." was the
+// working directory: started from a file manager, a shortcut or another
+// terminal folder, it found nothing and every asset came back empty. CI never
+// saw it, because every boot started the binary where resources/ happened to
+// be. tools/shipped_check.sh and the "from another folder" steps start it from
+// elsewhere now.
+//
+// A change of directory, and not a resources root made absolute, because that
+// is what keeps the plain raylib calls working too: LoadTexture(
+// RMP_RESOURCES_PATH "x.png"), LoadMusicStream, and any fopen of the game's
+// own, all relative, and the loader hook still recognises "./resources/" as
+// the pack's. It is what the iOS runner has always done.
+//
+// Only when resources/ is THERE: a release built in the source tree and run
+// from its root has the executable in build/ and resources/ beside build/,
+// and keeps reading that one, as it always did.
+//
+// Every line it can say is a condition of the machine, not a mistake in the
+// game, so a plain TraceLog and never RMP_REPORT_ONCE: [dev] strict must not
+// abort a correct game. Said once, because begin_run() runs once.
+void enter_executable_folder() {
+    const std::filesystem::path folder = executable_folder();
+    if (folder.empty()) {
+        TraceLog(LOG_WARNING,
+                 "ASSETS: this system does not say where the executable is, so %s is "
+                 "read from the working directory, %s",
+                 RMP_RESOURCES_PATH, GetWorkingDirectory());
+        return;
+    }
+    std::error_code error;
+    if (!std::filesystem::is_directory(folder / RMP_RESOURCES_PATH, error)) {
+        TraceLog(LOG_INFO,
+                 "ASSETS: no %s next to the executable; reading the working "
+                 "directory's, %s",
+                 RMP_RESOURCES_PATH, GetWorkingDirectory());
+        return;
+    }
+    std::filesystem::current_path(folder, error);
+    if (error) {
+        TraceLog(LOG_WARNING,
+                 "ASSETS: could not move into the executable's folder (%s); reading %s "
+                 "from %s",
+                 error.message().c_str(), RMP_RESOURCES_PATH, GetWorkingDirectory());
+        return;
+    }
+    TraceLog(LOG_INFO, "ASSETS: reading %s next to the executable, in %s",
+             RMP_RESOURCES_PATH, GetWorkingDirectory());
+}
+#endif
+
+// Write a small save, read it back, compare, remove it. The string is not
+// ASCII on purpose. False, with RAY_TEST_BOOT_FAIL and the reason, when any
+// step fails -- and then RAY_TEST_BOOT_OK is never printed, which is what
+// every CI job greps for.
+bool smoke_save_round_trip() {
+    constexpr const char *SLOT = "rmp-ci-smoke";
+    rmp::Value sent;
+    sent["frames"] = SmokeTest_maxFrames;
+    sent["name"] = "Jos\xc3\xa9 M\xc3\xbcller";
+    rmp::Value back;
+    const bool wrote = rmp::save::write(SLOT, sent);
+    const rmp::save::Result read = rmp::save::read(SLOT, back);
+    const bool same = read && back == sent;
+    const bool removed = rmp::save::remove(SLOT);
+    if (wrote && same && removed) {
+        TraceLog(LOG_INFO, "RAY_TEST_SAVE_OK dir=%s", rmp::save::directory().c_str());
+        return true;
+    }
+    TraceLog(LOG_ERROR,
+             "RAY_TEST_BOOT_FAIL save: wrote=%d read_status=%d same=%d removed=%d dir=%s",
+             wrote, static_cast<int>(read.status), same, removed,
+             rmp::save::directory().c_str());
+    return false;
+}
+} // namespace
+
+void quit() {
+#if defined(PLATFORM_IOS)
+    // Deliberately nothing. Apple's QA1561 is explicit: an iOS app that
+    // terminates itself "will appear to the user to have crashed", App Review
+    // rejects anything that crashes or looks like it, and a UI control for
+    // quitting already fails the Human Interface Guidelines on its own. On top
+    // of that, applicationWillTerminate: never runs, so unsaved data is lost.
+    //
+    // So on iOS this logs and returns. The same source can keep its Quit
+    // button and ship everywhere; on iPhone the button simply does nothing,
+    // which is the behaviour Apple asks for. Hide it there if you would rather
+    // it not be a dead control:
+    //
+    //     #if !defined(PLATFORM_IOS)
+    //     if (rmp::ui::button("Quit")) rmp::app::quit();
+    //     #endif
+    //
+    // The CI smoke test still exits the simulator, because a bounded test run
+    // has to end — but that path is behind RAY_TEST_MAX_FRAMES, which no
+    // shipped app ever sets.
+    RMP_REPORT_ONCE("APP: quit() does nothing on iOS — Apple rejects apps that terminate "
+                    "themselves (QA1561). Ignoring.");
+    return;
+#else
+    if (loop.quit_requested) return;
+    loop.quit_requested = true;
+    TraceLog(LOG_INFO, "APP: quit requested");
+
+#if defined(PLATFORM_ANDROID)
+    // Ending the loop is not enough here. Android owns the Activity, and a
+    // process that simply stops leaves the task in the recents list pointing at
+    // nothing. finish() is how you tell the system the Activity is done, and it
+    // also makes the glue set destroyRequested, so the loop ends on its own
+    // even if something else is holding it.
+    struct android_app *app = GetAndroidApp();
+    if (app != nullptr && app->activity != nullptr) {
+        ANativeActivity_finish(app->activity);
+    }
+#endif
+#endif // PLATFORM_IOS
+}
+
+bool quit_requested() { return loop.quit_requested; }
+
+namespace detail {
+
+// Everything the entry point does before your ready hook. On iOS and in a
+// desktop release that includes a chdir. iOS starts the process in the app
+// container, not inside the bundle, and raylib's iOS backend does not chdir for
+// you -- so the relative RMP_RESOURCES_PATH would resolve to nothing and every
+// asset would silently load as 0x0; GetApplicationDirectory() is the .app root
+// there, which is where bundle resources live. A desktop release is the same
+// problem with a different cause: see enter_executable_folder(). Either way it
+// has to happen before assets::init() looks for the pack.
+void begin_run() {
+    // This translation unit is compiled into EACH executable with that
+    // executable's own RMP_RESOURCES_PATH; the library it links was compiled with
+    // the game's. Told before anything is loaded, so an example with its own
+    // resources/ reads its own. See resources_root() in internal.h.
+    rmp::assets::detail::set_resources_root(RMP_RESOURCES_PATH);
+#if defined(RMP_DIALOGUE_EMBEDDED)
+    // The game's .yarn, compiled when it was built ([dialogue] build).
+    rmp::dialogue::detail::set_embedded(rmp::dialogue::detail::embedded_programs());
+#endif
+    // The one place rmp::random is seeded, and the reason it is HERE: a unit
+    // test never comes through the entry point, so a headless run keeps the
+    // fixed default seed and stays reproducible, while a shipped game gets a
+    // different sequence every launch. current_seed() names either one. A test
+    // that does come through it -- tests/e2e/driver.cpp, which plays a game --
+    // names its seed with set_test_seed(): the same seed, the same run.
+    //
+    // The wall clock and not GetTime(), which is seconds since InitWindow() and
+    // is therefore about the same small number on every launch.
+    rmp::random::seed(test_seed().value_or(static_cast<uint64_t>(
+        std::chrono::system_clock::now().time_since_epoch().count())));
+    // [dev] strict: a framework warning aborts instead of scrolling past. Debug
+    // builds only -- NDEBUG is what every release configuration on every
+    // platform defines, so a shipped binary can never carry it.
+#if RMP_DEV_STRICT && !defined(NDEBUG)
+    rmp::detail::set_strict(true);
+#endif
+    // And in a debug build every one of those warnings is said on screen as
+    // well, through rmp::ui::notify(): a log line scrolls past, a line over
+    // the game does not. Debug builds only, by the same NDEBUG.
+#if !defined(NDEBUG)
+    rmp::detail::set_report_sink(rmp::ui::detail::show_report);
+#endif
+    SmokeTest_Begin();
+    guard_console(); // DRM/KMS: the terminal back however the game ends (console.cpp)
+#if defined(PLATFORM_IOS)
+    ChangeDirectory(GetApplicationDirectory());
+#elif RMP_PRODUCTION_BUILD && !defined(PLATFORM_WEB) && !defined(__EMSCRIPTEN__) && \
+    !defined(PLATFORM_ANDROID) && !defined(__ANDROID__)
+    enter_executable_folder();
+#endif
+    rmp::assets::init();
+}
+
+void after_ready() {
+    // Escape is the game's key, not raylib's. InitWindow() makes it the exit
+    // key, so WindowShouldClose() turned true on the press -- and rmp::ui goes
+    // back on Escape and the factory `ui_cancel` action is bound to it, so in
+    // every game the key that meant "back" or "pause" closed the window.
+    // HERE, after the ready hook, because that is where every window opens:
+    // start() for RMP_GAME, the game's own on_ready() for RMP_ENTRY_POINT. And
+    // before anything below can return. The window's close button still quits:
+    // it is a different event. See "Escape" in include/rmp/app.h.
+    SetExitKey(KEY_NULL);
+
+    // Under the CI smoke test, a save goes to this platform's real folder and
+    // back before the boot counts -- because that folder code is different on
+    // every platform (%APPDATA% through the wide API, Application Support on
+    // iOS, internal storage on Android, IndexedDB on the web) and the unit
+    // tests only ever run it on Linux. It is how a Windows user called José,
+    // whose profile path once made every save throw, is tested at all. It runs
+    // on every target CI boots: the desktops, the BSDs and the web. iOS
+    // (the hosted simulator does not boot) and Android (Firebase's Robo test
+    // only proves it starts in Test Lab, with no log to read) are not
+    // booted with it -- see "What is tested" in TECHNICAL.md's rmp::save chapter.
+    // RAY_TEST_SAVE=1 asks for it without a frame budget: it is how the web
+    // boot test gets it (cmake/web/rmp_web.js sets it from the page's URL).
+    const char *asked = std::getenv("RAY_TEST_SAVE");
+    const bool save_test =
+        SmokeTest_maxFrames > 0 || (asked != nullptr && asked[0] == '1');
+    // Failed until the boot is reported with a window, at the end: each way
+    // out before it has said RAY_TEST_BOOT_FAIL, and the status will say it too.
+    boot.failed = true;
+    if (save_test && !smoke_save_round_trip()) return;
+    // A RAY_TEST_WINDOW start() could not read: no boot. read_test_window()
+    // said why, with RAY_TEST_BOOT_FAIL.
+    if (test_window.refused) return;
+    SmokeTest_ReportBoot(rmp::assets::failed_loads(), rmp::assets::requested_loads());
+    boot.failed = !IsWindowReady();
+}
+
+// Three ways a run ends, and they are checked in one place so that the three
+// platform macros cannot drift apart: the window's X (which does not exist on
+// web or iOS and is skipped there), the CI frame budget, and quit().
+bool keep_running() {
+#if defined(PLATFORM_WEB) || defined(__EMSCRIPTEN__) || defined(PLATFORM_IOS)
+    // WindowShouldClose() on web is nothing but emscripten_sleep(12), and that
+    // sleep is the only thing in raylib that needs ASYNCIFY. Not calling it is
+    // what lets ASYNCIFY stay out of the build.
+    const bool closed = false;
+#else
+    const bool closed = WindowShouldClose();
+#endif
+    return !closed && !SmokeTest_Done() && !quit_requested();
+}
+
+// step_delta() is in src/rmp/app/clock.cpp, with the rest of the clock.
+
+// The frame boundary, and it belongs to the RUNNER, not to frame(). It used
+// to be the first line of frame(), which only RMP_GAME calls, so a game with
+// its own on_frame() -- RMP_ENTRY_POINT, as most of the examples are -- read
+// nothing at all through rmp::input. And it is called exactly once: a second
+// sample in the same frame compares every key with itself, and every
+// just_pressed() of that frame is gone. tests/input_play.cpp plays both.
+void begin_frame() {
+    // The window first: minimized or out of focus decides what this frame
+    // does, and a pause has to hold the clock before the step is taken.
+    begin_pace();
+    // The language's tables again, when a watched one changed.
+    rmp::lang::detail::begin_frame();
+    rmp::ui::detail::use_language_font(rmp::lang::detail::font_for(rmp::lang::current()));
+    rmp::input::detail::begin_frame();
+    // And the UI's frame, for a game with its own frame hook: one UI frame
+    // around however many begin()/end() pairs it draws. See ui_internal.h.
+    rmp::ui::detail::runner_begin_frame();
+}
+
+void end_frame() {
+    // For a game that owns its own frame -- RMP_ENTRY_POINT -- nothing of ours
+    // runs between its last draw call and its EndDrawing(), so the render gate
+    // reads the frame back here instead, where the framebuffer is memory. See
+    // SmokeTest_CaptureFrameIfMissed().
+    SmokeTest_CaptureFrameIfMissed();
+
+    // The music stream, once per frame. Here and not in frame(), because this
+    // runs after every frame on every runner -- a game with its own three
+    // hooks and no scene stack plays music too -- and a streamed track that is
+    // not fed runs dry and stutters. It keeps playing under a pause menu that
+    // freezes the scene below. A no-op with no music or no device.
+    rmp::audio::detail::update();
+
+    // The UI frame the runner opened, closed -- after the game's EndDrawing(),
+    // so nothing is drawn here.
+    rmp::ui::detail::runner_end_frame();
+
+    // The run's last frame: how many of the game's mistakes the framework
+    // reported (RMP_REPORT_ONCE), each counted once. A correct game says 0.
+    // After the runner has closed a frame the game left open, which is one of
+    // them -- before it, one left open on the last frame only went uncounted.
+    if (SmokeTest_Tick() != 0) {
+        TraceLog(LOG_INFO, "RAY_TEST_REPORTS=%d", rmp::detail::report_count());
+    }
+
+    // Last, so that whoever is watching sees the frame finished: drawn, its
+    // scene changes applied. Nobody is, unless a test installed an observer
+    // (tests/e2e/driver.cpp plays a game through it).
+    frame_ended();
+}
+
+// Everything that owns something on the GPU is released HERE, before the stop
+// hook runs — because the stop hook is where CloseWindow() lives, and an
+// UnloadTexture() after that is a write through a GL context that no longer
+// exists.
+//
+// The resource table is on this list because an rmp::Texture IS a GPU object:
+// releasing the table after the window is a segfault on the way out, and only
+// under xvfb -- a real driver tolerates it and says nothing.
+void begin_stop() {
+    // ORDER, and every step of it was paid for once.
+    //
+    //   scenes first. A scene can hold an rmp::Texture as a member, and its
+    //   destructor releases a slot in the resource table — so the table has to
+    //   still be there. The table too late is the segfault above; the table too
+    //   early is this one, and both are why the order is written down.
+    //   globals next, for exactly the same reason, and after the scenes because
+    //   a scene's _end() is entitled to write to one.
+    //   then the UI's font, then everything left in the resource table.
+    //
+    // All of it before the stop hook, because the stop hook is where
+    // CloseWindow() lives and every one of these owns something on the GPU.
+    rmp::scenes::detail::shutdown();
+    rmp::input::detail::reset();
+
+    shutdown_globals();
+
+    rmp::ui::shutdown();
+
+    //   audio's voices, music and cached effects BEFORE the table -- a sound
+    //   alias shares its buffer with the sound it came from and must not
+    //   outlive it. The device itself closes in end_stop(), after your hook.
+    rmp::audio::detail::shutdown();
+    rmp::detail::release_all();
+}
+
+// And here, after your hook, only what owns nothing on the GPU: the rres pack
+// and raylib's loader hook. Those are file handles, and a file handle does not
+// care that the window is gone.
+//
+// The sound device closes here too, and not in begin_stop(): your hook may
+// unload a raw Sound or Music it loaded itself, and unloading one after its
+// device has closed is a free on a torn-down mixer. It is not on the GPU, so
+// the window being gone does not matter to it.
+void end_stop() {
+    // A debug build's texts the tables lack, for `rmp text scan`.
+    rmp::lang::detail::write_seen();
+    rmp::audio::detail::close_device();
+    rmp::assets::shutdown();
+    // The UI is gone: a warning from here on is said in the log only.
+    rmp::detail::set_report_sink({});
+    if (!boot.failed) return;
+    // A boot that failed is a run that failed, and its exit status says so:
+    // the runner's main() ends with `return 0` after this, and that is what a
+    // DRM game with no card returned. Everything above has run, so this is
+    // the exit main() would make, with another status. Not on iOS (QA1561),
+    // Android (the Activity ends the process) or the web (the page stays),
+    // where nothing reads a status.
+#if !defined(PLATFORM_IOS) && !defined(PLATFORM_WEB) && !defined(__EMSCRIPTEN__) && \
+    !defined(PLATFORM_ANDROID) && !defined(__ANDROID__)
+    TraceLog(LOG_ERROR, "APP: the boot failed (RAY_TEST_BOOT_FAIL above): exit status 1");
+    std::exit(EXIT_FAILURE);
+#else
+    TraceLog(LOG_ERROR, "APP: the boot failed (RAY_TEST_BOOT_FAIL above)");
+#endif
+}
+
+// ---------------------------------------------------------------------------
+// What RMP_GAME wires the three platform hooks to.
+// ---------------------------------------------------------------------------
+
+// The window opens HERE and not in anyone's code. Two lines that would be the
+// same in every project, and taking them from [window] in the .toml is what
+// lets the same source describe an 800x450 laptop window and a phone held
+// sideways.
+void open_window() {
+    if (window.opened) return;
+    window.opened = true;
+    // [window] vsync: wait for the screen's refresh. raylib's default is not
+    // to, and then a desktop game draws as fast as the GPU allows.
+    SetConfigFlags(RMP_WINDOW_VSYNC != 0 ? FLAG_WINDOW_RESIZABLE | FLAG_VSYNC_HINT
+                                         : FLAG_WINDOW_RESIZABLE);
+#if !defined(PLATFORM_WEB) && !defined(__EMSCRIPTEN__) && !defined(PLATFORM_IOS)
+    // [window] fps. BEFORE InitWindow, because raylib's DRM backend reads the
+    // target to choose the display mode -- 144 asks for a 144 Hz mode -- and
+    // InitWindow does not reset it. Never on the web or iOS: the browser and
+    // the display link pace the frame there, and a wait inside their callback
+    // would only stall it.
+    if (RMP_WINDOW_FPS > 0) SetTargetFPS(RMP_WINDOW_FPS);
+#endif
+    // RAY_TEST_WINDOW=WxH: under the CI smoke test, and only there, the window
+    // opens at another size, so a [window] stretch can be booted on a screen
+    // of another shape -- at the design size every mode is the same picture.
+    // RAY_TEST_MAX_FRAMES is what turns the smoke test on, and no shipped run
+    // sets it.
+    std::string asked;
+    if (SmokeTest_maxFrames > 0) {
+        // And every frame of it exactly 1/60 s, as the e2e driver steps them:
+        // the frame the render check hashes is the fifth, and with the
+        // machine's own clock it showed a panel as far into its appearing
+        // fade as that machine was fast -- done on a Linux runner, whose
+        // frames under ASan are clamped long ones, and barely begun on a
+        // macOS runner, whose frames took next to no time. One picture
+        // everywhere, or the hash is a measurement of the runner.
+        set_fixed_delta(1.0f / 60);
+        // NOLINTNEXTLINE(custom-rmp-raw-pointer): what getenv() hands back, copied at once
+        const char *env = std::getenv("RAY_TEST_WINDOW");
+        if (env != nullptr) asked = env;
+    }
+    const rmp::scenes::detail::TestWindow wanted =
+        rmp::scenes::detail::read_test_window(asked);
+    test_window.refused = wanted.refused;
+    const rmp::scenes::detail::WindowSize size = wanted.size.value_or(
+        rmp::scenes::detail::WindowSize{ RMP_WINDOW_WIDTH, RMP_WINDOW_HEIGHT });
+    InitWindow(size.width, size.height, RMP_WINDOW_TITLE);
+    // A texture, a font or a sheet loaded before this line has no picture,
+    // and window_opened() names it: one made at namespace scope, or in the
+    // constructor of a scene made before the window by hand. RMP_GAME makes
+    // the first scene after it.
+    rmp::assets::detail::window_opened();
+}
+
+void start(std::unique_ptr<rmp::Scene> first) {
+    open_window();
+    rmp::scenes::detail::start(std::move(first));
+}
+
+// How long a frame sleeps while the window is minimized (the world still
+// moves, at 30 steps a second), and while it is paused (it only shows).
+constexpr double MINIMIZED_FRAME = 1.0 / 30;
+constexpr double PAUSED_FRAME = 1.0 / 10;
+
+// Steps 3 to 6 of frame(): the frame drawn, and the UI's frame closed.
+void draw_frame() {
+    // 3/4. Draw. The clear colour comes from the lowest scene that is still
+    //      visible, which is what makes a full-screen loading scene work with
+    //      one field and no policy.
+    BeginDrawing();
+    //      Into a texture instead of the screen, when last frame's overlay()
+    //      asked for a blur: the overlay blurs what is drawn under it.
+    rmp::ui::detail::begin_backdrop();
+    ClearBackground(rmp::scenes::detail::clear_color());
+    rmp::scenes::detail::draw();
+    //      Then the screen again -- with that texture on it, when no overlay
+    //      took it -- and the notices over everything, taking no input.
+    rmp::ui::detail::finish_backdrop();
+    rmp::ui::detail::draw_notices();
+
+    // 5. The CI render gate, between the last draw call and EndDrawing().
+    //    Neither side of that line works — see tests/smoke_test.h. It is here
+    //    and in no game's code, so nobody can put it in the wrong place.
+    SmokeTest_CaptureFrame();
+
+    // 6.
+    EndDrawing();
+    rmp::ui::detail::end_frame();
+    frame_drawn();
+}
+
+// One turn of the loop, and the order is the contract. It is documented in
+// next_architecture/03-app-and-scenes.md and checked in tests/scene_test.cpp,
+// because every interesting property of a scene stack is an ordering property.
+void frame(float delta) {
+    // 1. The frame boundary. Once, whatever the stack looks like: the scroll
+    //    advances and the animation clock ticks exactly one frame's worth even
+    //    when three scenes describe UI.
+    //
+    //    The devices were sampled before this, by the runner -- begin_frame()
+    //    above, which every runner calls whether the hook is this function or
+    //    a game's own. Sampling once is what stops two scenes in the same
+    //    frame from disagreeing about what is held down; sampling here as well
+    //    would lose every press of the frame.
+    rmp::ui::detail::begin_frame();
+
+    // 2. Update, bottom upwards, skipping what the scene above freezes --
+    //    unless the window is out of focus under [window] pause_unfocused.
+    const Pace now = pace();
+    if (now.update) rmp::scenes::detail::update(delta);
+
+    if (now.draw) {
+        draw_frame();
+        // Paused: the same picture again, a few times a second, so a window
+        // uncovered on a desktop with no compositor is not left blank.
+        if (!now.update) frame_skipped(PAUSED_FRAME);
+    } else {
+        // Minimized: nothing to see, so nothing drawn and no vsync to wait
+        // for. raylib polls the window's events in EndDrawing(), which does
+        // not run -- without this the window never hears it was restored.
+        PollInputEvents();
+        rmp::ui::detail::end_frame();
+        frame_skipped(now.update ? MINIMIZED_FRAME : PAUSED_FRAME);
+    }
+
+    // 7. Deferred work, once nothing is mid-frame: scenes queued by change(),
+    //    push(), replace() and pop() are applied here and nowhere else.
+    rmp::scenes::detail::apply_pending();
+}
+
+// The scene stack is already gone by the time this runs — begin_stop() unwinds
+// it while the window is still open, because a scene's members can own GPU
+// objects. What is left is the window itself.
+void stop() { CloseWindow(); }
+
+#if defined(PLATFORM_IOS)
+void exit_process() { std::exit(0); }
+#endif
+
+} // namespace detail
+
+} // namespace rmp::app

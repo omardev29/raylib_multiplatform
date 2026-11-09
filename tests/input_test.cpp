@@ -943,7 +943,7 @@ TEST_SUITE("input, hostile values") {
 // game being played, and its HUD waits for Tab (rmp::ui's FrameOptions::
 // focus_first): rmp::input is where that is found out, on every read that
 // touches one -- by action or by device, consumed or not -- and the note is
-// rmp::ui's (take_game_keys(), src/rmp/ui_internal.h).
+// rmp::ui's (take_game_keys(), src/rmp/ui/ui_internal.h).
 // ---------------------------------------------------------------------------
 
 TEST_SUITE("input, the keys the interface navigates with") {

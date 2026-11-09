@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------------
 // The rule that decides which name in the pack a path means, fuzzed:
-// rres::packed_name() (src/rmp/pack.cpp), which the loader hook asks of every
+// rres::packed_name() (src/rmp/assets/pack.cpp), which the loader hook asks of every
 // path raylib reads and the loaders of root + the name they were given.
 //
 // An input is a resources root and a path, split at the first newline (no
@@ -22,7 +22,7 @@
 
 #include "harness.h"
 
-#include "../../src/rmp/pack_internal.h"
+#include "../../src/rmp/assets/pack_internal.h"
 
 #include <algorithm>
 #include <cstddef>

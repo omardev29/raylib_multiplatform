@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------------
 // RAY_TEST_WINDOW's reader (rmp::scenes::detail::parse_test_window() and
-// read_test_window(), src/rmp/scene.cpp), fuzzed. An environment variable is
+// read_test_window(), src/rmp/scene/scene.cpp), fuzzed. An environment variable is
 // text from outside the program, and the CI steps that set it are written by
 // hand.
 //
@@ -23,7 +23,7 @@
 
 #include "harness.h"
 
-#include "../../src/rmp/scene_internal.h"
+#include "../../src/rmp/scene/scene_internal.h"
 
 #include <cstddef>
 #include <cstdint>

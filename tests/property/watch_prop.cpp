@@ -1,5 +1,5 @@
 // ---------------------------------------------------------------------------
-// Hot reload held to a model over generated edits (src/rmp/watch.cpp):
+// Hot reload held to a model over generated edits (src/rmp/app/watch.cpp):
 //
 //   A file under resources/ is written, saved again unchanged, broken (not
 //   JSON, as an editor half way through a save leaves it), removed, and read
@@ -24,7 +24,7 @@
 #include "value_model.h"
 
 #include "../../src/rmp/internal.h"
-#include "../../src/rmp/save_internal.h"
+#include "../../src/rmp/save/save_internal.h"
 
 #include <rmp/assets.h>
 #include <rmp/config.h>

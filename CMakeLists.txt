@@ -107,7 +107,7 @@ endif()
 # The oldest macOS the game opens on. Left unset, the toolchain writes the SDK's
 # own version into every slice -- macOS 26 for a build on a macos-26 runner --
 # and every Mac one release older refuses to open the game, with no message
-# that says why. 10.15 is the floor std::filesystem (src/rmp/save.cpp) puts on
+# that says why. 10.15 is the floor std::filesystem (src/rmp/save/save.cpp) puts on
 # Apple's libc++; the arm64 slice starts at 11.0 whatever this says, the first
 # macOS on Apple silicon. Ignored on every other platform. The macos job reads
 # it back out of the cache and checks every slice against it
@@ -738,7 +738,7 @@ file(GLOB_RECURSE RMP_SOURCES CONFIGURE_DEPENDS
   "${CMAKE_CURRENT_SOURCE_DIR}/src/rmp/*.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/rmp/*.c"
 )
-list(REMOVE_ITEM RMP_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/src/rmp/app.cpp")
+list(REMOVE_ITEM RMP_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/src/rmp/app/app.cpp")
 
 # RAYLIB_STUB_SOURCES is empty unless a module was disabled that rres still
 # references. It lives in cmake/generated/, never in src/, which is the user's.
@@ -773,7 +773,7 @@ target_include_directories(rmp SYSTEM PUBLIC
 # live in CMake's cache and never reach the preprocessor. What the C++ sees is
 # ours, and ours is RMP_.
 target_compile_definitions(rmp PRIVATE RMP_RESOURCES_PATH="${RESOURCES_PATH}")
-# What src/rmp/console.cpp asks: whether raylib changes the terminal the game
+# What src/rmp/app/console.cpp asks: whether raylib changes the terminal the game
 # is started from, which only its DRM backend does.
 if(RMP_TARGET_DRM)
   target_compile_definitions(rmp PRIVATE RMP_TARGET_DRM=1)
@@ -838,7 +838,7 @@ function(rmp_embed_dialogue NAME RES_DIR)
   target_compile_definitions(${NAME} PRIVATE RMP_DIALOGUE_EMBEDDED=1)
 endfunction()
 
-# The player's language, which src/rmp/text.cpp asks CoreFoundation for.
+# The player's language, which src/rmp/text/text.cpp asks CoreFoundation for.
 if(APPLE)
   target_link_libraries(rmp PUBLIC "-framework CoreFoundation")
 endif()
@@ -973,7 +973,7 @@ function(rmp_add_game NAME DIR)
         "them to. A C++ game keeps src/rmp/; a plain C game has no .cpp in src/ -- see "
         "examples/plain_c/src/main.c.")
     endif()
-    add_executable(${NAME} ${_game_sources} "${CMAKE_CURRENT_SOURCE_DIR}/src/rmp/app.cpp")
+    add_executable(${NAME} ${_game_sources} "${CMAKE_CURRENT_SOURCE_DIR}/src/rmp/app/app.cpp")
     set_property(TARGET ${NAME} PROPERTY CXX_STANDARD 20)
     target_link_libraries(${NAME} PRIVATE rmp)
   endif()
@@ -1213,7 +1213,7 @@ if((RMP_BUILD_EXAMPLES OR BUILD_TESTS) AND EXISTS "${_platformer}/src/main.cpp")
   list(FILTER _platformer_sources EXCLUDE REGEX "/src/main\\.cpp$")
   add_executable(platformer_play ${_platformer_sources}
     "${CMAKE_CURRENT_SOURCE_DIR}/tests/platformer_play.cpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/src/rmp/app.cpp")
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/rmp/app/app.cpp")
   set_property(TARGET platformer_play PROPERTY CXX_STANDARD 20)
   if(NOT RMP_BUILD_EXAMPLES)
     set_property(TARGET platformer_play PROPERTY EXCLUDE_FROM_ALL TRUE)
@@ -1235,7 +1235,7 @@ endif()
 if((RMP_BUILD_EXAMPLES OR BUILD_TESTS) AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/input_play.cpp")
   add_executable(input_play
     "${CMAKE_CURRENT_SOURCE_DIR}/tests/input_play.cpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/src/rmp/app.cpp")
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/rmp/app/app.cpp")
   set_property(TARGET input_play PROPERTY CXX_STANDARD 20)
   if(NOT RMP_BUILD_EXAMPLES)
     set_property(TARGET input_play PROPERTY EXCLUDE_FROM_ALL TRUE)
@@ -1369,7 +1369,7 @@ if(BUILD_TESTS AND UNIT_TEST_SOURCES)
 
   # A DRM/KMS game's ways of ending -- a crash, abort(), a kill, a sanitizer's
   # report -- on a pseudo-terminal tests/console_test.cpp makes, to see that
-  # src/rmp/console.cpp puts the terminal back after each. Linux's, like the
+  # src/rmp/app/console.cpp puts the terminal back after each. Linux's, like the
   # terminal it guards; with the framework, and the flags of everything else.
   if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/console_canary.cpp"
      AND CMAKE_SYSTEM_NAME STREQUAL "Linux")

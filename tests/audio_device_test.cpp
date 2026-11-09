@@ -20,7 +20,7 @@
 
 #include <doctest.h>
 
-#include "../src/rmp/audio_internal.h"
+#include "../src/rmp/audio/audio_internal.h"
 #include "../src/rmp/internal.h"
 
 #include <rmp/assets.h>

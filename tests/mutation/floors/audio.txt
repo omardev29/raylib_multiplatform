@@ -4,7 +4,7 @@
 # would do: the property runs with no sound device and with miniaudio's null
 # one.
 kind     cxx
-sources  src/rmp/audio.cpp
+sources  src/rmp/audio/audio.cpp
 tests    unit_test -sf=*audio_test.cpp
 tests    property_test -sf=*audio_prop.cpp
 floor    40

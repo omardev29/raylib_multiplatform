@@ -5,8 +5,8 @@
 # first value() is 0 and 1 - 2^-24, and random_prop.cpp's reference
 # generator: 81 of 81 detected, one equivalent -- 100%.
 kind     cxx
-sources  src/rmp/random.cpp
+sources  src/rmp/random/random.cpp
 tests    unit_test -ts=random
 tests    property_test -ts=*random
 floor    100
-equivalent cxx_lt_to_le:src/rmp/random.cpp:135:13 range(float)'s `min < max` at the clamp: the two differ only at min == max, where both sides answer min -- drawn is min, and nextafter(min, min) is min
+equivalent cxx_lt_to_le:src/rmp/random/random.cpp:135:13 range(float)'s `min < max` at the clamp: the two differ only at min == max, where both sides answer min -- drawn is min, and nextafter(min, min) is min

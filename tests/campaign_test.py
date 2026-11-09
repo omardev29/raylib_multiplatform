@@ -434,10 +434,10 @@ echo "=== FUZZ: $engine, fuzz_x ==="
 # Files of src/rmp/ that only compile a vendored library: there is nothing of
 # ours in them to mutate.
 NOT_MUTATED = {
-    "src/rmp/aseprite_impl.cpp": "compiles cute_aseprite, once",
-    "src/rmp/tiled_impl.cpp": "compiles cute_tiled, once",
-    "src/rmp/rres_impl.cpp": "compiles rres with its encryption, once",
-    "src/rmp/cjson_impl.c": "compiles cJSON, with its nesting limit",
+    "src/rmp/assets/aseprite_impl.cpp": "compiles cute_aseprite, once",
+    "src/rmp/tilemap/tiled_impl.cpp": "compiles cute_tiled, once",
+    "src/rmp/assets/rres_impl.cpp": "compiles rres with its encryption, once",
+    "src/rmp/save/cjson_impl.c": "compiles cJSON, with its nesting limit",
     "src/rmp/ui/clay_impl.cpp": "compiles Clay, once",
 }
 # What a C++ floor's `tests` line may run: the test programs tests/deep.cmake
@@ -560,7 +560,7 @@ class FloorsTest(unittest.TestCase):
             ("a Python test that is not there",
              lambda f: f["configure"].tests.append(["tests/gone_test.py::SomeTest"]),
              "tests tests/gone_test.py::SomeTest does not exist"),
-            ("a vendored unit", lambda f: f[some].sources.append("src/rmp/tiled_impl.cpp"),
+            ("a vendored unit", lambda f: f[some].sources.append("src/rmp/tilemap/tiled_impl.cpp"),
              "only compiles a vendored library"),
             ("a source filter that matches no file",
              lambda f: f["random"].tests.append(["unit_test", "-sf=*randum_test.cpp"]),
@@ -612,16 +612,16 @@ class FloorsTest(unittest.TestCase):
 
 GOOD = """# a module
 kind     cxx
-sources  src/rmp/random.cpp
+sources  src/rmp/random/random.cpp
 tests    unit_test -ts=random
 floor    80
-equivalent cxx_le_to_lt:src/rmp/random.cpp:9:9 max == min returns min either way
+equivalent cxx_le_to_lt:src/rmp/random/random.cpp:9:9 max == min returns min either way
 """
 
 
 def mull(*mutants):
     """An Elements report holding (mutator, line, column, status) mutants."""
-    return {"files": {"/work/src/rmp/random.cpp": {"mutants": [
+    return {"files": {"/work/src/rmp/random/random.cpp": {"mutants": [
         {"mutatorName": m, "location": {"start": {"line": line, "column": col}}, "status": s}
         for m, line, col, s in mutants]}}}
 
@@ -635,7 +635,7 @@ class FloorCheckerTest(unittest.TestCase):
         mutants = [("cxx_add_to_sub", i, 1, "Killed") for i in range(killed)]
         mutants += [("cxx_sub_to_add", i, 1, "Survived") for i in range(survived)]
         mutants += [("cxx_le_to_lt", 9, 9, "Survived"), *extra]
-        found = mr.mull_mutants(mull(*mutants), ["src/rmp/random.cpp"])
+        found = mr.mull_mutants(mull(*mutants), ["src/rmp/random/random.cpp"])
         return mr.check(floor or self.floor(), found)
 
     def test_at_and_above_the_floor(self):
@@ -669,10 +669,10 @@ class FloorCheckerTest(unittest.TestCase):
     def test_the_equivalent_list_only_shrinks(self):
         killed_now = ("cxx_le_to_lt", 9, 9, "Killed")
         found = mr.mull_mutants(mull(("cxx_add_to_sub", 1, 1, "Killed"), killed_now),
-                                ["src/rmp/random.cpp"])
+                                ["src/rmp/random/random.cpp"])
         ok, fails, score = mr.check(self.floor(), found)
         self.assertTrue(any("is killed now: it was not equivalent" in f for f in fails), fails)
-        found = mr.mull_mutants(mull(("cxx_add_to_sub", 1, 1, "Killed")), ["src/rmp/random.cpp"])
+        found = mr.mull_mutants(mull(("cxx_add_to_sub", 1, 1, "Killed")), ["src/rmp/random/random.cpp"])
         ok, fails, score = mr.check(self.floor(), found)
         self.assertTrue(any("is not in the report: the code moved" in f for f in fails), fails)
 
@@ -686,17 +686,17 @@ class FloorCheckerTest(unittest.TestCase):
     def test_no_coverage_counts_against_and_a_compile_error_not_at_all(self):
         found = mr.mull_mutants(mull(("a", 1, 1, "Killed"), ("b", 2, 2, "NoCoverage"),
                                      ("c", 3, 3, "CompileError"), ("d", 4, 4, "Timeout"),
-                                     ("cxx_le_to_lt", 9, 9, "Survived")), ["src/rmp/random.cpp"])
+                                     ("cxx_le_to_lt", 9, 9, "Survived")), ["src/rmp/random/random.cpp"])
         ok, fails, score = mr.check(self.floor(GOOD.replace("80", "-")), found)
         self.assertAlmostEqual(score, 100 * 2 / 3)
 
     def test_mull_ids_are_the_repositorys_and_other_files_are_ignored(self):
         report = mull(("cxx_add_to_sub", 74, 62, "Killed"))
-        report["files"]["/elsewhere/src/rmp/value.cpp"] = {"mutants": [
+        report["files"]["/elsewhere/src/rmp/save/value.cpp"] = {"mutants": [
             {"mutatorName": "x", "location": {"start": {"line": 1, "column": 1}},
              "status": "Survived"}]}
-        self.assertEqual(mr.mull_mutants(report, ["src/rmp/random.cpp"]),
-                         {"cxx_add_to_sub:src/rmp/random.cpp:74:62": mr.DETECTED})
+        self.assertEqual(mr.mull_mutants(report, ["src/rmp/random/random.cpp"]),
+                         {"cxx_add_to_sub:src/rmp/random/random.cpp:74:62": mr.DETECTED})
 
     def test_killed_by_any_program_is_killed(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -784,7 +784,7 @@ class FloorCheckerTest(unittest.TestCase):
             (GOOD + "select   x*\n", "select is mutmut's"),
             (GOOD.replace("max == min returns min either way", "x"), "says why"),
             (GOOD + GOOD.splitlines(keepends=True)[-1], "is listed twice"),
-            (GOOD.replace("sources  src/rmp/random.cpp", "sources"), "sources says nothing"),
+            (GOOD.replace("sources  src/rmp/random/random.cpp", "sources"), "sources says nothing"),
         ]:
             with self.subTest(says=says):
                 with self.assertRaises(mr.FloorError) as caught:
@@ -1118,12 +1118,12 @@ class PropertyFilesTest(unittest.TestCase):
 ASAN = """INFO: Seed: 1234
 ==4242==ERROR: AddressSanitizer: heap-buffer-overflow on address 0x602000000011 at pc 0x55d1
 READ of size 1 at 0x602000000011 thread T0
-    #0 0x55d1aa in rmp::save::detail::decode(std::vector<unsigned char> const&, rmp::Value*, bool) /work/src/rmp/save.cpp:351:12
-    #1 0x55d1bb in (anonymous namespace)::walk(rmp::Value const&) /work/src/rmp/save.cpp:90:3
+    #0 0x55d1aa in rmp::save::detail::decode(std::vector<unsigned char> const&, rmp::Value*, bool) /work/src/rmp/save/save.cpp:351:12
+    #1 0x55d1bb in (anonymous namespace)::walk(rmp::Value const&) /work/src/rmp/save/save.cpp:90:3
     #2 0x55d1cc in LLVMFuzzerTestOneInput /work/tests/fuzz/save_decode.cpp:20:5
     #3 0x55d1dd in fuzzer::Fuzzer::ExecuteCallback(unsigned char const*, unsigned long) (/work/build/fuzz/fuzz_save_decode+0x123)
 
-SUMMARY: AddressSanitizer: heap-buffer-overflow /work/src/rmp/save.cpp:351:12 in decode
+SUMMARY: AddressSanitizer: heap-buffer-overflow /work/src/rmp/save/save.cpp:351:12 in decode
 """
 UBSAN = """/w/tests/e2e/script.cpp:196:24: runtime error: signed integer overflow: 899999999 * 10 cannot be represented in type 'int'
     #0 0x558dc07f9cae in e2e::(anonymous namespace)::number(std::basic_string_view<char, std::char_traits<char>>) /w/tests/e2e/script.cpp:196:24

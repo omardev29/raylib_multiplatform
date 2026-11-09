@@ -6,7 +6,7 @@
 //   pack instead of off the disk. Claiming one path too many silently replaces
 //   a file the game wrote, or shipped beside the pack, with the one packed.
 //
-//   WHAT THE PACK READS. src/rmp/pack.cpp reads resources.rres itself, every
+//   WHAT THE PACK READS. src/rmp/assets/pack.cpp reads resources.rres itself, every
 //   field checked, because rres's own readers believed every field of it; a
 //   name is looked up whole, the way the loose files are found.
 //
@@ -38,8 +38,8 @@
 #include <doctest.h>
 
 #include "../src/rmp/internal.h"
-#include "../src/rmp/pack_internal.h"
-#include "../src/rmp/tilemap_internal.h"
+#include "../src/rmp/assets/pack_internal.h"
+#include "../src/rmp/tilemap/tilemap_internal.h"
 #include "pack_writer.h"
 
 #include <rmp/assets.h>
@@ -49,6 +49,7 @@
 #include <raylib.h>
 #include <rres.h> // rresSetCipherPassword
 
+#include <algorithm>
 #include <climits>
 #include <cstdint>
 #include <filesystem>
@@ -1396,24 +1397,38 @@ TEST_SUITE("assets: loads") {
 }
 
 TEST_SUITE("assets: before the window") {
-    // What rmp::app::detail::open_window() says once the window is open: the
-    // first texture, font or sheet asked for before it, and how many were.
-    // Every load here has no window (a unit test opens none), so each counts
-    // until window_opened(), and none after.
-    TEST_CASE("a load that needs the window is noted until the window opens") {
+    // What window_opened() -- which rmp::app::detail::open_window() calls once
+    // the window is open -- says: the first texture, font or sheet asked for
+    // before it, and how many were. Every load here has no window (a unit test
+    // opens none), so each counts until window_opened(), and none after.
+    TEST_CASE("a load that needs the window is noted, and said when the window opens") {
+        using rmp::assets::detail::EarlyLoads;
+        using rmp::assets::detail::loaded_before_window;
+        std::vector<std::string> said;
+        rmp::detail::reset_reports_for_tests();
+        rmp::detail::set_report_sink(
+            [&](std::string_view line) { said.emplace_back(line); });
+
         (void)rmp::assets::load_texture("not_there_before_window.png");
-        const auto first = rmp::assets::detail::loaded_before_window();
-        REQUIRE(first.has_value());
-        CHECK_FALSE(first->first.empty());
+        const EarlyLoads first = loaded_before_window().value_or(EarlyLoads{});
+        CHECK_FALSE(first.first.empty());
+        CHECK(first.count >= 1);
         (void)rmp::assets::load_font("not_there_before_window.ttf", 12);
-        (void)rmp::assets::load_sheet("not_there_before_window.aseprite");
-        const auto more = rmp::assets::detail::loaded_before_window();
-        REQUIRE(more.has_value());
-        CHECK(more->first == first->first);
-        CHECK(more->count >= first->count + 1);
+        const EarlyLoads more = loaded_before_window().value_or(EarlyLoads{});
+        CHECK(more.first == first.first);
+        CHECK(more.count == first.count + 1);
+
         rmp::assets::detail::window_opened();
+        const auto named = std::ranges::count_if(said, [&](const std::string &line) {
+            return line.find("'" + first.first + "'") != std::string::npos &&
+                line.find("was loaded before the window opened") != std::string::npos;
+        });
+        CHECK(named == 1);
         (void)rmp::assets::load_texture("not_there_after_window.png");
-        CHECK(rmp::assets::detail::loaded_before_window()->count == more->count);
+        CHECK(loaded_before_window().value_or(EarlyLoads{}).count == more.count);
+
+        rmp::detail::set_report_sink({});
+        rmp::detail::reset_reports_for_tests();
         rmp::detail::release_all();
     }
 }

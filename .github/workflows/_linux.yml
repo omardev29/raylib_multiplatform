@@ -1035,7 +1035,7 @@ jobs:
           # And with no card to draw on, the same binary fails its boot, and its
           # exit status says so: it logged RAY_TEST_BOOT_FAIL and exited 0, and
           # a step that read the status alone passed it (end_stop() in
-          # src/rmp/app.cpp). 1, not any failure: a crash on the way out is
+          # src/rmp/app/app.cpp). 1, not any failure: a crash on the way out is
           # another bug. A game in plain C ends where its own main() says.
           if [ -d src/rmp ]; then
             if NOCARD=$(docker run --rm --init --network none \

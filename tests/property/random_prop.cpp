@@ -5,7 +5,7 @@
 //
 // The generator itself is checked against a reference written here from the
 // published algorithms (SplitMix64 to expand the seed, xoshiro128++ 1.0), and
-// not against src/rmp/random.cpp's own code: a reference that shares code with
+// not against src/rmp/random/random.cpp's own code: a reference that shares code with
 // what it checks is checking nothing. range(INT_MIN, INT_MAX) is the window
 // onto the whole 32-bit word, and value() onto its top 24 bits.
 //

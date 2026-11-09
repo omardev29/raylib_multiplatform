@@ -6,7 +6,7 @@
 # reads the thread's CPU time now (package F3b), and those mutants survive --
 # what is left is what the tests check.
 kind     cxx
-sources  src/rmp/behavior.cpp src/rmp/behaviors.cpp
+sources  src/rmp/behavior/behavior.cpp src/rmp/behavior/behaviors.cpp
 tests    unit_test -sf=*behavior_test.cpp,*behaviors_test.cpp
 tests    property_test -sf=*behavior_prop.cpp
 floor    60

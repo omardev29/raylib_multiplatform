@@ -16,7 +16,7 @@
 
 #include <doctest.h>
 
-#include "../src/rmp/animation_internal.h"
+#include "../src/rmp/assets/animation_internal.h"
 #include "../src/rmp/internal.h"
 #include "aseprite_builder.h"
 
@@ -471,7 +471,7 @@ TEST_CASE("a negative speed turns a ping-pong round the other way first") {
 // ===========================================================================
 // Files broken past the header.
 //
-// src/rmp/aseprite.cpp walks every chunk of a .aseprite before cute_aseprite
+// src/rmp/assets/aseprite.cpp walks every chunk of a .aseprite before cute_aseprite
 // reads it, and refuses what cute_aseprite would assert on, read or write
 // outside what it owns for, go round forever on or leak. Before that walk, a
 // file that passed the 128-byte header check went straight to cute_aseprite,

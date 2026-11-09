@@ -1,0 +1,267 @@
+#pragma once
+
+#include <rmp/assets.h> // rmp::Texture, held by a Tileset
+#include <rmp/scene.h> // rmp::Scene, for the factories' Callback
+#include <rmp/tilemap.h> // MapData, MapPtr, MapObject
+
+#include <raylib.h> // Rectangle, Vector2
+
+#include <algorithm>
+#include <cmath>
+#include <cstdint>
+#include <limits>
+#include <memory>
+#include <string>
+#include <string_view>
+#include <utility>
+#include <vector>
+// ---------------------------------------------------------------------------
+// Private to src/rmp/. The parsed map, as BOTH readers fill it.
+//
+// There are two readers -- src/rmp/tilemap/tilemap.cpp reads Tiled JSON through
+// cute_tiled, src/rmp/tilemap/ldtk.cpp reads LDtk projects through cJSON -- and one
+// map: whatever they read lands in the structures below, and everything after
+// parsing (drawing, solids, objects, levels) knows nothing about which editor
+// made it. That is what keeps rmp::Tilemap one class with one API.
+//
+// tests/tilemap_test.cpp and tests/ldtk_test.cpp include this directly:
+// parsing is arithmetic, so dimensions, tiles, solids, object positions and
+// properties, the factories and the levels all run without a window. Only the
+// tileset texture and draw() need one.
+// ---------------------------------------------------------------------------
+
+namespace rmp::tilemap::detail {
+
+// Tiled's three flip bits, masked off every gid it writes.
+inline constexpr unsigned FLIP_MASK = 0xE0000000U;
+
+// ---- numbers out of a file -------------------------------------------------
+//
+// Both readers take every number through these on its way into the map, so
+// nothing after parsing meets a NaN, an infinity, a negative size or a tile
+// count it would allocate gigabytes for -- whatever the file says.
+
+// Bigger than any level or project an editor makes, and small enough that a
+// broken or hostile file cannot make a reader allocate gigabytes. BUDGETS FOR
+// THE WHOLE FILE, not limits per layer or per tileset: a limit per layer let a
+// 1.5 KB file of a dozen 4096 x 4096 layers take three quarters of a gigabyte.
+// 16M cells is all the layers of a 65 536 x 65 536 px level at 16 px; 4M tiles
+// is every tileset of a project, each a 32 768 px square of 16 px tiles.
+inline constexpr std::int64_t MAX_CELLS = std::int64_t{ 1 } << 24;
+inline constexpr std::int64_t MAX_TILES = std::int64_t{ 1 } << 22;
+
+// A float out of a double: NaN as 0, and clamped to what a float holds. A
+// double past FLT_MAX converted to float is undefined behaviour in C++, IEEE
+// or not, and a position of infinity collides nowhere and draws nowhere --
+// and, added to another, is the NaN that a comparison lets through. Sums are
+// made in double and come through here once, at the end.
+inline float finite_float(double value) {
+    if (std::isnan(value)) return 0;
+    constexpr double HIGHEST = std::numeric_limits<float>::max();
+    return static_cast<float>(std::clamp(value, -HIGHEST, HIGHEST));
+}
+
+// A size: what finite_float() makes of it, and never below 0.
+inline float size_float(double value) { return std::max(0.0f, finite_float(value)); }
+
+// An int a file gives as a size, a margin or a spacing: never below 0.
+inline int size_int(int value) { return std::max(0, value); }
+
+// A tileset, with its tiles numbered first_gid..last_gid in the MAP's
+// numbering. Tiled hands those numbers out itself; LDtk does not number tiles
+// across tilesets, so its reader gives each tileset a range in turn.
+struct Tileset {
+    int first_gid = 0;
+    int last_gid = 0;
+    int columns = 0;
+    int tile_width = 0;
+    int tile_height = 0;
+    int margin = 0; // border between the image edge and the first tile
+    int spacing = 0; // gutter between one tile and the next
+    rmp::Texture texture;
+    std::vector<bool> solid; // by local tile id
+};
+
+// One tile put down at a pixel position, which is how LDtk stores them: a
+// cell can hold several (its auto-layers stack them), and each can be flipped
+// and faded on its own. `at` is relative to the layer.
+struct PlacedTile {
+    Vector2 at{};
+    int gid = 0;
+    bool flip_x = false;
+    bool flip_y = false;
+    float alpha = 1.0f;
+};
+
+struct Layer {
+    std::string name;
+    bool solid_layer = false; // every non-empty cell is solid
+    bool visible = true; // false: a collision layer only, never drawn
+    int width = 0; // in cells
+    int height = 0;
+    int cell_width = 0; // 0 = the map's tile size
+    int cell_height = 0;
+    Vector2 offset{}; // the layer's own shift inside the map, in pixels
+    float opacity = 1.0f;
+    // One per cell. Tiled's whole layer; for LDtk the TOP tile of each cell,
+    // which is what tile_at() and solid tiles look at.
+    std::vector<int> gids;
+    // LDtk: every tile, bottom to top. Drawn instead of `gids` when not empty.
+    std::vector<PlacedTile> placed;
+    // LDtk's IntGrid, one per cell: painted with the value called `solid`.
+    std::vector<bool> solid_cells;
+
+    // Built once the map is read (index_map()), and never changed after: a
+    // map's tiles do not change while it is loaded.
+    //
+    // Whether each cell stops you, every way a cell can be solid folded into
+    // one byte -- the IntGrid, a solid layer, a tile its tileset marks -- so
+    // solid_in(), asked many times a frame, reads one byte a cell.
+    std::vector<unsigned char> solid;
+    // LDtk's placed tiles by where they are: the map cut into squares of
+    // CHUNK_CELLS cells, each holding the indices into `placed` of every tile
+    // that overlaps it, ascending. Drawing what the camera sees gathers the
+    // chunks under it instead of walking every tile of the level.
+    int chunk_columns = 0;
+    int chunk_rows = 0;
+    float chunk_width = 0; // in pixels
+    float chunk_height = 0;
+    std::vector<std::vector<std::uint32_t>> chunks;
+};
+
+// A custom property of an object, whichever editor wrote it. Kept here as
+// owned values, so nothing after parsing points into a parser's own tree.
+struct Property {
+    enum class Kind { BOOL, INT, FLOAT, STRING, POINT };
+    std::string key;
+    Kind kind = Kind::STRING;
+    bool boolean = false;
+    int integer = 0;
+    float floating = 0;
+    std::string text;
+    std::vector<Vector2> points; // POINT: one, or a list (LDtk's Array<Point>)
+};
+
+// What a MapObject's names view, and what its property lookups read. Owned
+// through a unique_ptr so the strings never move.
+struct ObjectInfo {
+    std::string name;
+    std::string type;
+    std::string iid;
+    std::vector<Property> properties;
+    // Whether an area means a wall when no factory claims the object. True
+    // for Tiled, where a rectangle drawn on an object layer is a shape; false
+    // for an LDtk entity, whose box is only its size in the editor.
+    bool solid_area = true;
+};
+
+// A level of the project the map came from, where it sits in the world.
+struct LevelInfo {
+    std::string name;
+    Rectangle world{};
+};
+
+} // namespace rmp::tilemap::detail
+
+// The parsed map. Forward-declared in the public header so that the readers
+// and <vector> stay out of it; owned by the Tilemap through a unique_ptr.
+struct rmp::tilemap::detail::MapData {
+    int width = 0; // in tiles
+    int height = 0;
+    int tile_width = 0;
+    int tile_height = 0;
+    Vector2 size_px{}; // {0,0} = width * tile_width by height * tile_height
+    Vector2 origin{}; // where the map's (0,0) sits in the world; LDtk's worldX/Y
+    std::vector<Layer> layers; // bottom to top
+    std::vector<Tileset> tilesets;
+    std::vector<MapObject> objects;
+    std::vector<std::unique_ptr<ObjectInfo>> infos;
+    std::vector<std::pair<std::string, Callback<Scene &, const MapObject &>>> factories;
+    std::string source; // the file it came from
+    std::string level; // the LDtk level loaded; "" for Tiled
+    std::vector<LevelInfo> levels; // the levels of its world, for neighbour_at()
+
+    // Hands back a MapObject whose strings and properties live in `info`.
+    MapObject &add_object(std::unique_ptr<ObjectInfo> info);
+};
+
+namespace rmp::tilemap::detail {
+
+// What a Tilemap keeps private, reached by the loader that fills it, by the
+// engine that collides with it and by the tests that read it back.
+struct Access {
+    // Owned by the map from here, and whatever was there goes; null empties it.
+    static void adopt(Tilemap &map, MapPtr data) { map.adopt(std::move(data)); }
+    // The parsed map, or null for an empty one.
+    static const MapData *data(const Tilemap &map) { return map.data(); }
+};
+
+// The bytes of a map file into a MapData: an LDtk project when `name` ends in
+// .ldtk, a Tiled JSON map otherwise. `level` picks the LDtk level by name,
+// every byte of it -- a NUL inside is part of the name, and no level has one
+// -- and empty means the first; Tiled has no levels and ignores it. Returns nullptr
+// and says why. TAKES no ownership of `bytes`; the caller owns the result and
+// frees it with free_map.
+// Builds the indexes a Layer keeps for collision and drawing (`solid`, the
+// chunks of its placed tiles) from what the reader filled in. The Tilemap calls
+// it when it takes a map, so every map is indexed however it was made.
+void index_map(MapData &data);
+
+// The world rectangle `screen` (in pixels: where the world is drawn) shows
+// through `camera`: its four corners taken back into the world, rotation and
+// all. What the scene hands Tilemap::draw(area).
+Rectangle visible_area(const Camera2D &camera, Rectangle screen);
+
+// How many tiles the last Tilemap::draw() looked at -- every tile of a draw(),
+// the ones in view of a draw(area) -- whether or not their texture is there.
+// For the tests that hold the culling to its word.
+int tiles_considered();
+
+// How many cells a side of one drawing chunk is (Layer::chunks).
+inline constexpr int CHUNK_CELLS = 16;
+
+MapPtr parse_map(const void *bytes, int size, const char *name,
+                 std::string_view level = {});
+
+// The Tiled half and the LDtk half of parse_map, for the tests that want one.
+MapPtr parse_tiled(const void *bytes, int size, const char *name);
+MapPtr parse_ldtk(const void *bytes, int size, const char *name, std::string_view level);
+
+// The object layers, flattened, for a test that wants to look before spawning.
+int object_count(const MapData *data);
+const MapObject *object_at(const MapData *data, int index);
+
+// The smallest cell of any layer, 0 for a map with none: how far a moving
+// object may step before the collision pass looks at the map again.
+float smallest_cell(const MapData *data);
+
+// Where one gid is in its tileset image, with the tileset's margin and spacing
+// already in it. {0,0,0,0} when no tileset in the map holds that gid. This is
+// the arithmetic draw() does, split out because it is the half a headless test
+// can check -- and margin and spacing are exactly the kind of thing that looks
+// right until somebody opens the game.
+Rectangle tile_source(const MapData *data, int gid);
+
+// Where that tile's top-left corner goes in world units, which is NOT simply
+// the cell's own corner: Tiled anchors a tile layer by the BOTTOM-left, so a
+// tileset whose tiles are taller than the map's grid reaches UPWARDS out of
+// the cell. The cell's corner when no tileset in the map holds that gid --
+// nothing to be taller than the grid.
+Vector2 tile_origin(const MapData *data, int gid, int column, int row);
+
+// The file name of a path: the last part, after any '/' or '\\'.
+const char *file_name_of(const char *path);
+
+// The resource a map names: both editors write paths relative to the map, so
+// `path` is read from the folder `map` is in -- "maps/town.ldtk" and
+// "../tiles/town.png" are "tiles/town.png" -- when that is a file in
+// resources/; otherwise its file name at the top of resources/, where a map's
+// files were kept before there were folders. "" for no path.
+std::string next_to(std::string_view map, const char *path);
+
+// A tileset image that did not become a texture, said as what it is: not in
+// resources/, or there and not loadable. `map` names an LDtk project in the
+// line; "" for a Tiled map. Both readers call it, so they say the same thing.
+void report_tileset_image(const char *image, const char *map);
+
+} // namespace rmp::tilemap::detail

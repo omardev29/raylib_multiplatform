@@ -1,11 +1,11 @@
 // ---------------------------------------------------------------------------
-// rmp::Text and rmp::lang (src/rmp/text.cpp): the tables, the lookup and its
+// rmp::Text and rmp::lang (src/rmp/text/text.cpp): the tables, the lookup and its
 // fallbacks, plurals, placeholders, context, the system language.
 // ---------------------------------------------------------------------------
 
 #include "doctest.h"
 
-#include "../src/rmp/text_internal.h"
+#include "../src/rmp/text/text_internal.h"
 
 #include <rmp/text.h>
 

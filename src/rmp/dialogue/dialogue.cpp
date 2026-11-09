@@ -7,7 +7,7 @@
 // ===========================================================================
 
 #include "../internal.h"
-#include "../text_internal.h"
+#include "../text/text_internal.h"
 #include "dialogue_internal.h"
 #include "yarn.h"
 

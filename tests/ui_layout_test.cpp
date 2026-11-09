@@ -30,7 +30,7 @@
 #include "../src/rmp/internal.h"
 #include "../src/rmp/ui/internal.h"
 #include "../src/rmp/dialogue/dialogue_internal.h"
-#include "../src/rmp/text_internal.h"
+#include "../src/rmp/text/text_internal.h"
 
 #include <rmp/app.h>
 #include <rmp/scene.h>

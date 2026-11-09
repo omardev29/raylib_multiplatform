@@ -33,7 +33,7 @@
 
 #include "harness.h"
 
-#include "../../src/rmp/tilemap_internal.h"
+#include "../../src/rmp/tilemap/tilemap_internal.h"
 
 #include <rmp/tilemap.h>
 

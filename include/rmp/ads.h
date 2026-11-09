@@ -10,7 +10,7 @@
 // The chain behind them: thirdparty/raymob/admob.c (JNI) -> NativeLoader.java
 // -> AdmobBridge.java. The ad unit ids come from [android.admob].
 //
-// A wrapper, not a layer: src/rmp/ads.cpp forwards these to the C functions in
+// A wrapper, not a layer: src/rmp/ads/ads.cpp forwards these to the C functions in
 // <admob.h>, and that header stays out of yours. Those stay C because they are
 // the real JNI boundary, and because a game in plain C -- the shape of
 // examples/plain_c/src/main.c -- has no namespace to call into and can call

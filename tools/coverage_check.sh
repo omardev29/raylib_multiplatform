@@ -3,7 +3,7 @@
 # src/rmp/, held by two ratchets.
 #
 # Builds the unit tests, the headless UI layout test and tests/input_play.cpp
-# (the one program that drives src/rmp/app.cpp, through the real runner) with
+# (the one program that drives src/rmp/app/app.cpp, through the real runner) with
 # -fprofile-instr-generate -fcoverage-mapping -- RMP_COVERAGE in
 # CMakeLists.txt, which also links librmp.a WHOLE, so a file no test reaches is
 # in the report at 0% instead of missing from it. Runs them, merges the
@@ -193,7 +193,7 @@ echo "  ok    input_play, under the smoke test"
 
 # And once with a RAY_TEST_WINDOW it cannot read: the boot fails, says
 # RAY_TEST_BOOT_FAIL, and the run ends with status 1 (end_stop() in
-# src/rmp/app.cpp). A failed boot ended with 0, and a boot step that read the
+# src/rmp/app/app.cpp). A failed boot ended with 0, and a boot step that read the
 # status passed a game that never opened -- a DRM game with no card.
 failed_status=0
 export LLVM_PROFILE_FILE="$PWD/$PROF/input_play_boot_fail-%p.profraw"

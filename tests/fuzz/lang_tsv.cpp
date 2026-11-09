@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------------
 // The translation tables' reader, fuzzed: parse_tsv() and load_tables() of
-// src/rmp/text.cpp, and the lookups behind them.
+// src/rmp/text/text.cpp, and the lookups behind them.
 //
 // The input is a table's bytes. The oracle: it reads whatever it is handed,
 // never aborts, reads out of bounds or leaks; every row is cells, a cell
@@ -14,7 +14,7 @@
 
 #include "harness.h"
 
-#include "../../src/rmp/text_internal.h"
+#include "../../src/rmp/text/text_internal.h"
 
 #include <rmp/text.h>
 

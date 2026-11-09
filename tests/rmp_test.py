@@ -3288,7 +3288,7 @@ class GameUnitStageTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             game = fake_project(Path(tmp) / "g")
             for rel in ("tests/game/rules_test.cpp", "tests/smoke_test.h", "src/main.cpp",
-                        "src/rmp/app.cpp"):
+                        "src/rmp/app/app.cpp"):
                 (game / rel).parent.mkdir(parents=True, exist_ok=True)
                 (game / rel).write_text("")
             got = sorted(p.relative_to(game).as_posix() for p in rmp.our_sources(rmp.Ctx(game)))
