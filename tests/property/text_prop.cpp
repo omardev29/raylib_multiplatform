@@ -1,5 +1,5 @@
 // ---------------------------------------------------------------------------
-// Properties of rmp::Text and rmp::lang (src/rmp/text.cpp): any table, any
+// Properties of rmp::Text and rmp::lang (src/rmp/text/text.cpp): any table, any
 // key, any arguments -- a text is always a text, nothing crashes, and a text
 // whose every placeholder has its argument has none of them left.
 // ---------------------------------------------------------------------------
@@ -7,8 +7,8 @@
 #include "check.h"
 #include "gen.h"
 
-#include "../../src/rmp/number_internal.h"
-#include "../../src/rmp/text_internal.h"
+#include "../../src/rmp/save/number_internal.h"
+#include "../../src/rmp/text/text_internal.h"
 
 #include <rmp/text.h>
 

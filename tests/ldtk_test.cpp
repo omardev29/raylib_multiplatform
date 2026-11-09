@@ -1,5 +1,5 @@
 // ===========================================================================
-// LDtk projects: the reader in src/rmp/ldtk.cpp, without a GPU.
+// LDtk projects: the reader in src/rmp/tilemap/ldtk.cpp, without a GPU.
 //
 // Two kinds of fixture (tests/fixtures/ldtk/README.md says where each came
 // from), for two different questions:
@@ -18,9 +18,9 @@
 #include <doctest.h>
 
 #include "../src/rmp/internal.h"
-#include "../src/rmp/json_internal.h"
-#include "../src/rmp/object_internal.h"
-#include "../src/rmp/tilemap_internal.h"
+#include "../src/rmp/save/json_internal.h"
+#include "../src/rmp/scene/object_internal.h"
+#include "../src/rmp/tilemap/tilemap_internal.h"
 
 #include <rmp/assets.h>
 #include <rmp/object.h>

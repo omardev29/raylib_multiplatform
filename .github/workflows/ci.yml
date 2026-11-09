@@ -402,7 +402,7 @@ jobs:
         run: bash tools/header_cost_check.sh
 
       # No owning raw pointer under include/rmp/ or src/rmp/: new, delete,
-      # malloc and free are allowed in exactly one file, src/rmp/loader_hook.cpp,
+      # malloc and free are allowed in exactly one file, src/rmp/assets/loader_hook.cpp,
       # which speaks raylib's C loader contract. And no raylib Load*/Unload* outside the six
       # files that own what it makes, in the framework and the examples: a
       # LoadTexture goes inside the rmp::Texture that frees it. Both lists only

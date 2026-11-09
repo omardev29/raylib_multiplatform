@@ -737,7 +737,7 @@ class BuildFilesTest(unittest.TestCase):
                 self.assertRegex(literal, r"\A-?[0-9]+\Z", name)
                 self.assertEqual(int(literal), value, name)
             elif render is configure._c_stretch:
-                # A mode, by its place in STRETCH_MODES: src/rmp/stretch.cpp
+                # A mode, by its place in STRETCH_MODES: src/rmp/app/stretch.cpp
                 # reads the number as rmp::app::Stretch.
                 self.assertEqual(literal, str(configure.STRETCH_MODES.index(value)), name)
             elif render is configure._c_bool:

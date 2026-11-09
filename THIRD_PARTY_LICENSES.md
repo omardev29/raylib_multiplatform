@@ -169,13 +169,13 @@ changing fails the build.
   `rmp::save` files, and its BLAKE2b derives their key), **QOI** (Dominic
   Szablewski, MIT), and
   **LZ4** (Yann Collet, BSD-2-Clause), which is in the tree but **not compiled**:
-  `src/rmp/rres_impl.cpp` enables AES and XChaCha20 and never
+  `src/rmp/assets/rres_impl.cpp` enables AES and XChaCha20 and never
   `RRES_SUPPORT_COMPRESSION_LZ4`. The day `[resources]` gains compression its
   row changes from `none` to `all` and its notice starts shipping.
 - **cJSON** (Dave Gamble and cJSON contributors, MIT) is the JSON under
-  `rmp::save` and the LDtk reader: compiled once by `src/rmp/cjson_impl.c`,
-  included through `src/rmp/json_internal.h` by `src/rmp/save.cpp` and
-  `src/rmp/ldtk.cpp` and by no public header, unmodified and pinned by
+  `rmp::save` and the LDtk reader: compiled once by `src/rmp/save/cjson_impl.c`,
+  included through `src/rmp/save/json_internal.h` by `src/rmp/save/save.cpp` and
+  `src/rmp/tilemap/ldtk.cpp` and by no public header, unmodified and pinned by
   content.
 - **Clay** (Nic Barker, zlib) is the layout engine behind `rmp::ui`.
 - **raylib-cpp** (Rob Loach, zlib): the math subset only, header-only, behind

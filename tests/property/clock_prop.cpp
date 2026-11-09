@@ -1,5 +1,5 @@
 // ---------------------------------------------------------------------------
-// The framework's one clock (src/rmp/clock.cpp), held to the campaign's rules
+// The framework's one clock (src/rmp/app/clock.cpp), held to the campaign's rules
 // for any reading a machine or a test can hand it:
 //
 //   - what a frame hands the game is a finite number of seconds, 0 or more,

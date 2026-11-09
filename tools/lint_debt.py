@@ -10,7 +10,7 @@ misc-const-correctness, std::array, no raw pointer -- and a check that is on
 but failing is a check nobody can turn on. So what is left is WRITTEN DOWN, one
 line per check and file, and nothing else gets in:
 
-    misc-const-correctness  src/rmp/ldtk.cpp  3
+    misc-const-correctness  src/rmp/tilemap/ldtk.cpp  3
 
   - a warning in a file and check with no line fails;
   - more warnings than a line owes fails (the new one cannot be told from the
@@ -155,7 +155,7 @@ def schedule(files: list[str], database: Path) -> list[str]:
 
     The cost is how many times clang-tidy reads the file: once per command the
     compile database has for it -- tests/e2e/driver.cpp was in every e2e
-    target, sixteen of them, and src/rmp/app.cpp is in every game -- then its
+    target, sixteen of them, and src/rmp/app/app.cpp is in every game -- then its
     size. Measured over the 104 files of 2026-10-11 on four processors:
     519 s in path order, 429 s in this one, 428 s with every file's real time
     known beforehand. Only the order changes: the same files, the same

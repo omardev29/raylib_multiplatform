@@ -1,0 +1,252 @@
+// ===========================================================================
+// The reference-counted resource table behind rmp::Texture and friends.
+//
+// One slot per loaded resource. The count lives on the slot, not on the handle,
+// which is what makes two handles to the same name share one GPU object rather
+// than load it twice.
+//
+// The table is a vector of slots searched linearly, and that is not laziness:
+// a game has tens of distinct resources, not thousands, and a linear scan over
+// a few dozen small structs beats a hash map at that size on every machine. If
+// a game ever arrives with a thousand, this is the file to change and nothing
+// else moves -- the table is not visible from any header.
+//
+// EACH SLOT OWNS ITS PAYLOAD through a std::shared_ptr<void>, which carries the
+// payload type's destructor with it: the table never learns what a SheetData
+// is, and the sheet's tables are freed by the language when the slot lets go.
+// The raylib Unload* is the table's job and happens first. It used to be a
+// 64-byte byte array memcpy'd from the caller, at offset 109 of a struct with
+// alignof 4, read back through reinterpret_cast -- undefined behaviour on every
+// access, and a type with a vector in it could not have lived there at all.
+//
+// SLOTS ARE NEVER FREED, only emptied. A handle that outlives release_all()
+// (a global rmp::Texture, say) still points at a slot that exists and reads
+// refs == 0, so its destructor is a no-op instead of a use after free.
+//
+// AND A SLOT release_all() TOOK FROM UNDER A HANDLE IS NEVER HANDED OUT
+// AGAIN. It was: the next load reused it, and the old handle -- still
+// pointing at it -- read the new resource, and its destructor counted the new
+// one down and unloaded it while the handle that loaded it still held it.
+// tests/property/assets_prop.cpp found it, playing handles against a model.
+// Such a slot is `stale`: retain() and release() pass it by, and it costs one
+// small struct for the rest of the run.
+//
+// The seam for tests: a resource is loaded through the function pointers in
+// assets.cpp, so a headless test can install one that fabricates payloads and
+// never touches the GPU. That is what makes the counting testable without a
+// window.
+// ===========================================================================
+
+#include <rmp/assets.h>
+
+#include "../internal.h"
+
+#include <raylib.h>
+
+#include <memory>
+#include <string>
+#include <utility>
+#include <vector>
+
+namespace rmp::detail {
+
+namespace {
+
+struct SlotData {
+    // The WHOLE name, compared whole. It used to be a 96-byte buffer compared
+    // with strncmp, so two names sharing a 95-character prefix were one cache
+    // entry and the second load handed back the first texture.
+    std::string name;
+    ResourceKind kind{};
+    int font_size = 0;
+    int refs = 0;
+    bool named = false; // false = adopted, never matched by name
+    bool stale = false; // emptied by release_all() with handles still on it
+    std::shared_ptr<void> payload;
+    int watch = -1; // its file in watch.cpp, -1 for none (see changed())
+    unsigned seen = 0; // the generation of that file the payload is
+};
+
+// unique_ptr so a slot's address is stable while the vector grows: a handle
+// IS that address.
+struct {
+    std::vector<std::unique_ptr<SlotData>> slots;
+} table;
+
+void unload_payload(SlotData &slot) {
+    // The one place in the framework where an Unload* is called. Everywhere
+    // else, a resource going out of scope is what does it.
+    void *p = slot.payload.get();
+    if (p == nullptr) return;
+    switch (slot.kind) {
+        case ResourceKind::TEXTURE:
+            UnloadTexture(*static_cast<Texture2D *>(p));
+            break;
+        case ResourceKind::IMAGE:
+            UnloadImage(*static_cast<::Image *>(p));
+            break;
+        case ResourceKind::FONT:
+            UnloadFont(*static_cast<::Font *>(p));
+            break;
+        case ResourceKind::SOUND:
+            UnloadSound(*static_cast<::Sound *>(p));
+            break;
+        case ResourceKind::MUSIC:
+            UnloadMusicStream(*static_cast<::Music *>(p));
+            break;
+        case ResourceKind::SHADER:
+            UnloadShader(*static_cast<::Shader *>(p));
+            break;
+        case ResourceKind::RENDER_TEXTURE:
+            UnloadRenderTexture(*static_cast<RenderTexture2D *>(p));
+            break;
+        case ResourceKind::SHEET: {
+            // The texture is raylib's to unload; the frame and tag tables are
+            // vectors and go with the SheetData when the shared_ptr lets go.
+            const auto *sheet = static_cast<const rmp::SheetData *>(p);
+            if (sheet->texture.id != 0) UnloadTexture(sheet->texture);
+            break;
+        }
+    }
+}
+
+// A slot as new: unloaded, unnamed, no references. Every slot free_slot()
+// hands out is one of these or a fresh one, so adopt_owned() sets only what
+// it brings.
+void empty(SlotData &slot) {
+    unload_payload(slot);
+    slot = SlotData{};
+}
+
+SlotData *find_named(ResourceKind kind, std::string_view name, int font_size) {
+    for (const auto &s : table.slots) {
+        // Named means held: empty() takes the name away with the last reference.
+        if (s->named && s->kind == kind && s->font_size == font_size && s->name == name) {
+            return s.get();
+        }
+    }
+    return nullptr;
+}
+
+SlotData *free_slot() {
+    for (const auto &s : table.slots) {
+        if (s->refs == 0 && !s->stale) return s.get();
+    }
+    table.slots.push_back(std::make_unique<SlotData>());
+    return table.slots.back().get();
+}
+
+} // namespace
+
+Slot *acquire_named(ResourceKind kind, std::string_view name, int font_size) {
+    if (SlotData *hit = find_named(kind, name, font_size)) {
+        ++hit->refs;
+        return reinterpret_cast<Slot *>(hit);
+    }
+    return nullptr; // the caller loads it and calls adopt_named()
+}
+
+Slot *adopt_owned(ResourceKind kind, std::shared_ptr<void> payload) {
+    if (payload == nullptr) return nullptr;
+    SlotData *slot = free_slot();
+    slot->kind = kind;
+    slot->refs = 1;
+    slot->payload = std::move(payload);
+    return reinterpret_cast<Slot *>(slot);
+}
+
+Slot *adopt_named_owned(ResourceKind kind, std::string_view name, int font_size,
+                        std::shared_ptr<void> payload) {
+    Slot *slot = adopt_owned(kind, std::move(payload));
+    if (slot == nullptr) return nullptr;
+    auto *data = reinterpret_cast<SlotData *>(slot);
+    data->named = true;
+    data->font_size = font_size;
+    data->name = name;
+    return slot;
+}
+
+void retain(Slot *slot) {
+    if (slot == nullptr) return;
+    SlotData &data = *reinterpret_cast<SlotData *>(slot);
+    if (!data.stale) ++data.refs;
+}
+
+void release(Slot *slot) {
+    if (slot == nullptr) return;
+    SlotData &data = *reinterpret_cast<SlotData *>(slot);
+    if (data.stale || data.refs <= 0) return;
+    if (--data.refs == 0) empty(data);
+}
+
+const void *payload(const Slot *slot) {
+    if (slot == nullptr) return nullptr;
+    return reinterpret_cast<const SlotData *>(slot)->payload.get();
+}
+
+std::string_view name_of(const Slot &slot) {
+    const auto &data = reinterpret_cast<const SlotData &>(slot);
+    return data.named ? std::string_view(data.name) : std::string_view{};
+}
+
+void watch_slot(Slot &slot, int watch) {
+    auto &data = reinterpret_cast<SlotData &>(slot);
+    data.watch = watch;
+    data.seen = rmp::assets::detail::watch_generation(watch);
+}
+
+bool slot_watched(const Slot &slot) {
+    const auto &data = reinterpret_cast<const SlotData &>(slot);
+    return data.watch >= 0 && data.refs > 0 && !data.stale;
+}
+
+bool slot_changed(const Slot &slot) {
+    if (!slot_watched(slot)) return false;
+    const auto &data = reinterpret_cast<const SlotData &>(slot);
+    // 0: the watch list was cleared under it (a test's forget_watched()).
+    const unsigned generation = rmp::assets::detail::watch_generation(data.watch);
+    return generation != 0 && generation != data.seen;
+}
+
+bool replace_payload(Slot &slot, std::shared_ptr<void> payload) {
+    auto &data = reinterpret_cast<SlotData &>(slot);
+    if (payload == nullptr || data.refs == 0 || data.stale) return false;
+    // The old one is unloaded first, by the one function that unloads, and
+    // the slot keeps its name, its count and its handles: every one of them
+    // reads the new payload on its next raw().
+    unload_payload(data);
+    data.payload = std::move(payload);
+    if (data.watch >= 0) data.seen = rmp::assets::detail::watch_generation(data.watch);
+    return true;
+}
+
+int live_count() {
+    int n = 0;
+    for (const auto &s : table.slots) {
+        if (s->refs > 0) ++n;
+    }
+    return n;
+}
+
+int ref_count(std::string_view name) {
+    int n = 0;
+    for (const auto &s : table.slots) {
+        if (s->named && s->name == name) n += s->refs;
+    }
+    return n;
+}
+
+void release_all() {
+    // Called from rmp::assets::shutdown(), which the entry point runs BEFORE
+    // the window closes. A texture released after CloseWindow() is a write to a
+    // GL context that no longer exists. The slots stay allocated: see the note
+    // at the top about handles that outlive this.
+    for (const auto &s : table.slots) {
+        if (s->refs > 0) {
+            empty(*s);
+            s->stale = true; // its handles are still out there
+        }
+    }
+}
+
+} // namespace rmp::detail

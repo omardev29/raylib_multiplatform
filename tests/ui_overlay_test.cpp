@@ -18,10 +18,10 @@
 #include "doctest.h"
 
 #include "../src/rmp/internal.h"
-#include "../src/rmp/scene_internal.h"
+#include "../src/rmp/scene/scene_internal.h"
 #include "../src/rmp/ui/backdrop.h"
 #include "../src/rmp/ui/internal.h"
-#include "../src/rmp/ui_internal.h"
+#include "../src/rmp/ui/ui_internal.h"
 
 #include <raylib.h>
 #include <rlgl.h> // the RL_OPENGL_* a context is named by

@@ -17,8 +17,8 @@
 #include <doctest.h>
 
 #include "../src/rmp/internal.h"
-#include "../src/rmp/object_internal.h"
-#include "../src/rmp/tilemap_internal.h"
+#include "../src/rmp/scene/object_internal.h"
+#include "../src/rmp/tilemap/tilemap_internal.h"
 
 #include <rmp/assets.h>
 #include <rmp/object.h>
@@ -995,7 +995,7 @@ float smallest(const rmp::Tilemap &map) {
 TEST_CASE("the smallest cell is the least side of any layer's grid, the map's for one "
           "with none") {
     // How far a moving object may step before the collision pass looks at the
-    // map again (src/rmp/object.cpp): too big and it steps through a wall.
+    // map again (src/rmp/scene/object.cpp): too big and it steps through a wall.
     CHECK(rmp::tilemap::detail::smallest_cell(nullptr) == doctest::Approx(0));
     CHECK(smallest(map_of_cells({})) == doctest::Approx(0));
     CHECK(smallest(map_of_cells({ { 24, 24 }, { 12, 16 }, { 16, 16 } })) ==

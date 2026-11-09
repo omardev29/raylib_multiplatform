@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------------
 // rmp::save's JSON, fuzzed: any text as the payload a save holds, read, walked
-// and written back (src/rmp/save.cpp, from_json and to_json).
+// and written back (src/rmp/save/save.cpp, from_json and to_json).
 //
 // The oracle, whatever the text:
 //

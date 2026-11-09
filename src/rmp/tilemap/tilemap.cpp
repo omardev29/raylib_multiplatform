@@ -1,0 +1,1150 @@
+// ---------------------------------------------------------------------------
+// Tiled maps: parsing, drawing, solid tiles, and object layers into objects.
+//
+// The public surface is include/rmp/tilemap.h and cute_tiled appears in none of
+// it -- same arrangement as Clay behind rmp::ui, and for the same reason:
+// changing parser one day should touch nobody's code.
+//
+// WHICH TILE IS SOLID. Two conventions, both of them Tiled's own and neither
+// invented here:
+//
+//   a LAYER whose class is `solid`  -> every non-empty tile in it is solid.
+//     The "I draw the level, and separately I paint where you cannot walk" way.
+//   a TILE with a boolean `solid` property in the tileset.
+//     The "this tile is a wall, always" way.
+//
+// Both are used in practice and supporting both is ten lines, so both.
+//
+// TILESET IMAGES. Tiled stores a path relative to the .tmx; we keep the FILE
+// NAME and put it through rmp::assets::load_texture, so it arrives the same way
+// every other asset does -- out of resources.rres in a release and out of
+// resources/ while developing, without the map knowing which. The practical
+// consequence, and it is the one people trip over: the tileset's PNG has to be
+// in resources/, and if it is not, the warning says the name it looked for.
+// ---------------------------------------------------------------------------
+
+#include <rmp/tilemap.h>
+
+#include <rmp/assets.h>
+#include <rmp/scene.h>
+
+#include "../internal.h" // RMP_REPORT_ONCE_KEYED, loads.failed
+#include "../save/json_internal.h" // CNumbers
+#include "../assets/pack_internal.h" // rres::packed_name(): a path, read lexically
+#include "tilemap_internal.h"
+
+#include <cute_tiled.h>
+
+#include <algorithm>
+#include <array>
+#include <cinttypes>
+#include <cmath>
+#include <cstdint>
+#include <cstring>
+#include <limits>
+#include <optional>
+#include <string>
+#include <string_view>
+#include <vector>
+
+namespace rmp {
+
+using tilemap::detail::finite_float;
+using tilemap::detail::Layer;
+using tilemap::detail::MapData;
+using tilemap::detail::ObjectInfo;
+using tilemap::detail::Property;
+using tilemap::detail::Tileset;
+
+namespace {
+
+// An external tileset, fetched the way every other asset is: through
+// rmp::assets, so it arrives out of resources.rres in a release and out of
+// resources/ in development without the map knowing which.
+//
+// Wrapped in a one-key map and given to cute_tiled's MAP parser rather than to
+// its own cute_tiled_load_external_tileset_from_memory, which patches the
+// strings of the tileset it has just failed to parse -- a null dereference, so
+// an XML .tsx (which is what Tiled writes by default) would take the process
+// down. The map parser checks, and comes back nullptr.
+//
+// Returns the wrapper map, which OWNS the tileset; the caller frees it with
+// cute_tiled_free_map once it has copied what it needs.
+cute_tiled_map_t *load_external_tileset(const char *source, const std::string_view map) {
+    const std::vector<unsigned char> bytes =
+        rmp::assets::load_data(tilemap::detail::next_to(map, source));
+    if (bytes.empty()) return nullptr;
+    const int size = static_cast<int>(bytes.size());
+    std::string document;
+    if (size > 0) {
+        document.reserve(static_cast<std::size_t>(size) + 16);
+        document = "{\"tilesets\":[";
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
+        document.append(reinterpret_cast<const char *>(bytes.data()),
+                        static_cast<std::size_t>(size));
+        document += "]}";
+    }
+    if (document.empty()) return nullptr;
+    return cute_tiled_load_map_from_memory(document.data(),
+                                           static_cast<int>(document.size()), nullptr);
+}
+
+// The tileset a gid belongs to, or nullptr. The ranges never overlap: Tiled
+// hands out firstgid in order and each set claims tilecount of them.
+const Tileset *tileset_for(const MapData &data, int gid) {
+    for (const Tileset &set : data.tilesets) {
+        if (gid >= set.first_gid && gid <= set.last_gid) return &set;
+    }
+    return nullptr;
+}
+
+// Where that tile is in the tileset image. MARGIN AND SPACING ARE PART OF IT:
+// they are the first two fields of Tiled's own import dialog and what every
+// atlas packer produces, and without them the grid drifts by one gutter per
+// column -- so the tile drawn is a slice of two neighbours, and by the far
+// corner of the sheet it is different art altogether.
+Rectangle source_in(const Tileset &set, int gid) {
+    const int local = gid - set.first_gid;
+    // The division is integer on purpose -- it is the row the tile sits on in
+    // the tileset -- and the cast comes after, which is what clang-tidy wants
+    // said out loud.
+    const int tile_column = local % set.columns;
+    const int tile_row = local / set.columns;
+    // The rest in double: a tile size and a spacing each inside int's range
+    // summed past it, which is undefined behaviour, and no image is that big.
+    const double stride_x = static_cast<double>(set.tile_width) + set.spacing;
+    const double stride_y = static_cast<double>(set.tile_height) + set.spacing;
+    return Rectangle{ finite_float(set.margin + (tile_column * stride_x)),
+                      finite_float(set.margin + (tile_row * stride_y)),
+                      static_cast<float>(set.tile_width),
+                      static_cast<float>(set.tile_height) };
+}
+
+// Where that tile's top-left corner goes in the world, which is NOT simply the
+// cell's own corner. Tiled anchors a tile layer by the BOTTOM-left, so a
+// tileset whose tiles are taller than the map's grid -- trees, walls, anything
+// drawn standing up -- keeps its foot in the cell and reaches upwards out of
+// it. Drawn from the cell's corner instead, the whole layer sits one tile too
+// low and the tops are cut off.
+Vector2 origin_in(const MapData &data, const Tileset *set, int column, int row) {
+    // In double, for the same reason as source_in(): a cell of a wide map
+    // times a wide tile is past int's range.
+    const double overhang =
+        set == nullptr ? 0.0 : static_cast<double>(set->tile_height) - data.tile_height;
+    return Vector2{ finite_float(static_cast<double>(column) * data.tile_width),
+                    finite_float((static_cast<double>(row) * data.tile_height) -
+                                 overhang) };
+}
+
+const Property *find_property(Ref<const ObjectInfo> info, std::string_view key) {
+    if (!info) return nullptr;
+    for (const Property &p : info->properties) {
+        if (p.key == key) return &p;
+    }
+    return nullptr;
+}
+
+} // namespace
+
+// ---------------------------------------------------------------------------
+// MapObject
+// ---------------------------------------------------------------------------
+
+MapObject::MapObject(const ObjectInfo &parsed)
+    : name(parsed.name), type(parsed.type), iid(parsed.iid), _info(parsed) {}
+
+bool MapObject::property_bool(std::string_view key, bool fallback) const {
+    const Property *p = find_property(info(), key);
+    if (p == nullptr || p->kind != Property::Kind::BOOL) return fallback;
+    return p->boolean;
+}
+
+int MapObject::property_int(std::string_view key, int fallback) const {
+    const Property *p = find_property(info(), key);
+    if (p == nullptr) return fallback;
+    if (p->kind == Property::Kind::INT) return p->integer;
+    // A float where an int was asked for is cut towards zero, not a failure:
+    // Tiled will happily save 3 as 3.0 and nobody means anything by it. Past
+    // int's range it is the nearest int -- a float of 1e30 cast to int is
+    // undefined behaviour -- and the readers never keep a NaN.
+    if (p->kind == Property::Kind::FLOAT) {
+        constexpr double LOWEST = std::numeric_limits<int>::min();
+        constexpr double HIGHEST = std::numeric_limits<int>::max();
+        const double value = p->floating;
+        if (std::isnan(value)) return fallback;
+        return static_cast<int>(std::clamp(std::trunc(value), LOWEST, HIGHEST));
+    }
+    return fallback;
+}
+
+float MapObject::property_float(std::string_view key, float fallback) const {
+    const Property *p = find_property(info(), key);
+    if (p == nullptr) return fallback;
+    if (p->kind == Property::Kind::FLOAT) return p->floating;
+    if (p->kind == Property::Kind::INT) return static_cast<float>(p->integer);
+    return fallback;
+}
+
+std::string_view MapObject::property_string(std::string_view key,
+                                            std::string_view fallback) const {
+    const Property *p = find_property(info(), key);
+    if (p == nullptr || p->kind != Property::Kind::STRING) return fallback;
+    return p->text;
+}
+
+Vector2 MapObject::property_point(std::string_view key, Vector2 fallback) const {
+    return property_point(key, 0, fallback);
+}
+
+Vector2 MapObject::property_point(std::string_view key, int index,
+                                  Vector2 fallback) const {
+    const Property *p = find_property(info(), key);
+    if (p == nullptr || p->kind != Property::Kind::POINT || index < 0 ||
+        static_cast<std::size_t>(index) >= p->points.size()) {
+        return fallback;
+    }
+    return p->points[static_cast<std::size_t>(index)];
+}
+
+int MapObject::property_count(std::string_view key) const {
+    const Property *p = find_property(info(), key);
+    if (p == nullptr) return 0;
+    return p->kind == Property::Kind::POINT ? static_cast<int>(p->points.size()) : 1;
+}
+
+// ---------------------------------------------------------------------------
+// Parsing
+// ---------------------------------------------------------------------------
+
+namespace tilemap::detail {
+
+MapPtr parse_tiled(const void *bytes, int size, const char *name) {
+    if (bytes == nullptr || size <= 0) return { nullptr, &free_map };
+
+    // Every number of the map -- and of an external tileset, read below -- in
+    // the "C" locale: cute_tiled reads them with strtod, which follows
+    // LC_NUMERIC, so under a German interface "1.5" was 1 and a '.' it could
+    // not place, and since every map says "version":"1.5", no map loaded.
+    const rmp::detail::CNumbers c_numbers;
+    cute_tiled_map_t *raw = cute_tiled_load_map_from_memory(bytes, size, nullptr);
+    if (raw == nullptr) {
+        const char *why =
+            cute_tiled_error_reason != nullptr ? cute_tiled_error_reason : "unknown";
+        // The compression case gets its own message, because the parser's --
+        // "Compression is not yet supported" -- does not say what to DO, and
+        // what to do is one setting in the editor.
+        if (std::strstr(why, "Compression") != nullptr ||
+            std::strstr(why, "compression") != nullptr) {
+            TraceLog(LOG_WARNING,
+                     "MAP: [%s] has its tile layers saved compressed or as base64, "
+                     "and this reads CSV.",
+                     name != nullptr ? name : "");
+            TraceLog(LOG_WARNING,
+                     "MAP: in Tiled: Map > Map Properties > Tile Layer Format > CSV, "
+                     "then save again. CSV is the default for a new map.");
+        } else {
+            TraceLog(LOG_WARNING, "MAP: [%s] could not be read: %s",
+                     name != nullptr ? name : "", why);
+        }
+        return { nullptr, &free_map };
+    }
+
+    // Everything is copied out of cute_tiled's tree into MapData, and the tree
+    // goes when this function returns: nothing after parsing points into it.
+    const std::unique_ptr<cute_tiled_map_t, void (*)(cute_tiled_map_t *)> tree(
+        raw, &cute_tiled_free_map);
+    auto data = std::make_unique<MapData>();
+    // Sizes are never negative, whatever the file says; every number that
+    // reaches the map goes through tilemap_internal.h's helpers like this.
+    data->width = size_int(raw->width);
+    data->height = size_int(raw->height);
+    data->tile_width = size_int(raw->tilewidth);
+    data->tile_height = size_int(raw->tileheight);
+    // The tilesets' tiles are LDtk's budget too (MAX_TILES): a tileset that
+    // says it holds two billion tiles is a number, and would be a quarter of
+    // a gigabyte of solid flags.
+    std::int64_t tiles_left = tilemap::detail::MAX_TILES;
+    // And so are the cells of its tile layers (MAX_CELLS), all of them
+    // together: a layer's size is two numbers in the file, whatever data it
+    // holds, and draw() and solid_in() walk it cell by cell -- a map of 150
+    // bytes with a layer of 100 000 x 100 000 was ten billion cells a frame.
+    std::int64_t cells_left = tilemap::detail::MAX_CELLS;
+
+    for (const cute_tiled_tileset_t *set = raw->tilesets; set != nullptr;
+         set = set->next) {
+        // AN EXTERNAL TILESET. Tiled's New Tileset dialog does not embed by
+        // default, so the map holds nothing but {"firstgid":1,"source":"x.tsj"}
+        // and cute_tiled leaves every other field of it zero. That used to be
+        // a map that loaded, reported the right bounds, drew nothing and was
+        // solid nowhere, without one line in the log mentioning tilesets --
+        // the most likely first experience a real Tiled user has.
+        const char *source = set->source.ptr != nullptr ? set->source.ptr : "";
+        cute_tiled_map_t *external = nullptr;
+        const cute_tiled_tileset_t *from = set;
+        if (source[0] != '\0' && set->tilecount <= 0) {
+            external = load_external_tileset(source, name != nullptr ? name : "");
+            if (external != nullptr && external->tilesets != nullptr &&
+                external->tilesets->tilecount > 0) {
+                from = external->tilesets;
+            } else {
+                RMP_REPORT_ONCE_KEYED(
+                    source,
+                    "MAP: [%s] keeps its tileset in \"%s\", and that file could not "
+                    "be read. Tiled saves .tsx as XML and this reads JSON: in Tiled, "
+                    "Tileset > Embed In Map and save the map again, or save the "
+                    "tileset itself as .tsj. Until then that tileset draws nothing "
+                    "and none of its tiles are solid.",
+                    name != nullptr ? name : "", source);
+                // Counted, so the CI boot gate sees it: a game shipped with a
+                // tileset it cannot read comes back red rather than empty.
+                ++rmp::assets::detail::loads.failed;
+            }
+        }
+
+        // The tiles it holds, within what is left of the budget; a gid is at
+        // least 1 (0 is "no tile"), and the last one never past INT_MAX --
+        // first_gid + count overflowed an int for a firstgid near it.
+        const std::int64_t wanted = std::max(0, from->tilecount);
+        const std::int64_t count = wanted <= tiles_left ? wanted : 0;
+        if (wanted > tiles_left) {
+            TraceLog(
+                LOG_WARNING,
+                "MAP: [%s] has tilesets of more tiles than any real map; one of %" PRId64
+                " tiles draws nothing.",
+                name != nullptr ? name : "", wanted);
+        }
+        tiles_left -= count;
+        Tileset out;
+        out.first_gid = std::max(1, set->firstgid); // the MAP's, never the tileset file's
+        out.last_gid = static_cast<int>(std::min<std::int64_t>(
+            std::numeric_limits<int>::max(), out.first_gid + count - 1));
+        out.columns = from->columns > 0 ? from->columns : 1;
+        out.tile_width = size_int(from->tilewidth);
+        out.tile_height = size_int(from->tileheight);
+        out.margin = size_int(from->margin);
+        out.spacing = size_int(from->spacing);
+        out.solid.assign(static_cast<std::size_t>(count), false);
+
+        for (const cute_tiled_tile_descriptor_t *tile = from->tiles; tile != nullptr;
+             tile = tile->next) {
+            for (int i = 0; i < tile->property_count; ++i) {
+                const cute_tiled_property_t &p = tile->properties[i];
+                if (p.name.ptr == nullptr) continue;
+                if (std::strcmp(p.name.ptr, "solid") != 0) continue;
+                if (p.type != CUTE_TILED_PROPERTY_BOOL) continue;
+                const auto id = static_cast<std::size_t>(tile->tile_index);
+                if (id < out.solid.size()) out.solid[id] = p.data.boolean != 0;
+            }
+        }
+
+        // An external tileset's image is relative to the tileset's own file.
+        const std::string where = external != nullptr
+            ? tilemap::detail::next_to(name != nullptr ? name : "", source)
+            : std::string(name != nullptr ? name : "");
+        const std::string image = tilemap::detail::next_to(
+            where, from->image.ptr != nullptr ? from->image.ptr : "");
+        if (!image.empty()) {
+            out.texture = rmp::assets::load_texture(image);
+            if (!out.texture.valid())
+                tilemap::detail::report_tileset_image(image.c_str(), "");
+        }
+        data->tilesets.push_back(std::move(out));
+        if (external != nullptr) cute_tiled_free_map(external);
+    }
+
+    for (const cute_tiled_layer_t *layer = raw->layers; layer != nullptr;
+         layer = layer->next) {
+        const char *type = layer->type.ptr != nullptr ? layer->type.ptr : "";
+        const char *klass = layer->class_.ptr != nullptr ? layer->class_.ptr : "";
+
+        if (std::strcmp(type, "objectgroup") == 0) {
+            // REVERSED on the way in. cute_tiled builds its object list by
+            // prepending, so it hands them back last-first -- and "the first
+            // object in the layer" is a thing a level designer means, so the
+            // order a game sees has to be the order in the file. The layers
+            // themselves come out in file order already; only this list does
+            // not, which is exactly the sort of asymmetry a test finds and
+            // reading does not.
+            const std::size_t before = data->objects.size();
+            for (const cute_tiled_object_t *object = layer->objects; object != nullptr;
+                 object = object->next) {
+                auto info = std::make_unique<ObjectInfo>();
+                info->name = object->name.ptr != nullptr ? object->name.ptr : "";
+                info->type = object->type.ptr != nullptr ? object->type.ptr : "";
+                for (int i = 0; i < object->property_count; ++i) {
+                    const cute_tiled_property_t &tp = object->properties[i];
+                    if (tp.name.ptr == nullptr) continue;
+                    Property prop;
+                    prop.key = tp.name.ptr;
+                    switch (tp.type) {
+                        case CUTE_TILED_PROPERTY_BOOL:
+                            prop.kind = Property::Kind::BOOL;
+                            prop.boolean = tp.data.boolean != 0;
+                            break;
+                        case CUTE_TILED_PROPERTY_INT:
+                            prop.kind = Property::Kind::INT;
+                            prop.integer = tp.data.integer;
+                            break;
+                        case CUTE_TILED_PROPERTY_FLOAT:
+                            // cute_tiled reads with strtod, which takes "nan"
+                            // and "inf": never kept.
+                            prop.kind = Property::Kind::FLOAT;
+                            prop.floating = finite_float(tp.data.floating);
+                            break;
+                        case CUTE_TILED_PROPERTY_STRING:
+                        case CUTE_TILED_PROPERTY_FILE:
+                            prop.kind = Property::Kind::STRING;
+                            prop.text =
+                                tp.data.string.ptr != nullptr ? tp.data.string.ptr : "";
+                            break;
+                        default:
+                            continue; // colours and the rest: not something a game reads
+                    }
+                    info->properties.push_back(std::move(prop));
+                }
+                MapObject &out = data->add_object(std::move(info));
+                // Never NaN, never infinite, never negative: cute_tiled reads
+                // a number with strtod, which takes "nan" and "inf" as well.
+                const float width = size_float(object->width);
+                const float height = size_float(object->height);
+                out.size = Vector2{ width, height };
+                // The top three bits are Tiled's flip flags and not part of
+                // the id, exactly as in the tile-layer loop below. Press X in
+                // the editor and a gid of 1 comes back as 0x80000001, which
+                // read as an int is -2147483647 -- so a factory switching on
+                // the gid falls through to its default, while `gid == 0 means
+                // not a tile object` still passes and nothing looks wrong.
+                out.gid =
+                    static_cast<int>(static_cast<unsigned>(object->gid) & ~FLIP_MASK);
+                // TILED GIVES A CORNER and rmp::Object's position is the
+                // CENTRE. Converting here rather than at every call site is
+                // most of what this struct is for -- and WHICH corner depends
+                // on what the object is. A rectangle, an ellipse, a point or a
+                // polygon is placed by its TOP-left; a TILE OBJECT, the one
+                // you stamp with a tile, hangs from its BOTTOM-left, which is
+                // where the cursor was when you placed it. Reading y as the
+                // top for both put every stamped chest, torch and door exactly
+                // one tile into the floor.
+                // In double, made a float once: a corner and a size each
+                // inside float's range summed past it.
+                const double x = finite_float(object->x);
+                const double y = finite_float(object->y);
+                const double top = out.gid != 0 ? y - height : y;
+                out.position = Vector2{ finite_float(x + (width / 2.0)),
+                                        finite_float(top + (height / 2.0)) };
+                out.rotation = finite_float(object->rotation);
+            }
+            std::reverse(data->objects.begin() + static_cast<std::ptrdiff_t>(before),
+                         data->objects.end());
+            continue;
+        }
+
+        if (std::strcmp(type, "tilelayer") != 0) continue;
+
+        Layer out;
+        out.name = layer->name.ptr != nullptr ? layer->name.ptr : "";
+        out.solid_layer = std::strcmp(klass, "solid") == 0;
+        out.width = size_int(layer->width);
+        out.height = size_int(layer->height);
+        const std::int64_t area = static_cast<std::int64_t>(out.width) * out.height;
+        if (area > cells_left) {
+            TraceLog(LOG_WARNING,
+                     "MAP: layer \"%s\" of [%s] is %d x %d cells, more than any real "
+                     "map has in all its layers; it is left out.",
+                     out.name.c_str(), name != nullptr ? name : "", out.width,
+                     out.height);
+            continue;
+        }
+        cells_left -= area;
+        out.gids.reserve(static_cast<std::size_t>(layer->data_count));
+        for (int i = 0; i < layer->data_count; ++i) {
+            // The top three bits are Tiled's flip flags, not part of the id.
+            out.gids.push_back(
+                static_cast<int>(static_cast<unsigned>(layer->data[i]) & ~FLIP_MASK));
+        }
+        data->layers.push_back(std::move(out));
+    }
+
+    return { data.release(), &free_map };
+}
+
+MapPtr parse_map(const void *bytes, int size, const char *name, std::string_view level) {
+    const std::string file = name != nullptr ? name : "";
+    // A level file on its own is half a project: its tilesets and layer
+    // definitions live in the .ldtk.
+    if (file.ends_with(".ldtkl")) {
+        TraceLog(
+            LOG_WARNING,
+            "MAP: [%s] is one level of an LDtk project, which cannot be read without "
+            "the project. Load the .ldtk with the level's name: "
+            "load_map(\"world.ldtk\", \"Level_0\").",
+            file.c_str());
+        return { nullptr, &free_map };
+    }
+    const bool ldtk = file.ends_with(".ldtk");
+    MapPtr out =
+        ldtk ? parse_ldtk(bytes, size, name, level) : parse_tiled(bytes, size, name);
+    if (out != nullptr) out->source = file;
+    return out;
+}
+
+std::string next_to(const std::string_view map, const std::string_view path) {
+    if (path.empty()) return {};
+    const std::size_t slash = map.find_last_of("/\\");
+    const std::string_view folder =
+        slash == std::string_view::npos ? std::string_view() : map.substr(0, slash + 1);
+    const std::optional<std::string> near = rmp::assets::detail::rres::packed_name(
+        "", std::string(folder) + std::string(path));
+    if (near && rmp::assets::detail::resource_exists(near->c_str())) return *near;
+    const std::size_t last = path.find_last_of("/\\");
+    return std::string(last == std::string_view::npos ? path : path.substr(last + 1));
+}
+
+void report_tileset_image(const char *image, const char *map) {
+    const std::string of = map[0] == '\0' ? "" : std::string(" of [") + map + "]";
+    // Asked separately, and not through the load that just failed: a corrupt
+    // image that is right there, called missing, sends you looking for a file
+    // you can see. resource_exists() counts nothing; the load already did.
+    if (rmp::assets::detail::resource_exists(image)) {
+        TraceLog(LOG_WARNING,
+                 "MAP: the tileset image \"%s\"%s is in resources/ but did not load: it "
+                 "does not decode, or there is no window to upload it to yet. The map "
+                 "loads and draws nothing for that tileset.",
+                 image, of.c_str());
+    } else {
+        TraceLog(LOG_WARNING,
+                 "MAP: the tileset image \"%s\"%s is not in resources/. The map loads "
+                 "and draws nothing for that tileset.",
+                 image, of.c_str());
+    }
+}
+
+} // namespace tilemap::detail
+
+// The MapObject the readers hand out: its strings and its properties live in
+// `info`, which the map keeps alive and which never moves.
+MapObject &tilemap::detail::MapData::add_object(std::unique_ptr<ObjectInfo> info) {
+    objects.push_back(MapObject(*info));
+    infos.push_back(std::move(info));
+    return objects.back();
+}
+
+namespace tilemap::detail {
+
+// The deleter behind MapPtr: this is the one translation unit that knows what
+// a MapData is. A unique_ptr doing the freeing, so there is no `delete` here.
+void free_map(MapData *map) { const std::unique_ptr<MapData> owner(map); }
+
+int object_count(const MapData *data) {
+    return data == nullptr ? 0 : static_cast<int>(data->objects.size());
+}
+
+const MapObject *object_at(const MapData *data, int index) {
+    if (data == nullptr) return nullptr;
+    if (index < 0 || static_cast<std::size_t>(index) >= data->objects.size()) {
+        return nullptr;
+    }
+    return &data->objects[static_cast<std::size_t>(index)];
+}
+
+float smallest_cell(const MapData *data) {
+    if (data == nullptr) return 0;
+    float smallest = 0;
+    for (const Layer &layer : data->layers) {
+        const int w = layer.cell_width > 0 ? layer.cell_width : data->tile_width;
+        const int h = layer.cell_height > 0 ? layer.cell_height : data->tile_height;
+        const auto cell = static_cast<float>(std::min(w, h));
+        if (cell > 0 && (smallest == 0 || cell < smallest)) smallest = cell;
+    }
+    return smallest;
+}
+
+Rectangle tile_source(const MapData *data, int gid) {
+    if (data == nullptr) return Rectangle{};
+    const Tileset *set = tileset_for(*data, gid);
+    return set == nullptr ? Rectangle{} : source_in(*set, gid);
+}
+
+Vector2 tile_origin(const MapData *data, int gid, int column, int row) {
+    if (data == nullptr) return Vector2{};
+    return origin_in(*data, tileset_for(*data, gid), column, row);
+}
+
+} // namespace tilemap::detail
+
+// ---------------------------------------------------------------------------
+// Tilemap
+// ---------------------------------------------------------------------------
+
+// Out of line, all four, because MapData is incomplete in the header and a
+// unique_ptr to an incomplete type cannot be destroyed there.
+Tilemap::Tilemap() = default;
+Tilemap::~Tilemap() = default;
+Tilemap::Tilemap(Tilemap &&other) noexcept = default;
+Tilemap &Tilemap::operator=(Tilemap &&other) noexcept = default;
+
+void Tilemap::adopt(tilemap::detail::MapPtr data) {
+    _data = std::move(data);
+    if (_data != nullptr) tilemap::detail::index_map(*_data);
+}
+
+namespace {
+
+// A layer's cell size: its own when it has one (LDtk layers each have a grid),
+// the map's otherwise (every Tiled layer).
+int cell_w(const MapData &data, const Layer &layer) {
+    return layer.cell_width > 0 ? layer.cell_width : data.tile_width;
+}
+int cell_h(const MapData &data, const Layer &layer) {
+    return layer.cell_height > 0 ? layer.cell_height : data.tile_height;
+}
+
+// Where a world coordinate is in a layer's grid, in cells: the layer's (0,0)
+// is the map's origin plus the layer's offset. In double: a float division by
+// a cell that is not a power of two rounds, and the sum of two rounded
+// quotients -- solid_in() made its far edge as left + width / cell -- landed
+// past a cell boundary the edge only touched: a box resting on a floor of 12
+// px cells was IN the floor. A float is exact in a double, and so is the sum
+// of a level's coordinate and a size: one division rounds, once, and never
+// across a boundary an edge only touches.
+double cell_coordinate(double world, double origin, double offset, int cell) {
+    return (world - origin - offset) / cell;
+}
+
+// The cell of `layer` under a world position, or false when it is outside.
+bool cell_under(const MapData &data, const Layer &layer, Vector2 world, int *column,
+                int *row) {
+    const int w = cell_w(data, layer);
+    const int h = cell_h(data, layer);
+    if (w <= 0 || h <= 0) return false;
+    // Divided and compared in double, and only cast once it is known to be a
+    // cell of the layer: a position of 1e20, an infinity or a NaN cast to int
+    // straight away is undefined behaviour, and a NaN passed `x < 0`. Double,
+    // and the same arithmetic as solid_in()'s, so that a point and the
+    // rectangle with no area there name the same cell.
+    const double x =
+        std::floor(cell_coordinate(world.x, data.origin.x, layer.offset.x, w));
+    const double y =
+        std::floor(cell_coordinate(world.y, data.origin.y, layer.offset.y, h));
+    if (std::isnan(x) || std::isnan(y) || x < 0 || y < 0 || x >= layer.width ||
+        y >= layer.height) {
+        return false;
+    }
+    *column = static_cast<int>(x);
+    *row = static_cast<int>(y);
+    return true;
+}
+
+std::size_t cell_index(const Layer &layer, int column, int row) {
+    return static_cast<std::size_t>(row) * static_cast<std::size_t>(layer.width) +
+        static_cast<std::size_t>(column);
+}
+
+int gid_at(const Layer &layer, int column, int row) {
+    if (column < 0 || row < 0 || column >= layer.width || row >= layer.height) return 0;
+    const std::size_t at = cell_index(layer, column, row);
+    return at < layer.gids.size() ? layer.gids[at] : 0;
+}
+
+// Whether one cell of one layer stops you, worked out from what the reader
+// left: the IntGrid, a solid layer, the tile's own flag in its tileset.
+// index_map() asks it once a cell; solid_cell() below reads the answer.
+bool solid_cell_from_source(const MapData &data, const Layer &layer, int column,
+                            int row) {
+    if (column < 0 || row < 0 || column >= layer.width || row >= layer.height)
+        return false;
+    // LDtk's IntGrid: the cells painted with the value called `solid`.
+    const std::size_t at = cell_index(layer, column, row);
+    if (at < layer.solid_cells.size() && layer.solid_cells[at]) return true;
+    const int gid = gid_at(layer, column, row);
+    if (gid == 0) return false;
+    // The whole layer is the collision layer (Tiled's class `solid`).
+    if (layer.solid_layer) return true;
+    // This particular tile is marked solid in its tileset.
+    for (const Tileset &set : data.tilesets) {
+        if (gid < set.first_gid || gid > set.last_gid) continue;
+        const auto local = static_cast<std::size_t>(gid - set.first_gid);
+        return local < set.solid.size() && set.solid[local];
+    }
+    return false;
+}
+
+// Whether one cell of one layer stops you. Asked of THAT layer only: LDtk
+// layers can each have their own grid, and a cell of one is not a cell of
+// another. One byte, read out of the table index_map() built.
+bool solid_cell(const MapData &data, const Layer &layer, int column, int row) {
+    if (column < 0 || row < 0 || column >= layer.width || row >= layer.height)
+        return false;
+    const std::size_t at = cell_index(layer, column, row);
+    if (at < layer.solid.size()) return layer.solid[at] != 0;
+    return solid_cell_from_source(data, layer, column, row);
+}
+
+// What one placed tile covers, relative to its layer: its source's size, or a
+// cell when its tileset is gone.
+Rectangle placed_extent(const MapData &data, const Layer &layer,
+                        const tilemap::detail::PlacedTile &tile) {
+    const Tileset *set = tileset_for(data, tile.gid);
+    const Rectangle src = set != nullptr ? source_in(*set, tile.gid) : Rectangle{};
+    const float w = src.width > 0 ? src.width : static_cast<float>(cell_w(data, layer));
+    const float h = src.height > 0 ? src.height : static_cast<float>(cell_h(data, layer));
+    return Rectangle{ tile.at.x, tile.at.y, w, h };
+}
+
+// The chunks a rectangle (layer-relative pixels) overlaps, clamped to the
+// layer's: a tile placed past the layer's edge is in its edge chunk, and a
+// view past it asks that chunk. False only for a rectangle that is not one.
+bool chunk_span(const Layer &layer, Rectangle r, int &c0, int &r0, int &c1, int &r1) {
+    if (layer.chunk_columns <= 0 || layer.chunk_rows <= 0) return false;
+    if (!(r.width >= 0) || !(r.height >= 0)) return false;
+    const double x0 = std::floor(r.x / layer.chunk_width);
+    const double y0 = std::floor(r.y / layer.chunk_height);
+    const double x1 =
+        std::floor((static_cast<double>(r.x) + r.width) / layer.chunk_width);
+    const double y1 =
+        std::floor((static_cast<double>(r.y) + r.height) / layer.chunk_height);
+    if (!std::isfinite(x0) || !std::isfinite(y0) || !std::isfinite(x1) ||
+        !std::isfinite(y1))
+        return false;
+    const double cols = layer.chunk_columns - 1;
+    const double rows = layer.chunk_rows - 1;
+    c0 = static_cast<int>(std::clamp(x0, 0.0, cols));
+    r0 = static_cast<int>(std::clamp(y0, 0.0, rows));
+    c1 = static_cast<int>(std::clamp(x1, 0.0, cols));
+    r1 = static_cast<int>(std::clamp(y1, 0.0, rows));
+    return true;
+}
+
+} // namespace
+
+void tilemap::detail::index_map(MapData &data) {
+    for (Layer &layer : data.layers) {
+        // The solid table: one byte a cell, every source folded in.
+        layer.solid.assign(layer.gids.size() > layer.solid_cells.size()
+                               ? layer.gids.size()
+                               : layer.solid_cells.size(),
+                           0);
+        // The cells the reader stored, and no more: a layer that CLAIMS a
+        // billion cells and stores a hundred is a hundred cells of work.
+        if (layer.width > 0 && layer.height > 0) {
+            const auto width = static_cast<std::size_t>(layer.width);
+            for (std::size_t at = 0; at < layer.solid.size(); ++at) {
+                const auto column = static_cast<int>(at % width);
+                const auto row = static_cast<int>(at / width);
+                if (row >= layer.height) break;
+                layer.solid[at] =
+                    solid_cell_from_source(data, layer, column, row) ? 1 : 0;
+            }
+        }
+
+        // The chunks of the placed tiles, ascending indices in each, so that
+        // gathering a view's chunks and sorting them gives back the order the
+        // tiles were put down in -- which is the order they are drawn in.
+        layer.chunks.clear();
+        layer.chunk_columns = layer.chunk_rows = 0;
+        if (layer.placed.empty()) continue;
+        const int w = cell_w(data, layer);
+        const int h = cell_h(data, layer);
+        if (w <= 0 || h <= 0) continue;
+        layer.chunk_width = static_cast<float>(w) * CHUNK_CELLS;
+        layer.chunk_height = static_cast<float>(h) * CHUNK_CELLS;
+        // The chunks cover the layer and every tile placed past its edge.
+        float right = static_cast<float>(layer.width) * static_cast<float>(w);
+        float bottom = static_cast<float>(layer.height) * static_cast<float>(h);
+        for (const tilemap::detail::PlacedTile &tile : layer.placed) {
+            const Rectangle r = placed_extent(data, layer, tile);
+            right = std::max(right, r.x + r.width);
+            bottom = std::max(bottom, r.y + r.height);
+        }
+        // Tiles placed above or left of the layer's corner land in its first
+        // chunks (chunk_span() clamps), so a level never loses a tile.
+        // A level is at most a few thousand chunks; a layer whose tiles claim
+        // to reach past that is drawn whole, unindexed, rather than cut into
+        // millions of empty lists.
+        constexpr double MOST_CHUNKS = 65536;
+        const double columns = std::ceil(static_cast<double>(right) / layer.chunk_width);
+        const double rows = std::ceil(static_cast<double>(bottom) / layer.chunk_height);
+        if (!(columns >= 1) || !(rows >= 1) || columns * rows > MOST_CHUNKS) {
+            layer.chunk_columns = layer.chunk_rows = 0;
+            continue;
+        }
+        layer.chunk_columns = static_cast<int>(columns);
+        layer.chunk_rows = static_cast<int>(rows);
+        layer.chunks.assign(static_cast<std::size_t>(layer.chunk_columns) *
+                                static_cast<std::size_t>(layer.chunk_rows),
+                            {});
+        for (std::size_t i = 0; i < layer.placed.size(); ++i) {
+            int c0 = 0;
+            int r0 = 0;
+            int c1 = 0;
+            int r1 = 0;
+            if (!chunk_span(layer, placed_extent(data, layer, layer.placed[i]), c0, r0,
+                            c1, r1))
+                continue;
+            for (int cr = r0; cr <= r1; ++cr) {
+                for (int cc = c0; cc <= c1; ++cc) {
+                    layer
+                        .chunks[(static_cast<std::size_t>(cr) *
+                                 static_cast<std::size_t>(layer.chunk_columns)) +
+                                static_cast<std::size_t>(cc)]
+                        .push_back(static_cast<std::uint32_t>(i));
+                }
+            }
+        }
+    }
+}
+
+Rectangle Tilemap::bounds() const {
+    if (!valid()) return Rectangle{};
+    const MapData *data = _data.get();
+    // The product in double: a wide map of wide tiles is past int's range.
+    const Vector2 size = data->size_px.x > 0
+        ? data->size_px
+        : Vector2{ finite_float(static_cast<double>(data->width) * data->tile_width),
+                   finite_float(static_cast<double>(data->height) * data->tile_height) };
+    return Rectangle{ data->origin.x, data->origin.y, size.x, size.y };
+}
+
+Vector2 Tilemap::tile_size() const {
+    if (!valid()) return Vector2{};
+    const MapData *data = _data.get();
+    return Vector2{ static_cast<float>(data->tile_width),
+                    static_cast<float>(data->tile_height) };
+}
+
+int Tilemap::layer_count() const {
+    return valid() ? static_cast<int>(_data.get()->layers.size()) : 0;
+}
+
+int Tilemap::object_count() const { return tilemap::detail::object_count(_data.get()); }
+
+std::string_view Tilemap::level() const {
+    // Not `valid() ? level : ""`: that conditional is a std::string, a copy,
+    // and the view would outlive it by the end of the line.
+    if (!valid()) return "";
+    return _data.get()->level;
+}
+
+std::string_view Tilemap::neighbour_at(Vector2 world_position) const {
+    if (!valid()) return "";
+    const MapData *data = _data.get();
+    // Still inside this level is no neighbour -- which is what makes "walked
+    // out, so change" a single if. Half-open, like the cells: a point on the
+    // right or bottom edge is already the next level's.
+    const Rectangle here = bounds();
+    if (world_position.x >= here.x && world_position.y >= here.y &&
+        world_position.x < here.x + here.width &&
+        world_position.y < here.y + here.height) {
+        return "";
+    }
+    for (const tilemap::detail::LevelInfo &level : data->levels) {
+        // Never this level, by name: its own rectangle in the world is the
+        // file's number and bounds() the size the grid was cut to, so a level
+        // 10.5 px wide named itself in the half pixel between them -- and a
+        // game that changes level on a name kept loading the one it was in.
+        // Two levels the file names alike are the same level to load_map().
+        if (level.name == data->level) continue;
+        const Rectangle r = level.world;
+        if (world_position.x >= r.x && world_position.y >= r.y &&
+            world_position.x < r.x + r.width && world_position.y < r.y + r.height) {
+            return level.name;
+        }
+    }
+    return "";
+}
+
+int Tilemap::tile_at(int layer_index, int column, int row) const {
+    if (!valid()) return 0;
+    const MapData *data = _data.get();
+    if (layer_index < 0 || static_cast<std::size_t>(layer_index) >= data->layers.size()) {
+        return 0;
+    }
+    return gid_at(data->layers[static_cast<std::size_t>(layer_index)], column, row);
+}
+
+bool Tilemap::solid_at(Vector2 world_position) const {
+    if (!valid()) return false;
+    const MapData *data = _data.get();
+    for (const Layer &layer : data->layers) {
+        int column = 0;
+        int row = 0;
+        if (!cell_under(*data, layer, world_position, &column, &row)) continue;
+        if (solid_cell(*data, layer, column, row)) return true;
+    }
+    return false;
+}
+
+bool Tilemap::solid_in(Rectangle world_rect) const {
+    if (!valid()) return false;
+    const MapData *data = _data.get();
+    // Every cell the rectangle covers, not just the four corners: a rectangle
+    // wider than a tile can straddle a solid one with all four corners in empty
+    // space, and that is the bug everybody writes the first time. Each layer
+    // in its own grid, because LDtk layers can have different ones.
+    //
+    // COVERS, not touches: the right and bottom edges are open, so a box
+    // resting exactly on a floor -- bottom edge on the floor's top -- is not
+    // in the floor, and one flush against a wall is not in the wall. That is
+    // what lets the collision pass stop an object AT a cell instead of
+    // calling it stuck there. A rectangle with no area asks about the cell
+    // its corner is in, as solid_at() does.
+    //
+    // The span is clamped to the layer before it becomes an int: a rectangle
+    // a million cells wide asks about the cells there are, and a NaN or an
+    // infinity asks about none.
+    if (!(world_rect.width >= 0) || !(world_rect.height >= 0)) return false;
+    for (const Layer &layer : data->layers) {
+        const int w = cell_w(*data, layer);
+        const int h = cell_h(*data, layer);
+        if (w <= 0 || h <= 0 || layer.width <= 0 || layer.height <= 0) continue;
+        // Each edge from its own coordinate -- the far one from x + width,
+        // summed in double -- never the near edge plus the size in cells:
+        // two roundings there put an edge that only touches a cell inside it.
+        const double left =
+            cell_coordinate(world_rect.x, data->origin.x, layer.offset.x, w);
+        const double top =
+            cell_coordinate(world_rect.y, data->origin.y, layer.offset.y, h);
+        const double right =
+            cell_coordinate(static_cast<double>(world_rect.x) + world_rect.width,
+                            data->origin.x, layer.offset.x, w);
+        const double bottom =
+            cell_coordinate(static_cast<double>(world_rect.y) + world_rect.height,
+                            data->origin.y, layer.offset.y, h);
+        if (!std::isfinite(left) || !std::isfinite(top) || !std::isfinite(right) ||
+            !std::isfinite(bottom)) {
+            continue;
+        }
+        const auto cells_x = static_cast<double>(layer.width);
+        const auto cells_y = static_cast<double>(layer.height);
+        const double first_x = std::floor(left);
+        const double first_y = std::floor(top);
+        const double last_x = std::max(first_x, std::ceil(right) - 1);
+        const double last_y = std::max(first_y, std::ceil(bottom) - 1);
+        if (last_x < 0 || last_y < 0 || first_x >= cells_x || first_y >= cells_y)
+            continue;
+        const int first_col = static_cast<int>(std::max(first_x, 0.0));
+        const int first_row = static_cast<int>(std::max(first_y, 0.0));
+        const int last_col = static_cast<int>(std::min(last_x, cells_x - 1));
+        const int last_row = static_cast<int>(std::min(last_y, cells_y - 1));
+        for (int row = first_row; row <= last_row; ++row) {
+            for (int column = first_col; column <= last_col; ++column) {
+                if (solid_cell(*data, layer, column, row)) return true;
+            }
+        }
+    }
+    return false;
+}
+
+void Tilemap::on_object(std::string_view type,
+                        Callback<Scene &, const MapObject &> factory) {
+    if (!valid()) return;
+    MapData *data = _data.get();
+    const std::string key(type);
+    for (auto &entry : data->factories) {
+        if (entry.first == key) {
+            // Replaces. Two factories for one class is never what anybody
+            // means, and stacking them would spawn the object twice.
+            entry.second = std::move(factory);
+            return;
+        }
+    }
+    data->factories.emplace_back(key, std::move(factory));
+}
+
+void Tilemap::spawn_objects(Scene &into) {
+    if (!valid()) return;
+    MapData *data = _data.get();
+    for (const MapObject &object : data->objects) {
+        bool made = false;
+        for (auto &entry : data->factories) {
+            if (entry.first != object.type) continue;
+            entry.second(into, object);
+            made = true;
+            break;
+        }
+        if (made) continue;
+
+        // No factory: a plain object with the position, the size and a
+        // collider. `solid` too when TILED GAVE IT AN AREA, which is the right
+        // default for a wall or a platform drawn in the editor.
+        //
+        // But an object layer holds the other half of a level as well -- spawn
+        // points, camera targets, waypoints, audio emitters -- and a Tiled
+        // point has width and height 0, as does a polyline. A zero-sized
+        // object is a marker by construction, and making one solid puts an
+        // invisible collider exactly where the designer meant a label.
+        const bool has_area = object.size.x > 0 && object.size.y > 0;
+        // And an LDtk entity is a thing, never a shape: walls there are IntGrid.
+        const Ref<const ObjectInfo> info = object.info();
+        const bool shape = !info || info->solid_area;
+        auto &plain = into.spawn({ .position = object.position, .size = object.size });
+        plain.rotation = object.rotation;
+        plain.solid = has_area && shape;
+        plain.immovable = true;
+        plain.visible = false; // the tiles are the picture; this is the shape
+    }
+}
+
+namespace {
+
+// The indices of a view's chunks, kept between frames so a frame allocates
+// nothing once it has seen its largest view.
+struct {
+    std::vector<std::uint32_t> visible;
+    int considered = 0; // tiles the last draw looked at: tiles_considered()
+} draw_scratch;
+
+// The cells of a Tiled layer a world rectangle shows, widened by the biggest
+// tile of the map's tilesets so a tile taller than its cell -- a tree drawn up
+// from its cell -- is still drawn when only its top is in view.
+bool visible_cells(const MapData &data, const Layer &layer, Vector2 base, Rectangle area,
+                   int &c0, int &r0, int &c1, int &r1) {
+    const int w = cell_w(data, layer);
+    const int h = cell_h(data, layer);
+    if (w <= 0 || h <= 0 || layer.width <= 0 || layer.height <= 0) return false;
+    auto reach_x = static_cast<float>(w);
+    auto reach_y = static_cast<float>(h);
+    for (const Tileset &set : data.tilesets) {
+        reach_x = std::max(reach_x, static_cast<float>(set.tile_width));
+        reach_y = std::max(reach_y, static_cast<float>(set.tile_height));
+    }
+    const double x0 = std::floor((static_cast<double>(area.x) - base.x - reach_x) / w);
+    const double y0 = std::floor((static_cast<double>(area.y) - base.y - reach_y) / h);
+    const double x1 =
+        std::floor((static_cast<double>(area.x) + area.width - base.x + reach_x) / w);
+    const double y1 =
+        std::floor((static_cast<double>(area.y) + area.height - base.y + reach_y) / h);
+    if (!std::isfinite(x0) || !std::isfinite(y0) || !std::isfinite(x1) ||
+        !std::isfinite(y1))
+        return false;
+    const double cols = layer.width - 1;
+    const double rows = layer.height - 1;
+    if (x1 < 0 || y1 < 0 || x0 > cols || y0 > rows) return false;
+    c0 = static_cast<int>(std::clamp(x0, 0.0, cols));
+    r0 = static_cast<int>(std::clamp(y0, 0.0, rows));
+    c1 = static_cast<int>(std::clamp(x1, 0.0, cols));
+    r1 = static_cast<int>(std::clamp(y1, 0.0, rows));
+    return true;
+}
+
+// Every tile, or only those `area` (world units) can show. The same tiles in
+// the same order either way, minus the ones out of sight: what the camera sees
+// is drawn exactly as it was before the map learnt to cull.
+void draw_map(const MapData &data, std::optional<Rectangle> area) {
+    std::vector<std::uint32_t> &visible = draw_scratch.visible;
+    draw_scratch.considered = 0;
+    for (const Layer &layer : data.layers) {
+        if (!layer.visible || layer.opacity <= 0) continue;
+        const Vector2 base{ data.origin.x + layer.offset.x,
+                            data.origin.y + layer.offset.y };
+        const auto alpha = [&](float a) {
+            const float value = layer.opacity * a * 255.0f;
+            return static_cast<unsigned char>(value < 0 ? 0
+                                                        : (value > 255 ? 255 : value));
+        };
+        const auto draw_placed = [&](const tilemap::detail::PlacedTile &tile) {
+            ++draw_scratch.considered;
+            const Tileset *set = tileset_for(data, tile.gid);
+            if (set == nullptr || !set->texture.valid()) return;
+            Rectangle src = source_in(*set, tile.gid);
+            // A negative source size is how raylib mirrors a region.
+            if (tile.flip_x) src.width = -src.width;
+            if (tile.flip_y) src.height = -src.height;
+            DrawTextureRec(set->texture, src,
+                           Vector2{ base.x + tile.at.x, base.y + tile.at.y },
+                           Color{ 255, 255, 255, alpha(tile.alpha) });
+        };
+
+        if (!layer.placed.empty()) {
+            // LDtk: every tile where it was put, bottom to top, each flipped
+            // and faded on its own.
+            if (!area || layer.chunks.empty()) {
+                for (const tilemap::detail::PlacedTile &tile : layer.placed)
+                    draw_placed(tile);
+                continue;
+            }
+            int c0 = 0;
+            int r0 = 0;
+            int c1 = 0;
+            int r1 = 0;
+            const Rectangle local{ area->x - base.x, area->y - base.y, area->width,
+                                   area->height };
+            if (!chunk_span(layer, local, c0, r0, c1, r1)) continue;
+            visible.clear();
+            for (int cr = r0; cr <= r1; ++cr) {
+                for (int cc = c0; cc <= c1; ++cc) {
+                    const auto &chunk =
+                        layer.chunks[(static_cast<std::size_t>(cr) *
+                                      static_cast<std::size_t>(layer.chunk_columns)) +
+                                     static_cast<std::size_t>(cc)];
+                    visible.insert(visible.end(), chunk.begin(), chunk.end());
+                }
+            }
+            // A tile over a chunk's edge is in both: once, in the order it was
+            // put down.
+            std::ranges::sort(visible);
+            const auto repeated = std::ranges::unique(visible);
+            visible.erase(repeated.begin(), repeated.end());
+            for (const std::uint32_t i : visible) draw_placed(layer.placed[i]);
+            continue;
+        }
+
+        const Color tint{ 255, 255, 255, alpha(1.0f) };
+        int c0 = 0;
+        int r0 = 0;
+        int c1 = layer.width - 1;
+        int r1 = layer.height - 1;
+        if (area && !visible_cells(data, layer, base, *area, c0, r0, c1, r1)) continue;
+        for (int row = r0; row <= r1; ++row) {
+            for (int column = c0; column <= c1; ++column) {
+                const int gid = gid_at(layer, column, row);
+                if (gid == 0) continue;
+                ++draw_scratch.considered;
+                const Tileset *set = tileset_for(data, gid);
+                if (set == nullptr || !set->texture.valid()) continue;
+                const Vector2 at = origin_in(data, set, column, row);
+                DrawTextureRec(set->texture, source_in(*set, gid),
+                               Vector2{ base.x + at.x, base.y + at.y }, tint);
+            }
+        }
+    }
+}
+
+} // namespace
+
+int tilemap::detail::tiles_considered() { return draw_scratch.considered; }
+
+Rectangle tilemap::detail::visible_area(const Camera2D &camera, Rectangle screen) {
+    const float right_edge = screen.x + screen.width;
+    const float bottom_edge = screen.y + screen.height;
+    const std::array<Vector2, 4> corners{
+        GetScreenToWorld2D(Vector2{ screen.x, screen.y }, camera),
+        GetScreenToWorld2D(Vector2{ right_edge, screen.y }, camera),
+        GetScreenToWorld2D(Vector2{ screen.x, bottom_edge }, camera),
+        GetScreenToWorld2D(Vector2{ right_edge, bottom_edge }, camera),
+    };
+    Rectangle out{ corners[0].x, corners[0].y, 0, 0 };
+    float right = out.x;
+    float bottom = out.y;
+    for (const Vector2 &c : corners) {
+        out.x = std::min(out.x, c.x);
+        out.y = std::min(out.y, c.y);
+        right = std::max(right, c.x);
+        bottom = std::max(bottom, c.y);
+    }
+    out.width = right - out.x;
+    out.height = bottom - out.y;
+    return out;
+}
+
+void Tilemap::draw() const {
+    if (!valid()) return;
+    draw_map(*_data, std::nullopt);
+}
+
+void Tilemap::draw(Rectangle area) const {
+    if (!valid()) return;
+    draw_map(*_data, area);
+}
+
+} // namespace rmp

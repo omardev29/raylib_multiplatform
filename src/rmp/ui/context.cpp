@@ -9,7 +9,7 @@
 
 #include "internal.h"
 #include "../internal.h"
-#include "../scene_internal.h" // running(): whose frame this is, RMP_GAME's or the runner's
+#include "../scene/scene_internal.h" // running(): whose frame this is, RMP_GAME's or the runner's
 
 #include <rmp/app.h> // stretch(), for the insets
 #include <rmp/assets.h>

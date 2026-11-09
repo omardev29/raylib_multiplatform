@@ -59,9 +59,9 @@
 #include "script.h"
 #include "target.h"
 
-#include "audio_internal.h"
+#include "audio/audio_internal.h"
 #include "internal.h"
-#include "save_internal.h"
+#include "save/save_internal.h"
 #include "ui/internal.h"
 
 #include <rmp/app.h>
@@ -142,7 +142,7 @@ void fail(int line, const std::string &why) {
 
 // What the framework said about the game's mistakes, in the log's words. A
 // report is a WARNING (an ERROR under [dev] strict) logged right after
-// rmp::detail::report_count() went up (src/rmp/report.cpp), so the log line
+// rmp::detail::report_count() went up (src/rmp/app/report.cpp), so the log line
 // that finds the count higher than the last one did is the report.
 struct {
     int heard = 0; // report_count() at the last report line

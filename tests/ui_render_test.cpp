@@ -31,7 +31,7 @@
 
 #include "../src/rmp/internal.h"
 #include "../src/rmp/ui/backdrop.h"
-#include "../src/rmp/tilemap_internal.h"
+#include "../src/rmp/tilemap/tilemap_internal.h"
 #include "../src/rmp/ui/internal.h"
 
 #include <raylib.h>

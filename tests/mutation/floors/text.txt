@@ -2,7 +2,7 @@
 # placeholders. New with them: unmeasured until the weekly run measures it,
 # and from then it only rises.
 kind     cxx
-sources  src/rmp/text.cpp
+sources  src/rmp/text/text.cpp
 tests    unit_test -sf=*text_test.cpp
 tests    property_test -sf=*text_prop.cpp
 floor    -

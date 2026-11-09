@@ -1,5 +1,5 @@
 // ---------------------------------------------------------------------------
-// The two map readers -- LDtk (src/rmp/ldtk.cpp) and Tiled (tilemap.cpp over
+// The two map readers -- LDtk (src/rmp/tilemap/ldtk.cpp) and Tiled (tilemap.cpp over
 // cute_tiled) -- held to the campaign's rules for any project a file can
 // hold, and rmp::assets::load_map() to reading a file the way the parser
 // reads its bytes:
@@ -29,7 +29,7 @@
 #include "map_gen.h"
 
 #include "../../src/rmp/internal.h"
-#include "../../src/rmp/tilemap_internal.h"
+#include "../../src/rmp/tilemap/tilemap_internal.h"
 
 #include <rmp/assets.h>
 #include <rmp/tilemap.h>

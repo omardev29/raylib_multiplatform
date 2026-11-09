@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------------
-// Sprite sheets -- the Aseprite reader (src/rmp/aseprite.cpp's walk, then
-// cute_aseprite, then parse_sheet() in src/rmp/animation.cpp) and the
+// Sprite sheets -- the Aseprite reader (src/rmp/assets/aseprite.cpp's walk, then
+// cute_aseprite, then parse_sheet() in src/rmp/assets/animation.cpp) and the
 // animation clock -- held to the campaign's rules:
 //
 //   - a well-formed .aseprite of any shape the generator below writes --
@@ -35,7 +35,7 @@
 #include "check.h"
 #include "gen.h"
 
-#include "../../src/rmp/animation_internal.h"
+#include "../../src/rmp/assets/animation_internal.h"
 #include "../../src/rmp/internal.h"
 #include "../aseprite_builder.h"
 

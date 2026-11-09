@@ -1,5 +1,5 @@
 // ---------------------------------------------------------------------------
-// The LDtk reader (src/rmp/ldtk.cpp), fuzzed.
+// The LDtk reader (src/rmp/tilemap/ldtk.cpp), fuzzed.
 //
 // The first byte of an input picks the level; the rest is the bytes of a
 // .ldtk project, exactly as rmp::assets::load_data hands them over. Byte 0
@@ -25,8 +25,8 @@
 #include "harness.h"
 #include "map_walk.h"
 
-#include "../../src/rmp/json_internal.h"
-#include "../../src/rmp/tilemap_internal.h"
+#include "../../src/rmp/save/json_internal.h"
+#include "../../src/rmp/tilemap/tilemap_internal.h"
 
 #include <rmp/tilemap.h>
 

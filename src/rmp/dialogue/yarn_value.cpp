@@ -5,7 +5,7 @@
 
 #include "yarn.h"
 
-#include "../number_internal.h"
+#include "../save/number_internal.h"
 
 #include <array>
 #include <cctype>

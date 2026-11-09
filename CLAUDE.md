@@ -345,7 +345,7 @@ here so that nobody "fixes" one back.
   remembers its file, and a texture remembers its file too: `changed()` says,
   `reload()` reads it again in place, and nothing happens behind the game's
   back. Debug builds on the desktop only; everywhere else `changed()` is false.
-  `src/rmp/watch.cpp` looks at the files at most every 0.25 s (size and time,
+  `src/rmp/app/watch.cpp` looks at the files at most every 0.25 s (size and time,
   the bytes only when one moved), so `changed()` can be asked every frame. No
   hot reload of code.
 - **The framework's themes have a look of their own** (Omar, 2026-10-31):
@@ -442,6 +442,25 @@ here so that nobody "fixes" one back.
   up by name says `JNIEXPORT` (`ANativeActivity_onCreate`, raymob's
   callbacks), which keeps it exported. arm64-v8a went from 3091080 bytes to
   1108688, measured with the image's NDK r28.
+- **The first scene is made with the window open, and a load before it is
+  said** (Omar, 2026-11-08). `RMP_GAME` calls `open_window()` before it makes
+  the first scene, so a texture, a font or a sheet in a scene's members loads
+  like one in `_ready()`. A texture, font or sheet asked for before the window
+  opened (at namespace scope, in a global's constructor) has nothing to draw:
+  `open_window()` names the first one through `RMP_REPORT_ONCE`, and a run that
+  never opens a window -- every unit test -- never hears it.
+- **Things live in folders by what they are** (Omar, 2026-11-08). `src/rmp/`
+  has a folder per module, named like its header (`app/`, `scene/`,
+  `assets/`, `ui/`, `dialogue/`, ...), with only `internal.h`, which they all
+  share, at the top; `include/rmp/` stays one header per module. A game's
+  `resources/` is kept in folders by kind -- `sprites/`, `maps/`, `audio/`,
+  `fonts/`, `dialogue/`, `locale/` and so on -- and every loader takes the
+  path below `resources/`, written with `/`, the same on every target: loose
+  in development, in the pack a release ships (`tools/rres_pack.c` runs
+  inside `resources/` and stores each file under that path), on the web,
+  Android and iOS; a map's tilesets and external levels are read from the
+  map's own folder. The examples keep the `resources/` they have for now
+  (Omar, 2026-11-08); `tests/` stays as it is.
 - **`src/main.cpp` is a dozen lines and ends at `RMP_GAME(MainMenuScene);`**
   -- phase 4 did that, and it stays that way. The user's game lives in
   `src/scenes/` and `src/objects/`; new mechanics go to `examples/`, never here.
@@ -468,7 +487,7 @@ here so that nobody "fixes" one back.
   (`shot <name>`) and which scene is on top (`expect scene <Class>`), to `end`.
   `e2e_<area>_<name>` is the example as it ships plus `tests/e2e/driver.cpp`,
   which installs itself before `main()`: every frame exactly 1/60 s and
-  `rmp::random` at seed 1 (`src/rmp/clock.cpp`), rmp::input AND the UI's
+  `rmp::random` at seed 1 (`src/rmp/app/clock.cpp`), rmp::input AND the UI's
   navigation and pointer fed from the script, saves in a fresh folder, no sound
   device. A shot must match `tests/e2e/golden/<area>/<name>/<shot>.png`
   **exactly** (Omar, 2026-10-11: a tolerance only for a shot that proves it
@@ -774,7 +793,7 @@ here so that nobody "fixes" one back.
   And no raylib `Load*`/`Unload*` outside the six files that own what it makes
   (`ownership_check.sh` O2, the names read live from `raylib.h` and
   `rres-raylib.h`). And cute_aseprite's two loads only in
-  `src/rmp/animation.cpp`, whose `load()` hands it what `prepare_aseprite()`
+  `src/rmp/assets/animation.cpp`, whose `load()` hands it what `prepare_aseprite()`
   walked (O3; the two tests that read its pictures back are listed with their
   reasons).
 - **The style guide is checked, and what the tree still owes it is written
@@ -847,7 +866,7 @@ here so that nobody "fixes" one back.
   generated files before any build; root with nobody behind it, a container,
   builds. The installer's no-sudo rule is unchanged. A game run with sudo
   saves as root, and logs where. The terminal comes back however the game
-  ends: `src/rmp/console.cpp` from inside, `rmp run` from outside (SIGKILL).
+  ends: `src/rmp/app/console.cpp` from inside, `rmp run` from outside (SIGKILL).
   `drm-x64-run` runs `./rmp run` on vkms with `XDG_SESSION_TYPE=tty` and no
   display, in a game's CI too -- whose `[dev] sanitize` is `[]`, so only the
   framework is held to the sanitizers' line there -- and is the only real
@@ -885,7 +904,7 @@ lesson outlives the fix.
   (`core`). The step's log is never uploaded and the steps after `Mutate`
   never run, so nothing says which mutant was running. Both modules are
   `floor -` until this is found; the other 28 have floors.
-  - **What the shards run.** `console` mutates `src/rmp/console.cpp` and runs
+  - **What the shards run.** `console` mutates `src/rmp/app/console.cpp` and runs
     `tests/console_test.cpp`, which installs signal handlers in-process and
     starts `console_canary` -- linked with the same mutated file -- through
     `popen` and `sh` on a pseudo-terminal, dying every way (segfault, abort,
@@ -932,7 +951,7 @@ lesson outlives the fix.
   libraries it opens work on RISC-V; it is not a RISC-V machine's caches or
   timing.
 - **One clock, or no two runs draw the same frame.** `step_delta()` lives in
-  `src/rmp/clock.cpp`, the framework's one `GetFrameTime()`, and the UI's
+  `src/rmp/app/clock.cpp`, the framework's one `GetFrameTime()`, and the UI's
   `frame_time()` is `frame_delta()`: what the scenes were handed -- or, with no
   runner stepping (rmp::ui in a plain raylib loop), the frame raylib timed,
   clamped the same way: that loop's menus never faded and its notices never
@@ -1067,7 +1086,7 @@ Each of these was a real bug, found by reproducing rather than by reading.
   decision (2026-10-11): changed only when a real game needs EXPAND on a
   phone. And raylib has one scissor: an object's own
   `BeginScissorMode()`/`EndScissorMode()` in its `_draw()` ends LETTERBOX's cut
-  (`world_clip()`, `src/rmp/scene.cpp`) for the rest of that scene's world.
+  (`world_clip()`, `src/rmp/scene/scene.cpp`) for the rest of that scene's world.
   And `Camera::zoom` multiplies the stretch's scale: a zoom worked out from
   `GetScreenHeight()` every frame scales the world twice under LETTERBOX and
   EXPAND -- the site's tutorial did it in five pages, in a game `rmp new`
@@ -1230,7 +1249,7 @@ Each of these was a real bug, found by reproducing rather than by reading.
   in `tools/` and in `rmp`, the launcher; the Linux jobs cannot notice, having
   GNU everything, and the macOS job runs `rmp test config` under `/bin/bash` --
   which reaches only the scripts that stage calls.
-- **No iostreams in the library.** One `std::ifstream` in `src/rmp/pack.cpp`
+- **No iostreams in the library.** One `std::ifstream` in `src/rmp/assets/pack.cpp`
   (Stage E) brought all of iostreams into every release: +19 % on
   linux-x64, +18 % on the web's `.wasm`, +22-26 % per Android ABI, against a
   static libc++. The size budget caught it twenty minutes into CI; C's stdio
@@ -1241,14 +1260,14 @@ Each of these was a real bug, found by reproducing rather than by reading.
   `load_sheet("a.aseprite\0x")` loaded `a.aseprite` and cached it under the
   name cut short, and two action names that differed past a NUL shared one
   report. Every `rmp::assets` loader refuses such a name first (`refused()`,
-  `src/rmp/assets.cpp`: empty, one failed load, said once), and a report keyed
+  `src/rmp/assets/assets.cpp`: empty, one failed load, said once), and a report keyed
   by a name takes `report_once_keyed()`'s `std::string_view` overload, never a
   `.c_str()`.
 - **cute_aseprite trusts the file.** It asserts on a broken one, leaks on some
   real ones and loops on linked cels that link in a circle;
-  `src/rmp/aseprite.cpp`'s `prepare_aseprite()` walks every chunk first, and
+  `src/rmp/assets/aseprite.cpp`'s `prepare_aseprite()` walks every chunk first, and
   nothing hands cute_aseprite bytes that did not go through it
-  (`ownership_check.sh` O3 refuses a load anywhere but `src/rmp/animation.cpp`).
+  (`ownership_check.sh` O3 refuses a load anywhere but `src/rmp/assets/animation.cpp`).
 - **`TakeScreenshot` needs `rlDrawRenderBatchActive()` first**, or the file is
   blank. It also mangles absolute paths.
 - **DRM renders a different hash, and that is correct.** `linux-x64-glibc-drm`
@@ -1351,7 +1370,7 @@ Each of these was a real bug, found by reproducing rather than by reading.
   only on machines with a sound device. Anything that asks "is it there?" builds its own path.
 - **cJSON prints numbers wrong and reads them by locale.** Its printer keeps 15 digits when they
   read back "within an epsilon" (2^53 came back as 9007199254740990), and its parser follows the
-  C locale, so a game with a German UI could not read `0.5`. `src/rmp/save.cpp` writes numbers
+  C locale, so a game with a German UI could not read `0.5`. `src/rmp/save/save.cpp` writes numbers
   itself (15, 16 or 17 digits, the fewest that read back exactly) and runs every conversion under
   the `"C"` numeric locale for its duration. **`ENABLE_LOCALES` is deliberately NOT defined** in
   `cjson_impl.c`: it was the first fix, and it takes ONE byte of the decimal point -- Pashto's is

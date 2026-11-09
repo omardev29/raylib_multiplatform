@@ -71,8 +71,8 @@
 #include "gen.h"
 
 #include "../../src/rmp/internal.h"
-#include "../../src/rmp/object_internal.h"
-#include "../../src/rmp/tilemap_internal.h"
+#include "../../src/rmp/scene/object_internal.h"
+#include "../../src/rmp/tilemap/tilemap_internal.h"
 
 #include <rmp/assets.h>
 #include <rmp/behavior.h>

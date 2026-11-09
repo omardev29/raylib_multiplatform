@@ -65,7 +65,7 @@ namespace rmp {
 // does with a zeroed struct. That is deliberate, and true of the whole
 // framework: nothing of ours throws to your code -- rmp/app.h says why, at
 // quit(). Where a standard-library call can throw, the framework catches it
-// and turns it into a value: three places in src/rmp/save.cpp (the random
+// and turns it into a value: three places in src/rmp/save/save.cpp (the random
 // device, and a path converted on Windows).
 // ---------------------------------------------------------------------------
 

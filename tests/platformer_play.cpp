@@ -45,9 +45,9 @@
 #include <rmp/scene.h>
 
 #include "game.h"
-#include "object_internal.h"
+#include "scene/object_internal.h"
 #include "objects.h"
-#include "scene_internal.h"
+#include "scene/scene_internal.h"
 #include "ui/internal.h"
 
 #include <raylib.h>

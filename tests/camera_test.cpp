@@ -12,8 +12,8 @@
 #include <doctest.h>
 
 #include "../src/rmp/internal.h"
-#include "../src/rmp/object_internal.h"
-#include "../src/rmp/scene_internal.h"
+#include "../src/rmp/scene/object_internal.h"
+#include "../src/rmp/scene/scene_internal.h"
 #include "../src/rmp/ui/internal.h"
 
 #include <rmp/app.h>
@@ -1129,7 +1129,7 @@ TEST_SUITE("camera: stretch") {
 // The counterexamples tests/property/camera_prop.cpp found, each by name: a
 // number that is not one -- NaN, an infinity, a float at the end of its range
 // -- in anything a game hands the camera, and the whole way of a smoothed
-// follow. Each of these was red before src/rmp/camera.cpp said otherwise.
+// follow. Each of these was red before src/rmp/scene/camera.cpp said otherwise.
 // ---------------------------------------------------------------------------
 
 TEST_SUITE("camera: numbers that are not numbers") {

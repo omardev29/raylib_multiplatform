@@ -2,7 +2,7 @@
 // ---------------------------------------------------------------------------
 // An rres pack, written byte for byte the way tools/rres_pack.c writes one --
 // and the walk a fuzz target edits one by. The tests' own copy of the format,
-// written from the packer and not from src/rmp/pack.cpp, so the reader is
+// written from the packer and not from src/rmp/assets/pack.cpp, so the reader is
 // checked against the writer and not against itself:
 //
 //   header (16)       "rres", version 100, chunk count, directory offset

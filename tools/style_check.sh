@@ -31,7 +31,7 @@
 #       silent. Phase 14 paid the twenty silent ones the tree had, so there
 #       is no debt left to keep and none to add
 #   S8  no iostreams in the library (src/rmp/, include/rmp/): one
-#       std::ifstream in src/rmp/pack.cpp brought all of them into every
+#       std::ifstream in src/rmp/assets/pack.cpp brought all of them into every
 #       release against a static libc++ -- +19 % on linux-x64, +18 % on the
 #       web's .wasm, +22-26 % per Android ABI -- for a seek and a read. Files
 #       go through C's stdio (in a unique_ptr) or raylib

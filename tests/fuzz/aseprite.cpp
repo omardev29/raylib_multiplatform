@@ -1,7 +1,7 @@
 // ---------------------------------------------------------------------------
-// The Aseprite reader, fuzzed: src/rmp/aseprite.cpp, the bounds-checked walk
+// The Aseprite reader, fuzzed: src/rmp/assets/aseprite.cpp, the bounds-checked walk
 // every .aseprite takes before cute_aseprite sees it, and parse_sheet()
-// (src/rmp/animation.cpp) behind it.
+// (src/rmp/assets/animation.cpp) behind it.
 //
 // The input is the bytes of a .aseprite, exactly as rmp::assets::load_data
 // hands them over. The oracle is the reader's promise -- it reads a sheet or
@@ -31,7 +31,7 @@
 
 #include "harness.h"
 
-#include "../../src/rmp/animation_internal.h"
+#include "../../src/rmp/assets/animation_internal.h"
 #include "../../src/rmp/internal.h"
 
 #include <rmp/assets.h>

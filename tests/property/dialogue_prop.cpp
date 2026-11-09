@@ -12,8 +12,8 @@
 #include "../../src/rmp/dialogue/dialogue_internal.h"
 #include "../../src/rmp/dialogue/yarn.h"
 #include "../../src/rmp/internal.h"
-#include "../../src/rmp/object_internal.h"
-#include "../../src/rmp/text_internal.h"
+#include "../../src/rmp/scene/object_internal.h"
+#include "../../src/rmp/text/text_internal.h"
 #include "../../src/rmp/ui/internal.h"
 
 #include <rmp/behavior.h>

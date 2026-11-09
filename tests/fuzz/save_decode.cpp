@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------------
 // A save file, fuzzed: any bytes as the whole file rmp::save::read() finds on
-// disk, header and all (src/rmp/save.cpp, detail::decode).
+// disk, header and all (src/rmp/save/save.cpp, detail::decode).
 //
 // The oracle, whatever the bytes:
 //

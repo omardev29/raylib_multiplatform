@@ -1,4 +1,4 @@
-# libFuzzer's dictionary for fuzz_ldtk: the keys src/rmp/ldtk.cpp reads, the
+# libFuzzer's dictionary for fuzz_ldtk: the keys src/rmp/tilemap/ldtk.cpp reads, the
 # values it compares them with, and numbers at the edges -- past float's range,
 # past int's, past the budgets. tools/fuzz.sh hands it to libFuzzer as -dict.
 # The first byte of an input is the level it asks for (tests/fuzz/ldtk.cpp).

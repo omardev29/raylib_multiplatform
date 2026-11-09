@@ -57,7 +57,7 @@
 #include "gen.h"
 
 #include "../../src/rmp/internal.h"
-#include "../../src/rmp/scene_internal.h"
+#include "../../src/rmp/scene/scene_internal.h"
 
 #include <rmp/input.h>
 #include <rmp/scene.h>
@@ -111,7 +111,7 @@ struct Devices {
 };
 
 // The largest a pointer coordinate reads: past it a float stops counting
-// every pixel, and no window is anywhere near (src/rmp/input.cpp).
+// every pixel, and no window is anywhere near (src/rmp/input/input.cpp).
 constexpr float POINTER_LIMIT = 16777216.0f;
 
 // A stick's reading: the ones a dead zone is about -- at rest, its ends, a

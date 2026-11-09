@@ -1,7 +1,7 @@
 // ---------------------------------------------------------------------------
 // A save that somebody changed, fuzzed: real saves of this framework -- sealed
 // with this game's key, and plain -- and the input says what to do to them
-// (src/rmp/save.cpp, detail::decode).
+// (src/rmp/save/save.cpp, detail::decode).
 //
 // The input: one byte that picks the save and whether it is sealed, then
 // edits of four bytes each -- what (flip a byte, insert one, take one away),

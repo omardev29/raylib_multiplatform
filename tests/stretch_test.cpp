@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------------
 // [window] stretch: how the world fits a window that is not the design size
-// (rmp::app::stretch(), src/rmp/stretch.cpp).
+// (rmp::app::stretch(), src/rmp/app/stretch.cpp).
 //
 // world_viewport() is the one function the camera and the interface both draw
 // their numbers from, so its arithmetic is pinned here for every mode, on a
@@ -11,8 +11,8 @@
 #include "doctest.h"
 
 #include "../src/rmp/internal.h"
-#include "../src/rmp/object_internal.h"
-#include "../src/rmp/scene_internal.h"
+#include "../src/rmp/scene/object_internal.h"
+#include "../src/rmp/scene/scene_internal.h"
 
 #include <rmp/app.h>
 #include <rmp/config.h>

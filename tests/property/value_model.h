@@ -22,7 +22,7 @@
 //                       text -- the const walk and the Ref walk must agree
 // ---------------------------------------------------------------------------
 
-#include "../../src/rmp/save_internal.h"
+#include "../../src/rmp/save/save_internal.h"
 
 #include <rmp/save.h>
 

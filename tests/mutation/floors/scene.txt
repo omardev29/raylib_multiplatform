@@ -2,7 +2,7 @@
 # Measured by the weekly run on GitHub, 2026-10-12 (38182204715, main e2ea300):
 # 109 of 162, 67.28%.
 kind     cxx
-sources  src/rmp/scene.cpp
+sources  src/rmp/scene/scene.cpp
 # world_clip() and RAY_TEST_WINDOW's reader are scene.cpp's, and stretch_test.cpp
 # is where they are pinned.
 tests    unit_test -sf=*scene_test.cpp,*stretch_test.cpp

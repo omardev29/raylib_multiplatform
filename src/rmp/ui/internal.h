@@ -16,7 +16,7 @@
 namespace rmp::yarn {
 struct Marked; // ../dialogue/yarn.h: a text with its markup parsed
 } // namespace rmp::yarn
-#include "../ui_internal.h" // the hooks the app, the scenes and rmp::input call
+#include "ui_internal.h" // the hooks the app, the scenes and rmp::input call
 
 #include <array>
 #include <cstdint>
@@ -206,7 +206,7 @@ bool test_mode();
 // Seconds since the last frame, or 0 in test mode — a headless run has no frame
 // time and has to produce the same numbers every time. It is the game's clock:
 // what step_delta() handed the scenes this frame (rmp::app::detail::
-// frame_delta(), src/rmp/clock.cpp), so a fixed step fixes the menus too.
+// frame_delta(), src/rmp/app/clock.cpp), so a fixed step fixes the menus too.
 // Everything in the UI that animates takes its time from here.
 float frame_time();
 

@@ -13,8 +13,8 @@
 //     reads back byte for byte with its password and not at all without it;
 //     a pack cut short is refused whole; a byte changed anywhere is refused or
 //     changes nothing;
-//   - which paths the loader hook answers for: a file directly in the
-//     resources folder, however the path is spelled, and nothing below it;
+//   - which paths the loader hook answers for: a file in the resources
+//     folder or below it, however the path is spelled, and nothing outside it;
 //   - the loaders under any name at all: a name that is nowhere is an empty
 //     resource, counted as requested and failed, and not reported -- but for
 //     a name with a NUL in it, which is no file's, and is said once.
@@ -37,7 +37,7 @@
 #include "gen.h"
 
 #include "../../src/rmp/internal.h"
-#include "../../src/rmp/pack_internal.h"
+#include "../../src/rmp/assets/pack_internal.h"
 #include "../pack_writer.h"
 
 #include <rmp/assets.h>
@@ -581,8 +581,8 @@ TEST_SUITE("property: assets") {
 
     TEST_CASE("which paths the loader hook answers for") {
         rmp::test::check(
-            "a file directly in the resources folder, however it is spelled, and nothing "
-            "below it",
+            "a file in the resources folder or below it, however it is spelled, and "
+            "nothing outside it",
             [] {
                 const std::string name = plain_name(*rmp::test::gen::hostile_string());
                 for (const std::string &root : roots()) {
@@ -600,9 +600,11 @@ TEST_SUITE("property: assets") {
                     RC_ASSERT(in("./", ""));
                     RC_ASSERT(in("sub/../", ""));
                     RC_ASSERT(in(R"(sub\..\)", ""));
-                    RC_ASSERT(!in("sub/", ""));
+                    RC_ASSERT(in("sub/", ""));
+                    RC_ASSERT(in("a/b/../", ""));
+                    RC_ASSERT(in("", "/" + name));
                     RC_ASSERT(!in("../", ""));
-                    RC_ASSERT(!in("", "/" + name));
+                    RC_ASSERT(!in("sub/../../", ""));
                     RC_ASSERT(!in("", "/"));
                 }
             });

@@ -81,7 +81,7 @@ count_hits() { strip_comments "$1" | grep -cE "$PATTERN"; }
 # The note below the list says why the UI's reads stay in the UI and not in
 # rmp::input.
 ALLOWED=(
-  "src/rmp/clock.cpp"         # THE seam for time: step_delta() is the one
+  "src/rmp/app/clock.cpp"         # THE seam for time: step_delta() is the one
                              # GetFrameTime() in the framework, and every runner
                              # in rmp/app.h goes through it so that [app]
                              # max_delta applies to all of them. Scenes, objects
@@ -92,7 +92,7 @@ ALLOWED=(
                              # (set_fixed_delta), which is what lets
                              # tests/e2e/ play a game twice and get the same
                              # pixels.
-  "src/rmp/input.cpp"         # THE seam: sample_with_raylib() is the provider a
+  "src/rmp/input/input.cpp"         # THE seam: sample_with_raylib() is the provider a
                              # test replaces, and the only place the devices are
                              # read at all. Everything else asks rmp::input.
   "src/rmp/ui/context.cpp"    # the seam: read_pointer() and read_nav() --
@@ -103,18 +103,18 @@ ALLOWED=(
                              # Backspace a text field types, read by the field
                              # that is typing; and the viewport. Its clock,
                              # frame_time(), is the game's: clock.cpp, above.
-  "src/rmp/object.cpp"        # THE seam for the viewport: view_rect() falls back
+  "src/rmp/scene/object.cpp"        # THE seam for the viewport: view_rect() falls back
                              # to the screen for an object with empty bounds, and
                              # GetScreenWidth()/GetScreenHeight() are what "the
                              # screen" means. It is two calls in one function and
                              # it returns 0 with no window, which the callers
                              # already handle -- see the note at the site.
-  "src/rmp/scene.cpp"         # THE seam for "is there a window": one
+  "src/rmp/scene/scene.cpp"         # THE seam for "is there a window": one
                              # IsWindowReady() guard so the scene stack can run
                              # its transitions headless. This is the call the
                              # RAY_TEST_BOOT_OK gate was missing, not one to
                              # route away.
-  "src/rmp/app.cpp"           # the boot's verdict: after_ready() asks once,
+  "src/rmp/app/app.cpp"           # the boot's verdict: after_ready() asks once,
                              # after SmokeTest_ReportBoot() has said it, whether
                              # InitWindow() opened anything, and end_stop() ends
                              # a run with no window -- a DRM game with no card --
@@ -122,7 +122,7 @@ ALLOWED=(
                              # for the exit status the boot steps read.
 )
 
-# src/rmp/random.cpp was on this list for naming GetRandomValue in a COMMENT.
+# src/rmp/random/random.cpp was on this list for naming GetRandomValue in a COMMENT.
 # Comments are stripped now, so it stopped matching and the ratchet's other
 # half asked for the entry back. That is the list working in both directions.
 

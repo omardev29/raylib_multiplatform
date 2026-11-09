@@ -36,7 +36,7 @@ What 6.2 brought that this copy no longer patches: the Win32 backend in
 the three frees in `raudio.c`; and the software renderer's scissor. And what
 raylib_cmake_template patches that this copy does not take: its console guard
 in `rcore_drm.c`, a process forked to keep the console's keys from the shell
-after a crash -- `src/rmp/console.cpp` puts the terminal back here, from
+after a crash -- `src/rmp/app/console.cpp` puts the terminal back here, from
 inside the game, and a fork inside raylib would run beside it.
 
 When bumping raylib, re-apply every row whose fix upstream has not made by

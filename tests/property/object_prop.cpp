@@ -18,7 +18,7 @@
 #include "object_gen.h"
 
 #include "../../src/rmp/internal.h"
-#include "../../src/rmp/object_internal.h"
+#include "../../src/rmp/scene/object_internal.h"
 
 #include <rmp/object.h>
 #include <rmp/scene.h>

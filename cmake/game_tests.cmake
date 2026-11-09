@@ -13,7 +13,7 @@
 # main.cpp stays out because RMP_GAME there is the game's main(). main() here
 # is doctest's, written below, so a file in tests/game/ holds TEST_CASEs and
 # nothing else. app.cpp comes in because a scene calls rmp::app::quit(), and
-# it asks for the symbol RMP_GAME emits (the guard in src/rmp/app.cpp); this
+# it asks for the symbol RMP_GAME emits (the guard in src/rmp/app/app.cpp); this
 # program's entry point is doctest's main(), so the same file answers it.
 if(BUILD_TESTS AND TARGET rmp)
   file(GLOB _rmp_game_tests CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/tests/game/*.cpp")
@@ -32,14 +32,14 @@ if(BUILD_TESTS AND TARGET rmp AND _rmp_game_tests)
 #define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN
 #include <doctest.h>
 
-// src/rmp/app.cpp asks for this symbol so that a program with no entry point
+// src/rmp/app/app.cpp asks for this symbol so that a program with no entry point
 // is a link error that names it. This program's entry point is the main()
 // above.
 extern \"C\" void rmp_entry_point_is_declared_exactly_once() {}
 ")
   add_executable(game_test ${_rmp_game_tests} ${_rmp_game_test_sources}
     "${CMAKE_BINARY_DIR}/game_test_main.cpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/src/rmp/app.cpp")
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/rmp/app/app.cpp")
   set_property(TARGET game_test PROPERTY CXX_STANDARD 20)
   # SYSTEM for doctest, as for unit_test. src/ so a test includes a scene the
   # way src/main.cpp does: "scenes/main_menu.h".

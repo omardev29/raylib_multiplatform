@@ -7,7 +7,7 @@
 # or LeakSanitizer, which Mull's build does not have -- and the vector growing
 # when no slot is free.
 kind     cxx
-sources  src/rmp/resource.cpp
+sources  src/rmp/assets/resource.cpp
 tests    unit_test -ts=resources*
 tests    property_test -tc=the?resource?table*
 floor    70

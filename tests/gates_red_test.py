@@ -338,7 +338,7 @@ class OwnershipCheckTreeTest(GateTest):
         self.tree.plant("examples/plain_c/src/later.c",
                         'void f(void) { Texture2D t = LoadTexture("x"); UnloadTexture(t); }\n')
         self.tree.plant("src/rmp/later_impl.cpp", "void f() { free(malloc(4)); }\n")
-        self.tree.edit("src/rmp/resource.cpp", "namespace rmp", "void f() { LoadImage(\"x\"); }\n"
+        self.tree.edit("src/rmp/assets/resource.cpp", "namespace rmp", "void f() { LoadImage(\"x\"); }\n"
                        "namespace rmp")
         self.assert_green()
 
@@ -363,10 +363,10 @@ class NamingCheckTreeTest(GateTest):
                         "include/rmp/later.h:1: R7 APP_SAVE_PORTABLE")
 
     def test_planted_a_vendored_knob_outside_the_file_that_configures_it(self):
-        """src/rmp/tiled_impl.cpp defines it, and the tree passes; the same
+        """src/rmp/tilemap/tiled_impl.cpp defines it, and the tree passes; the same
         line anywhere else is a macro without RMP_."""
         self.assertIn("#define CUTE_TILED_IMPLEMENTATION",
-                      (self.tree.root / "src" / "rmp" / "tiled_impl.cpp").read_text())
+                      (self.tree.root / "src" / "rmp" / "tilemap" / "tiled_impl.cpp").read_text())
         self.tree.plant("src/rmp/later.cpp", "#define CUTE_TILED_IMPLEMENTATION\n")
         self.assert_red("src/rmp/later.cpp:1: R5 #define CUTE_TILED_IMPLEMENTATION")
 

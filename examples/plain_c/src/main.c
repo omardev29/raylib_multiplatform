@@ -33,7 +33,7 @@
 //                              resources/ as it is, with a PACK_SKIPPED.txt
 //                              saying why (tools/ship_resources.sh), because
 //                              raw raylib cannot read resources.rres -- reading
-//                              it is what src/rmp/loader_hook.cpp was doing.
+//                              it is what src/rmp/assets/loader_hook.cpp was doing.
 //   RMP_WINDOW_TITLE, ...  ->  #include <rmp/config.h>, as below: [window] and
 //                              the rest of the .toml as plain #defines, in C.
 //   the smoke-test hooks   ->  <smoke_test.h>, as below. It is C, it is on the
@@ -76,7 +76,7 @@ int main(void) {
     // leaves the executable in build/ and resources/ beside build/, and run
     // from the project folder it reads that one. The framework's entry point
     // does the same for a C++ game (enter_executable_folder() in
-    // src/rmp/app.cpp); here it is yours. GetApplicationDirectory() is "" on
+    // src/rmp/app/app.cpp); here it is yours. GetApplicationDirectory() is "" on
     // NetBSD and OpenBSD, which cannot say where an executable is: there a
     // release reads the working directory's resources/.
     const char *folder = GetApplicationDirectory();

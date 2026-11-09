@@ -24,16 +24,16 @@
 //   RAY_TEST_BOOT_FAIL    — InitWindow() never got a window; nothing else ran,
 //                           or (with "save:") a save did not make it to this
 //                           platform's folder and back -- see after_ready()
-//                           in src/rmp/app.cpp -- or RAY_TEST_WINDOW held
+//                           in src/rmp/app/app.cpp -- or RAY_TEST_WINDOW held
 //                           something that is not WIDTHxHEIGHT
-//                           (read_test_window() in src/rmp/scene.cpp).
+//                           (read_test_window() in src/rmp/scene/scene.cpp).
 //                           BOOT_OK is not printed then.
 //   RAY_TEST_SAVE_OK      — that save round trip worked; printed just before
 //                           BOOT_OK under RAY_TEST_MAX_FRAMES or RAY_TEST_SAVE=1
 //   RAY_TEST_RENDER_OK    — a frame was read back and actually has content
 //   RAY_TEST_RENDER_FAIL  — the frame was blank; something stopped drawing
 //   RAY_TEST_DONE_FRAMES  — the frame budget was rendered, exiting cleanly
-//   RAY_TEST_REPORTS=<n>  — printed after it by src/rmp/app.cpp, not by this
+//   RAY_TEST_REPORTS=<n>  — printed after it by src/rmp/app/app.cpp, not by this
 //                           file: how many mistakes of the game's the framework
 //                           reported in the run (RMP_REPORT_ONCE); 0 is correct
 //   RAY_TEST_SCREENSHOT   — the captured frame was written to the PNG named by

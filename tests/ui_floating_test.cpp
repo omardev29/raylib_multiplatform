@@ -11,7 +11,7 @@
 #include "doctest.h"
 
 #include "../src/rmp/internal.h"
-#include "../src/rmp/scene_internal.h"
+#include "../src/rmp/scene/scene_internal.h"
 #include "../src/rmp/ui/floating.h"
 #include "../src/rmp/ui/internal.h"
 

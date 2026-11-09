@@ -8,7 +8,7 @@
 # whose wrong answer the next lookup refuses anyway, and the map's own
 # width/height, which bounds() reads only for a level of no pixel size.
 kind     cxx
-sources  src/rmp/ldtk.cpp
+sources  src/rmp/tilemap/ldtk.cpp
 tests    unit_test -sf=*ldtk_test.cpp,*map_collision_test.cpp
 tests    property_test -ts=*ldtk
 floor    80

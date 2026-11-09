@@ -212,7 +212,7 @@ class SameTsvAsTheFrameworkTest(unittest.TestCase):
                                  cell)
 
     def test_the_plural_counts_are_the_frameworks(self):
-        source = (REPO / "src/rmp/text.cpp").read_text()
+        source = (REPO / "src/rmp/text/text.cpp").read_text()
         for code, n in (("en", 2), ("ja", 1), ("ru", 4), ("fr", 2), ("pl", 4)):
             with self.subTest(code=code):
                 self.assertEqual(text_tool.PLURAL_COUNTS[code], n)

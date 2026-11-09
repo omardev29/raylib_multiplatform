@@ -107,7 +107,7 @@ endif()
 # The oldest macOS the game opens on. Left unset, the toolchain writes the SDK's
 # own version into every slice -- macOS 26 for a build on a macos-26 runner --
 # and every Mac one release older refuses to open the game, with no message
-# that says why. 10.15 is the floor std::filesystem (src/rmp/save.cpp) puts on
+# that says why. 10.15 is the floor std::filesystem (src/rmp/save/save.cpp) puts on
 # Apple's libc++; the arm64 slice starts at 11.0 whatever this says, the first
 # macOS on Apple silicon. Ignored on every other platform. The macos job reads
 # it back out of the cache and checks every slice against it
@@ -738,7 +738,7 @@ file(GLOB_RECURSE RMP_SOURCES CONFIGURE_DEPENDS
   "${CMAKE_CURRENT_SOURCE_DIR}/src/rmp/*.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/rmp/*.c"
 )
-list(REMOVE_ITEM RMP_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/src/rmp/app.cpp")
+list(REMOVE_ITEM RMP_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/src/rmp/app/app.cpp")
 
 # RAYLIB_STUB_SOURCES is empty unless a module was disabled that rres still
 # references. It lives in cmake/generated/, never in src/, which is the user's.
@@ -773,7 +773,7 @@ target_include_directories(rmp SYSTEM PUBLIC
 # live in CMake's cache and never reach the preprocessor. What the C++ sees is
 # ours, and ours is RMP_.
 target_compile_definitions(rmp PRIVATE RMP_RESOURCES_PATH="${RESOURCES_PATH}")
-# What src/rmp/console.cpp asks: whether raylib changes the terminal the game
+# What src/rmp/app/console.cpp asks: whether raylib changes the terminal the game
 # is started from, which only its DRM backend does.
 if(RMP_TARGET_DRM)
   target_compile_definitions(rmp PRIVATE RMP_TARGET_DRM=1)
@@ -838,7 +838,7 @@ function(rmp_embed_dialogue NAME RES_DIR)
   target_compile_definitions(${NAME} PRIVATE RMP_DIALOGUE_EMBEDDED=1)
 endfunction()
 
-# The player's language, which src/rmp/text.cpp asks CoreFoundation for.
+# The player's language, which src/rmp/text/text.cpp asks CoreFoundation for.
 if(APPLE)
   target_link_libraries(rmp PUBLIC "-framework CoreFoundation")
 endif()
@@ -973,7 +973,7 @@ function(rmp_add_game NAME DIR)
         "them to. A C++ game keeps src/rmp/; a plain C game has no .cpp in src/ -- see "
         "examples/plain_c/src/main.c.")
     endif()
-    add_executable(${NAME} ${_game_sources} "${CMAKE_CURRENT_SOURCE_DIR}/src/rmp/app.cpp")
+    add_executable(${NAME} ${_game_sources} "${CMAKE_CURRENT_SOURCE_DIR}/src/rmp/app/app.cpp")
     set_property(TARGET ${NAME} PROPERTY CXX_STANDARD 20)
     target_link_libraries(${NAME} PRIVATE rmp)
   endif()
@@ -1213,7 +1213,7 @@ if((RMP_BUILD_EXAMPLES OR BUILD_TESTS) AND EXISTS "${_platformer}/src/main.cpp")
   list(FILTER _platformer_sources EXCLUDE REGEX "/src/main\\.cpp$")
   add_executable(platformer_play ${_platformer_sources}
     "${CMAKE_CURRENT_SOURCE_DIR}/tests/platformer_play.cpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/src/rmp/app.cpp")
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/rmp/app/app.cpp")
   set_property(TARGET platformer_play PROPERTY CXX_STANDARD 20)
   if(NOT RMP_BUILD_EXAMPLES)
     set_property(TARGET platformer_play PROPERTY EXCLUDE_FROM_ALL TRUE)
@@ -1235,7 +1235,7 @@ endif()
 if((RMP_BUILD_EXAMPLES OR BUILD_TESTS) AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/input_play.cpp")
   add_executable(input_play
     "${CMAKE_CURRENT_SOURCE_DIR}/tests/input_play.cpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/src/rmp/app.cpp")
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/rmp/app/app.cpp")
   set_property(TARGET input_play PROPERTY CXX_STANDARD 20)
   if(NOT RMP_BUILD_EXAMPLES)
     set_property(TARGET input_play PROPERTY EXCLUDE_FROM_ALL TRUE)
@@ -1263,44 +1263,32 @@ target_include_directories(rres_pack PRIVATE tools)
 target_include_directories(rres_pack SYSTEM PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/rres")
 rmp_apply_warnings(rres_pack)
 
-# Pack every loose resource into resources.rres (AES-encrypted).
+# Pack every loose resource into resources.rres (AES-encrypted), the folders
+# below resources/ too: the packer runs inside resources/ and stores each file
+# under its path there ("maps/town.ldtk"), the name a game loads it by. The
+# pack used to be flat, and a file in a subfolder was not packed at all: the
+# four targets that ship resources.rres alone (Linux x64/arm64, Windows x64,
+# macOS) would have shipped a release without it.
 #
 # LIST_DIRECTORIES false is load-bearing. file(GLOB) lists directories by
-# default, and fopen() on a directory succeeds on glibc, so a resources/
-# containing a subfolder used to pack that subfolder as a resource — and drop
-# every file inside it.
-file(GLOB PACK_FILES LIST_DIRECTORIES false "${CMAKE_CURRENT_SOURCE_DIR}/resources/*")
+# default, and fopen() on a directory succeeds on glibc, so a folder would be
+# packed as a resource.
+#
+# Streamed music is the one thing a release still reads from outside the pack:
+# LoadMusicStream opens the file itself (drwav/drmp3/jar_xm take a path, by
+# design: the point is not to hold the song in memory), so it never reaches the
+# loader hook that serves everything else.
+set(_RES_DIR "${CMAKE_CURRENT_SOURCE_DIR}/resources")
+file(GLOB_RECURSE PACK_FILES LIST_DIRECTORIES false CONFIGURE_DEPENDS RELATIVE "${_RES_DIR}"
+     "${_RES_DIR}/*")
 list(FILTER PACK_FILES EXCLUDE REGEX "\\.rres$")
+list(SORT PACK_FILES)
 add_custom_target(pack_resources
-  COMMAND $<TARGET_FILE:rres_pack> "${CMAKE_CURRENT_SOURCE_DIR}/resources/resources.rres" "${RRES_PACK_PASSWORD}" ${PACK_FILES}
+  COMMAND $<TARGET_FILE:rres_pack> "${_RES_DIR}/resources.rres" "${RRES_PACK_PASSWORD}" ${PACK_FILES}
+  WORKING_DIRECTORY "${_RES_DIR}"
   DEPENDS rres_pack
   COMMENT "Packing resources into resources.rres (AES)"
 )
-# The pack is flat: names are bare file names and this glob does not recurse.
-# So a file in resources/textures/ is not packed, and the four targets that
-# ship resources.rres *alone* (Linux x64/arm64, Windows x64, macOS) would ship
-# a release without it — working in development, broken only once released.
-#
-# Streamed music is the other one. LoadMusicStream opens the file itself
-# (drwav/drmp3/jar_xm take a path, by design: the point is not to hold the song
-# in memory), so it never reaches the loader hook that serves everything else.
-set(_PACK_SUBDIRS "")
-file(GLOB _RES_ENTRIES "${CMAKE_CURRENT_SOURCE_DIR}/resources/*")
-foreach(_f ${_RES_ENTRIES})
-  if(IS_DIRECTORY "${_f}")
-    get_filename_component(_n "${_f}" NAME)
-    list(APPEND _PACK_SUBDIRS "${_n}")
-  endif()
-endforeach()
-if(_PACK_SUBDIRS AND PRODUCTION_BUILD)
-  string(JOIN ", " _d ${_PACK_SUBDIRS})
-  message(WARNING
-    "resources/ has subfolders the pack does not reach: ${_d}\n"
-    "  Resource names are flat, so nothing inside them is packed, and Linux, Windows x64 "
-    "and macOS releases ship resources.rres on its own.\n"
-    "  Move those files up into resources/, or ship the folder next to the executable "
-    "yourself. See TECHNICAL.md, \"Resources\".")
-endif()
 
 # --- unit tests (doctest) ---------------------------------------------------
 # No window, no GPU, milliseconds. Every tests/*_test.cpp except the one that
@@ -1381,7 +1369,7 @@ if(BUILD_TESTS AND UNIT_TEST_SOURCES)
 
   # A DRM/KMS game's ways of ending -- a crash, abort(), a kill, a sanitizer's
   # report -- on a pseudo-terminal tests/console_test.cpp makes, to see that
-  # src/rmp/console.cpp puts the terminal back after each. Linux's, like the
+  # src/rmp/app/console.cpp puts the terminal back after each. Linux's, like the
   # terminal it guards; with the framework, and the flags of everything else.
   if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/console_canary.cpp"
      AND CMAKE_SYSTEM_NAME STREQUAL "Linux")

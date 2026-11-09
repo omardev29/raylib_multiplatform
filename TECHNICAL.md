@@ -168,7 +168,7 @@ Notes for whoever maintains the framework: how the build, the resource pack, the
 │   ├── *_property_test.py    # Hypothesis, with hypothesis_profiles.py (ci: derandomized; nightly)
 │   ├── campaign_test.py      # the campaign's own gates: inputs, floors, the resilience list
 │   └── fixtures/             # LDtk projects (four saved by LDtk itself), Tiled maps, an Aseprite sheet, an empty rres pack, licence trees
-├── resources/                # Your assets (flat -- the pack does not recurse)
+├── resources/                # Your assets, in folders of your own (the pack keeps them)
 ├── branding/icon.png         # the source for every app icon; rename it in [icon] source
 ├── tools/
 │   ├── rmp.py                # `rmp`: every command, its help, the test stages, rmp new's manifest
@@ -461,7 +461,7 @@ What it writes, per file:
 Then a `CDIR` chunk holds `(id, filename)` for every entry, unencrypted, so `rmp::assets::` can resolve
 a name to an id without knowing the password up front.
 
-`src/rmp/pack.cpp` reads the container itself, every field checked against the bytes there are
+`src/rmp/assets/pack.cpp` reads the container itself, every field checked against the bytes there are
 (rres's own readers believe every field): a pack cut short or with a corrupt directory is refused
 whole at `init()` -- `ASSETS: ... is cut short or corrupt, using loose files` -- and a chunk that
 does not open falls back to its loose file. It reads `RAWD` and `IMGE` chunks, unencrypted, AES and
@@ -507,10 +507,10 @@ Three details make the hook safe rather than clever:
   filesystem behind it. So a miss has to delegate by hand, and the exact way to delegate is to
   *unhook, call raylib, hook back*. That runs raylib's own reader, including the Android one, where
   `fopen` is redirected into the APK's asset manager and stdio of our own would find nothing.
-- **It only answers for files directly in `RMP_RESOURCES_PATH`.** The pack is keyed by bare file
-  name, so matching on the name alone would let a save file called `level1.json` anywhere on disk be
-  answered with the packed `level1.json`. The pack is flat, so `resources/sub/x.png` is read from
-  the disk; `./` and `..` are taken lexically, and `\` is a separator on Windows only.
+- **It only answers for files inside `RMP_RESOURCES_PATH`.** The pack is keyed by the path below
+  that folder (`maps/town.ldtk`), so matching on the name alone would let a save file called
+  `level1.json` anywhere on disk be answered with the packed `level1.json`; `resources/sub/x.png` is
+  the packed `sub/x.png`, `./` and `..` are taken lexically, and `\` is a separator on Windows only.
 - **Models come along for free.** `rmodels.c` loads `.obj` with `LoadFileText` and
   `.gltf`/`.glb`/`.iqm`/`.vox`/`.m3d` with `LoadFileData`, and it resolves the sibling files an
   `.obj` or `.gltf` refers to — the `.mtl`, the `.bin` buffers, the textures named inside the
@@ -535,10 +535,10 @@ bool             rmp::assets::using_pack();
 The resources are counted and release themselves (see `include/rmp/assets.h`): nothing to unload,
 and the same name twice is the same resource.
 
-`name` is the **bare file name** — `rmp::assets::load_sound("jump.wav")`. Not a path. `tools/rres_pack.c`
-stores every entry under its basename and the CMake glob does not recurse, so `resources/sfx/` is
-not packed at all and there is nothing for a nested name to resolve to. See the subfolder note
-below.
+`name` is the file's path below `resources/`, with `/` between folders —
+`rmp::assets::load_sound("sfx/jump.wav")`, or `"jump.wav"` for one at the top. `pack_resources`
+runs `tools/rres_pack.c` inside `resources/` over every file below it, and the packer stores each
+under that path, so a release finds the same name a development build does.
 
 Every one of them has the same shape: if in pack mode, look the name up, decrypt, decode from
 memory; if anything fails, **log a warning and fall back to the loose file**. A missing entry
@@ -572,10 +572,12 @@ price is that the *encoded* file stays in memory while it plays — a three-minu
 — and the decoding is still streamed, so the 30 MB of PCM it would decode to never exists at once.
 Only code that calls `LoadMusicStream` itself needs the song as a loose file.
 
-**Subfolders.** `file(GLOB …)` in `CMakeLists.txt` does not recurse and resource names are flat, so
-nothing inside `resources/art/` is packed.
+**Subfolders** are packed like the rest (`file(GLOB_RECURSE …)` in `CMakeLists.txt`), and every
+other target ships the folder whole. A map's tileset and its external levels are found next to the
+map: LDtk's `relPath` and Tiled's `source`/`image` are read relative to the map's own folder, and,
+when that file is not there, by its bare name at the top of `resources/`.
 
-For both: the files have to actually ship, and **the release packages are not uniform**:
+For streamed music: the files have to actually ship, and **the release packages are not uniform**:
 
 | Target | Packs? | What ships in the package |
 |---|---|---|
@@ -591,12 +593,10 @@ and no other.** On musl, riscv64, Windows arm64, Web, Android and iOS your asset
 files that anyone can open. If that matters, pack them yourself in the job that builds those
 targets — but see the Android note below before you try it there.
 
-So an un-packable file works in development, works on Web and Android — and is missing only in the
-packaged desktop builds of the first row. That is the worst possible failure mode, so
-`CMakeLists.txt` emits a `WARNING` at configure time when `PRODUCTION_BUILD=ON` and it finds a
-subfolder in `resources/`. If you need one anyway, extend the `package/` step in
-`.github/workflows/_linux.yml`, `_windows.yml`, `_apple.yml` and `_bsd.yml` to copy it alongside the
-pack.
+So a file the pack cannot serve -- a song `LoadMusicStream` opens itself -- works in development,
+works on Web and Android, and is missing only in the packaged desktop builds of the first row. If you
+need one, extend the `package/` step in `.github/workflows/_linux.yml`, `_windows.yml`, `_apple.yml`
+and `_bsd.yml` to copy it alongside the pack.
 
 > The pack is also never used on **Android**, whatever you do. rres opens the container with plain
 > `fopen`, and inside an APK there is no such file — raylib reaches its assets through
@@ -762,8 +762,8 @@ What floats, and why each is where it is:
 in `focus.cpp`) unless the pass is a HUD over a game being played -- or its
 `FrameOptions::focus_first` says otherwise, either way. "Played" is what the game read: `rmp::input`
 tells the UI when a read touches a key the interface navigates with (`note_game_keys()` in
-`src/rmp/input.cpp`; the keys are `UI_KEYS`, `UI_PAD_BUTTONS` and `UI_PAD_AXES` in
-`src/rmp/ui_internal.h`, without Escape and B, so a pause on Escape stays a menu), the scene stack
+`src/rmp/input/input.cpp`; the keys are `UI_KEYS`, `UI_PAD_BUTTONS` and `UI_PAD_AXES` in
+`src/rmp/ui/ui_internal.h`, without Escape and B, so a pause on Escape stays a menu), the scene stack
 keeps what each scene read in its update, its objects' included (`scene.cpp`), and
 `begin_pass_focus()` makes that the default of `focus_first` for the passes the scene draws --
 without scenes, what the frame read. A game that reads raylib's keys itself is never noticed, which
@@ -807,10 +807,10 @@ without the key), `letterbox` (the design scaled to fit and centred, bars of the
 around it; the framework's `.toml`, and so every game `rmp new` makes) or `expand` (scaled the
 same, no bars, more of the world the way the window is longer than the design). It is
 `RMP_WINDOW_STRETCH`, where `rmp::app::stretch()` starts, and `set_stretch()` changes it at once.
-The arithmetic is one pure function, `world_viewport()` in `src/rmp/stretch.cpp`; the camera
+The arithmetic is one pure function, `world_viewport()` in `src/rmp/app/stretch.cpp`; the camera
 (`raylib()`, `view()`, `to_world()`), the pointer and rmp::ui's insets all go through it, and
 under NONE it is the old arithmetic bit for bit. LETTERBOX cuts the map and the objects to the
-game's area with a scissor (`world_clip()`, `src/rmp/scene.cpp`); the scene's own `_draw()` is
+game's area with a scissor (`world_clip()`, `src/rmp/scene/scene.cpp`); the scene's own `_draw()` is
 not cut. Two limits, written down and not fixed:
 
 - **On Android and DRM every mode draws raylib's own letterbox.** There raylib keeps
@@ -843,7 +843,7 @@ fallback across two sessions, the XDG folders, and numbers under a comma and a t
 point (locales built from `tests/fixtures/locale/` by `tools/test_locales.sh`, required in CI).
 What only another platform can run is covered by the boot instead: under the CI smoke test every
 game saves a small file to its platform's real folder, reads it back and removes it before it may
-print `RAY_TEST_BOOT_OK` (`after_ready()` in `src/rmp/app.cpp`). Every target CI actually boots
+print `RAY_TEST_BOOT_OK` (`after_ready()` in `src/rmp/app/app.cpp`). Every target CI actually boots
 does it: Windows (with `%APPDATA%` set to a folder called "José Müller"), macOS, Linux on glibc,
 musl and DRM, the three BSDs, every example, and the web, whose boot test opens the page with
 `?ray_test_save=1` and requires the save to have gone through IndexedDB. **Two families are not
@@ -865,7 +865,7 @@ Interstitial + rewarded ads. The API is `rmp::ads`, and it arrives with
 | `rmp::ads::request_rewarded()` / `is_rewarded_loaded()` / `show_rewarded()` | rewarded |
 | `rmp::ads::take_reward_earned()` (true once, then clears) + `reward_amount()` | poll the reward |
 
-They are defined out of line, in `src/rmp/ads.cpp`, over the C functions in `<admob.h>` -- the one
+They are defined out of line, in `src/rmp/ads/ads.cpp`, over the C functions in `<admob.h>` -- the one
 file that includes it, so a game that shows no ad never compiles the JNI bridge's header and
 `rmp/ads.h` includes nothing of raymob's. `<admob.h>` stays where it is: it is the real JNI boundary,
 and the pure-C entry point has no namespaces to call into.
@@ -890,7 +890,7 @@ Five steps, and each one exists because the one above it cannot do its job:
 
 | Layer | File | What it does |
 |---|---|---|
-| API | `include/rmp/ads.h`, `src/rmp/ads.cpp` | the eight functions of `rmp::ads`, each one call into `admob.h` |
+| API | `include/rmp/ads.h`, `src/rmp/ads/ads.cpp` | the eight functions of `rmp::ads`, each one call into `admob.h` |
 | C | `thirdparty/raymob/admob.h` | the eight C functions. Real on Android, inline no-ops elsewhere |
 | JNI | `thirdparty/raymob/admob.c` | calls the methods **by name** on the Activity instance |
 | Java | `raymob/.../NativeLoader.java` | the eight public methods, kept by `proguard-rules.pro` |
@@ -1110,7 +1110,7 @@ flag the shell shares) and a virtual console's keyboard mode to `K_XLATE`, and p
 from an `atexit` handler. A crash, `abort()`, a sanitizer's report or a kill left the shell typing
 blind with no Ctrl+C. The screen is not the problem: the kernel gives the console its screen
 back when the game's last handle on the card closes, however the process ends, and raylib never
-sets `KD_GRAPHICS`. `src/rmp/console.cpp` (`guard_console()`, called from `begin_run()`, before
+sets `KD_GRAPHICS`. `src/rmp/app/console.cpp` (`guard_console()`, called from `begin_run()`, before
 any window) remembers the terminal and puts it back on every fatal signal -- then hands the
 signal to whoever had it, so a crash is still a core dump or ASan's report; on an alternate stack,
 ASan's or its own, because a stack overflow leaves the handler no other -- through the
@@ -1390,13 +1390,13 @@ and signature).
 `RAY_TEST_WINDOW=WxH` opens the window at another size, so a `[window] stretch` can be booted on a
 screen of another shape -- at the design size every mode is the same picture. It is read only
 under the smoke test (`RAY_TEST_MAX_FRAMES`) and only by `RMP_GAME`'s window
-(`read_test_window()`, `src/rmp/scene.cpp`), and logs `RAY_TEST_WINDOW WxH`. A value that is not
+(`read_test_window()`, `src/rmp/scene/scene.cpp`), and logs `RAY_TEST_WINDOW WxH`. A value that is not
 two whole numbers from 16 to 16384 joined by an `x` logs `RAY_TEST_BOOT_FAIL` with the reason,
 and `RAY_TEST_BOOT_OK` is not printed; empty counts as unset, like the other `RAY_TEST_`
 variables.
 
 `RAY_TEST_REPORTS=<n>` is printed after the budget's last frame (`end_frame()` in
-`src/rmp/app.cpp`): how many of the game's mistakes the framework said once (`RMP_REPORT_ONCE`).
+`src/rmp/app/app.cpp`): how many of the game's mistakes the framework said once (`RMP_REPORT_ONCE`).
 `rmp test smoke` requires `RAY_TEST_REPORTS=0` -- in a game `rmp new` makes as in the framework --
 and prints the `WARNING` lines when it is not; every boot in `tools/examples_build.sh` and the
 coverage boot (`tools/coverage_check.sh`) require it too. A game in plain C has no framework to
@@ -1442,7 +1442,7 @@ quotes, because it starts a comment), what the screen must show (`200 shot red_s
 top (`640 expect scene OverScene`).
 `e2e_<area>_<name>` is the example exactly as it ships -- its own `main.cpp` and entry point --
 plus `tests/e2e/driver.cpp`, which installs itself before `main()` through the seams: every frame
-exactly 1/60 s and `rmp::random` at seed 1 (`src/rmp/clock.cpp`; the UI animates by the same
+exactly 1/60 s and `rmp::random` at seed 1 (`src/rmp/app/clock.cpp`; the UI animates by the same
 clock, which is what made this possible), rmp::input's devices and the UI's navigation and pointer
 fed from the script, saves in a fresh folder, no sound device. Each shot is compared with
 `tests/e2e/golden/<area>/<name>/<shot>.png` **exactly**: one renderer (raylib's software one), one

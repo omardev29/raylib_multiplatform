@@ -1,5 +1,5 @@
 // ---------------------------------------------------------------------------
-// The Linux console back, however a DRM/KMS game ends (src/rmp/console.cpp).
+// The Linux console back, however a DRM/KMS game ends (src/rmp/app/console.cpp).
 //
 // Everything here happens on a pseudo-terminal the test makes, never on the
 // terminal the tests run in, and never on a virtual console: raylib's DRM

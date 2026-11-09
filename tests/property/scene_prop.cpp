@@ -52,8 +52,8 @@
 #include "gen.h"
 
 #include "../../src/rmp/internal.h"
-#include "../../src/rmp/object_internal.h"
-#include "../../src/rmp/scene_internal.h"
+#include "../../src/rmp/scene/object_internal.h"
+#include "../../src/rmp/scene/scene_internal.h"
 #include "../../src/rmp/ui/internal.h"
 
 #include <rmp/input.h>
@@ -459,7 +459,7 @@ struct Stage {
     }
 };
 
-// One turn of the loop, as src/rmp/app.cpp's frame() takes it, minus the
+// One turn of the loop, as src/rmp/app/app.cpp's frame() takes it, minus the
 // drawing calls around it; the frame's own calls after the draw, where a
 // scene's _update() or _draw() would have made them.
 void play(const Frame &frame) {

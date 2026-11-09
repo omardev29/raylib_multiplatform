@@ -84,7 +84,7 @@ CODE_SIGN_STYLE  = "Automatic"
 
 - **Resources:** `RMP_RESOURCES_PATH` is `./resources/`, and an iOS process
   does not start inside its bundle. `rmp::app::detail::begin_run()` (in
-  `src/rmp/app.cpp`, called by `RMP_IOS_FUNCS`) does a
+  `src/rmp/app/app.cpp`, called by `RMP_IOS_FUNCS`) does a
   `ChangeDirectory(GetApplicationDirectory())` before anything loads, so the
   relative path resolves against the `.app`. The bundle is read-only: write
   with `rmp::save`, which puts saves in the app's `Library/Application Support/`.

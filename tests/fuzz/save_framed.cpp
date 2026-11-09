@@ -2,7 +2,7 @@
 // A save's payload, fuzzed behind a header that is right: the harness writes
 // the line rmp::save's writer would -- format, version, kind, length and the
 // CRC of it all -- around whatever the input holds, so every input gets past
-// the checks that guard the parser and reaches it (src/rmp/save.cpp,
+// the checks that guard the parser and reaches it (src/rmp/save/save.cpp,
 // detail::decode then from_json). save_decode fuzzes the header; this, what
 // is under it.
 //

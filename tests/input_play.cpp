@@ -20,6 +20,9 @@
 //      a pause too), out of focus (30-33), the scene is told
 //      _suspend() and does not move, and is drawn again as it stands; then
 //      back (34-39): _resume(), and every frame moved and drawn again.
+//   4. the scene is made as RMP_GAME makes it: after open_window(), so the
+//      texture its members load has a window and comes out with a picture,
+//      and nothing was loaded before the window.
 //
 // Built with the examples (CMakeLists.txt, target input_play) and run by
 // tools/examples_build.sh: `rmp test examples` here, the examples job in CI.
@@ -29,6 +32,7 @@
 #include "../src/rmp/internal.h"
 
 #include <rmp/app.h>
+#include <rmp/assets.h>
 #include <rmp/input.h>
 #include <rmp/scene.h>
 
@@ -60,6 +64,7 @@ struct {
     int draws = 0;
     int suspends = 0;
     int resumes = 0;
+    bool window_when_made = false;
     int failures = 0;
 } run;
 
@@ -76,6 +81,10 @@ void sample(rmp::input::detail::DeviceState &out) {
 
 class Counting : public rmp::Scene {
 public:
+    Counting() { run.window_when_made = IsWindowReady(); }
+    // A member's load, the shape a game writes: it needs the window.
+    rmp::Texture rabbit = rmp::assets::load_texture("rabbit.png");
+
     void _ready() override { rmp::input::action("jump", KEY_SPACE); }
     void _update(float /*delta*/) override {
         if (rmp::input::pressed("jump")) ++run.scene_held;
@@ -101,10 +110,18 @@ void expect(const char *what, int got, int want) {
 void ready() {
     rmp::input::detail::set_sample_provider(sample);
     rmp::app::detail::set_window_state_provider(window);
-    // Opens the window and enters the scene, as RMP_GAME's ready hook does.
-    // The first shape below simply never calls frame(), so the scene sits
-    // there while the hook reads the input itself.
+    // Opens the window, makes the scene and enters it, as RMP_GAME's ready
+    // hook does. The first shape below simply never calls frame(), so the
+    // scene sits there while the hook reads the input itself.
+    rmp::app::detail::open_window();
     rmp::app::detail::start(std::make_unique<Counting>());
+    // The scene on top is the Counting just made.
+    const auto &scene = static_cast<const Counting &>(rmp::Scene::current());
+    const Texture2D &rabbit = scene.rabbit;
+    expect("the first scene made with a window", run.window_when_made ? 1 : 0, 1);
+    expect("its member's texture has a picture", rabbit.id != 0 ? 1 : 0, 1);
+    expect("loads before the window", rmp::assets::detail::loaded_before_window() ? 1 : 0,
+           0);
 }
 
 void frame(float delta) {

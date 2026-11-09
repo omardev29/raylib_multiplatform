@@ -2,7 +2,7 @@
 // HUD focus: the interface over a game being played does not take Space.
 //
 // A scene that reads the keys the interface navigates with (UI_KEYS,
-// src/rmp/ui_internal.h) through rmp::input is being played, and the passes
+// src/rmp/ui/ui_internal.h) through rmp::input is being played, and the passes
 // it describes are told so (set_pass_playing()). Here: that the list is the
 // list navigation reads, key by key, so the two cannot drift apart; that Tab
 // is a press of its own; that the scene stack hands each scene's passes what
@@ -15,7 +15,7 @@
 #include "doctest.h"
 
 #include "../src/rmp/internal.h"
-#include "../src/rmp/scene_internal.h"
+#include "../src/rmp/scene/scene_internal.h"
 #include "../src/rmp/ui/internal.h"
 
 #include <rmp/input.h>
@@ -160,7 +160,7 @@ public:
     void _draw() override { told.watched = rmp::ui::detail::pass_playing() ? 1 : 0; }
 };
 
-// One turn of the loop, in src/rmp/app.cpp's order: the devices sampled, the
+// One turn of the loop, in src/rmp/app/app.cpp's order: the devices sampled, the
 // UI's frame marked, the scenes updated and drawn, the frame closed.
 void run_frame() {
     rmp::input::detail::begin_frame();

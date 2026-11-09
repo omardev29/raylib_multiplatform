@@ -247,7 +247,7 @@ extern LoadCounts loads;
 // ONCE, into the `rmp` library, and linked into the game and into every
 // example -- and an example that carries its own resources/ must not read the
 // game's. The library starts with the RMP_RESOURCES_PATH it was compiled with, and
-// the entry point (src/rmp/app.cpp, compiled into each executable with that
+// the entry point (src/rmp/app/app.cpp, compiled into each executable with that
 // executable's own RMP_RESOURCES_PATH) overrides it before anything is loaded.
 // Always ends in a separator or is empty, exactly like the macro.
 const char *resources_root();
@@ -263,6 +263,21 @@ std::span<const int> default_codepoints();
 // letter the atlas does not have, and that atlas is no one else's.
 rmp::Font load_font_glyphs(std::string_view name, int font_size,
                            std::span<const int> codepoints);
+
+// A texture, a font or a sheet needs the window: raylib's GL calls have
+// nowhere to go before InitWindow(), and what they make is empty. Every such
+// load says its name here; the first one before the window opened is kept,
+// and window_opened(), which rmp::app::detail::open_window() calls once the
+// window is open, says it, once (a game that never opens one -- every unit
+// test -- never hears it).
+void note_gpu_load(std::string_view name);
+void window_opened();
+// The first name loaded before the window, and how many were; empty: none.
+struct EarlyLoads {
+    std::string first;
+    int count = 0;
+};
+[[nodiscard]] std::optional<EarlyLoads> loaded_before_window();
 
 } // namespace rmp::assets::detail
 

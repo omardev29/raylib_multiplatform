@@ -18,7 +18,7 @@
 //   - RAY_TEST_WINDOW is read exactly when it is two whole numbers 16..16384
 //     joined by an x, against a second reading of that sentence.
 //
-// rmp::app::quit() and quit_requested() are in src/rmp/app.cpp, which is
+// rmp::app::quit() and quit_requested() are in src/rmp/app/app.cpp, which is
 // compiled into each executable with its entry point and is not in librmp.a:
 // property_test cannot link them, so they stay in waivers.txt.
 //
@@ -34,7 +34,7 @@
 #include "gen.h"
 
 #include "../../src/rmp/internal.h"
-#include "../../src/rmp/scene_internal.h"
+#include "../../src/rmp/scene/scene_internal.h"
 
 #include <rmp/app.h>
 #include <rmp/config.h>

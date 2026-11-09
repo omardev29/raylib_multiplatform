@@ -6,7 +6,7 @@
 // select, plural and ordinal -- whose % is the value.
 // ===========================================================================
 
-#include "../text_internal.h"
+#include "../text/text_internal.h"
 #include "yarn.h"
 
 #include <algorithm>

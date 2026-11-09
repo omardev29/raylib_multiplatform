@@ -16,10 +16,10 @@
 
 #include "doctest.h"
 
-#include "../src/rmp/audio_internal.h"
+#include "../src/rmp/audio/audio_internal.h"
 #include "../src/rmp/internal.h"
 #include "../src/rmp/ui/internal.h"
-#include "../src/rmp/ui_internal.h"
+#include "../src/rmp/ui/ui_internal.h"
 
 #include <raylib.h>
 #include <rmp/assets.h>

@@ -12,7 +12,7 @@
 
 #include <doctest.h>
 
-#include "../src/rmp/object_internal.h"
+#include "../src/rmp/scene/object_internal.h"
 
 #include <rmp/behavior.h>
 #include <rmp/object.h>
@@ -30,7 +30,7 @@
 #include <vector>
 
 // The behaviors in this file are interface implementations like the ones in
-// src/rmp/behaviors.cpp, and get the same treatment for the same reason: the
+// src/rmp/behavior/behaviors.cpp, and get the same treatment for the same reason: the
 // signature belongs to the contract, not to what one test needs.
 //
 // NOLINTBEGIN(readability-make-member-function-const,readability-named-parameter,readability-convert-member-functions-to-static)

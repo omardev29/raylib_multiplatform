@@ -1,5 +1,5 @@
 // ---------------------------------------------------------------------------
-// The clock seam (src/rmp/clock.cpp): one clock for the game and its menus,
+// The clock seam (src/rmp/app/clock.cpp): one clock for the game and its menus,
 // and a test's way to fix it.
 //
 // The UI read GetFrameTime() itself, so under a fixed step the game advanced
@@ -11,9 +11,9 @@
 
 #include "doctest.h"
 
-#include "../src/rmp/audio_internal.h"
+#include "../src/rmp/audio/audio_internal.h"
 #include "../src/rmp/internal.h"
-#include "../src/rmp/scene_internal.h"
+#include "../src/rmp/scene/scene_internal.h"
 #include "../src/rmp/ui/internal.h"
 
 #include <rmp/app.h>

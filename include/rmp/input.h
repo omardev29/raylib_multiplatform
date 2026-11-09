@@ -69,7 +69,7 @@ constexpr Binding to_binding(::GamepadButton button) {
 // lets the two spellings live in the same argument list.
 constexpr Binding to_binding(Binding binding) { return binding; }
 
-// Compiled once, in src/rmp/input.cpp.
+// Compiled once, in src/rmp/input/input.cpp.
 void define(std::string_view name, std::initializer_list<Binding> bindings);
 
 } // namespace detail
