@@ -59,9 +59,9 @@
 #include "script.h"
 #include "target.h"
 
-#include "audio_internal.h"
+#include "audio/audio_internal.h"
 #include "internal.h"
-#include "save_internal.h"
+#include "save/save_internal.h"
 #include "ui/internal.h"
 
 #include <rmp/app.h>
