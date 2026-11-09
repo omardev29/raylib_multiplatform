@@ -39,7 +39,7 @@ custom-rmp-raw-pointer  src/rmp/scene/collision.cpp                           27
 custom-rmp-raw-pointer  src/rmp/scene/object.cpp                              27
 custom-rmp-raw-pointer  src/rmp/scene/object_internal.h                       1
 custom-rmp-raw-pointer  src/rmp/tilemap/ldtk.cpp                              36
-custom-rmp-raw-pointer  src/rmp/tilemap/tilemap.cpp                           46
+custom-rmp-raw-pointer  src/rmp/tilemap/tilemap.cpp                           45
 custom-rmp-raw-pointer  src/rmp/tilemap/tilemap_internal.h                    17
 custom-rmp-raw-pointer  src/rmp/ui/containers.cpp                             2
 custom-rmp-raw-pointer  src/rmp/ui/context.cpp                                19

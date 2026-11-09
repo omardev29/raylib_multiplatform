@@ -256,8 +256,8 @@ const char *file_name_of(const char *path);
 // `path` is read from the folder `map` is in -- "maps/town.ldtk" and
 // "../tiles/town.png" are "tiles/town.png" -- when that is a file in
 // resources/; otherwise its file name at the top of resources/, where a map's
-// files were kept before there were folders. "" for no path.
-std::string next_to(std::string_view map, const char *path);
+// files were kept before there were folders. "" for an empty path.
+std::string next_to(std::string_view map, std::string_view path);
 
 // A tileset image that did not become a texture, said as what it is: not in
 // resources/, or there and not loadable. `map` names an LDtk project in the

@@ -339,10 +339,7 @@ TEST_SUITE("assets: loader hook") {
         CHECK(text_of(rmp::assets::load_data("level.json")) == "top");
         // raylib's own loader, through the hook, by the path it builds.
         const std::string path = release.root() + "maps/level.json";
-        char *text = LoadFileText(path.c_str());
-        REQUIRE(text != nullptr);
-        CHECK(std::string(text) == "packed map");
-        UnloadFileText(text);
+        CHECK(raylib_text(path) == "packed map");
         rmp::assets::shutdown();
     }
 
@@ -1455,6 +1452,5 @@ TEST_SUITE("assets: a map's files next to it") {
         CHECK(next_to("maps/town.ldtk", "C:\\art\\flat.png") == "flat.png");
         CHECK(next_to("town.ldtk", "/abs/flat.png") == "flat.png");
         CHECK(next_to("maps/town.ldtk", "").empty());
-        CHECK(next_to("maps/town.ldtk", nullptr).empty());
     }
 }

@@ -70,7 +70,7 @@ namespace {
 //
 // Returns the wrapper map, which OWNS the tileset; the caller frees it with
 // cute_tiled_free_map once it has copied what it needs.
-cute_tiled_map_t *load_external_tileset(const char *source, const char *map) {
+cute_tiled_map_t *load_external_tileset(const char *source, const std::string_view map) {
     const std::vector<unsigned char> bytes =
         rmp::assets::load_data(tilemap::detail::next_to(map, source));
     if (bytes.empty()) return nullptr;
@@ -282,7 +282,7 @@ MapPtr parse_tiled(const void *bytes, int size, const char *name) {
         cute_tiled_map_t *external = nullptr;
         const cute_tiled_tileset_t *from = set;
         if (source[0] != '\0' && set->tilecount <= 0) {
-            external = load_external_tileset(source, name);
+            external = load_external_tileset(source, name != nullptr ? name : "");
             if (external != nullptr && external->tilesets != nullptr &&
                 external->tilesets->tilecount > 0) {
                 from = external->tilesets;
@@ -339,9 +339,10 @@ MapPtr parse_tiled(const void *bytes, int size, const char *name) {
 
         // An external tileset's image is relative to the tileset's own file.
         const std::string where = external != nullptr
-            ? tilemap::detail::next_to(name, source)
+            ? tilemap::detail::next_to(name != nullptr ? name : "", source)
             : std::string(name != nullptr ? name : "");
-        const std::string image = tilemap::detail::next_to(where, from->image.ptr);
+        const std::string image = tilemap::detail::next_to(
+            where, from->image.ptr != nullptr ? from->image.ptr : "");
         if (!image.empty()) {
             out.texture = rmp::assets::load_texture(image);
             if (!out.texture.valid())
@@ -487,15 +488,16 @@ MapPtr parse_map(const void *bytes, int size, const char *name, std::string_view
     return out;
 }
 
-std::string next_to(const std::string_view map, const char *path) {
-    if (path == nullptr || path[0] == '\0') return {};
+std::string next_to(const std::string_view map, const std::string_view path) {
+    if (path.empty()) return {};
     const std::size_t slash = map.find_last_of("/\\");
     const std::string_view folder =
         slash == std::string_view::npos ? std::string_view() : map.substr(0, slash + 1);
-    const std::optional<std::string> near =
-        rmp::assets::detail::rres::packed_name("", std::string(folder) + path);
+    const std::optional<std::string> near = rmp::assets::detail::rres::packed_name(
+        "", std::string(folder) + std::string(path));
     if (near && rmp::assets::detail::resource_exists(near->c_str())) return *near;
-    return file_name_of(path);
+    const std::size_t last = path.find_last_of("/\\");
+    return std::string(last == std::string_view::npos ? path : path.substr(last + 1));
 }
 
 const char *file_name_of(const char *path) {
