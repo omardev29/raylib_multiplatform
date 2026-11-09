@@ -705,7 +705,7 @@ class ConfigureValidateTest(unittest.TestCase):
         with generated_header(base_config()) as header:
             self.assertIn("#define RMP_DEV_STRICT      0", header)
         # And the entry point reads it; a macro nobody tests is a comment.
-        app_cpp = (REPO / "src" / "rmp" / "app.cpp").read_text()
+        app_cpp = (REPO / "src" / "rmp" / "app" / "app.cpp").read_text()
         self.assertIn("RMP_DEV_STRICT", app_cpp)
         self.assertIn("!defined(NDEBUG)", app_cpp)
 
@@ -783,7 +783,7 @@ class ProductionBuildEverywhereTest(unittest.TestCase):
             self.assertTrue(flag in text, f"_windows.yml does not pass {flag}")
 
     def test_the_entry_point_refuses_a_build_system_that_forgot(self):
-        text = (REPO / "src" / "rmp" / "app.cpp").read_text()
+        text = (REPO / "src" / "rmp" / "app" / "app.cpp").read_text()
         self.assertRegex(text, r"#if !defined\(RMP_PRODUCTION_BUILD\)\s*\n#error")
 
     def test_no_build_system_defines_an_old_name(self):
@@ -2452,7 +2452,7 @@ class ConfigureWindowPacingTest(unittest.TestCase):
         text = (REPO / "raylib_multiplatform.toml").read_text()
         window = text[text.index("\n[window]"):text.index("\n[app]")]
         self.assertRegex(window, r"\npause_unfocused = false\n")
-        clock = (REPO / "src" / "rmp" / "clock.cpp").read_text()
+        clock = (REPO / "src" / "rmp" / "app" / "clock.cpp").read_text()
         self.assertIn("RMP_WINDOW_PAUSE_UNFOCUSED", clock)
 
     def test_the_toml_documents_both_in_window(self):
@@ -2462,7 +2462,7 @@ class ConfigureWindowPacingTest(unittest.TestCase):
         self.assertRegex(window, r"\nfps = 0\n")
 
     def test_app_cpp_uses_both_in_the_right_order_and_never_on_the_web(self):
-        text = (REPO / "src" / "rmp" / "app.cpp").read_text()
+        text = (REPO / "src" / "rmp" / "app" / "app.cpp").read_text()
         start = text.index("void open_window() {")
         body = text[start:text.index("\n}\n", start)]
         self.assertIn("RMP_WINDOW_VSYNC", body)
@@ -2491,7 +2491,7 @@ class SmokeReportsCountTheLastFrameTest(unittest.TestCase):
     was never counted, and the gate on 0 passed a game that broke it."""
 
     def test_the_count_is_printed_after_the_runner_closes_the_ui_frame(self):
-        text = (REPO / "src" / "rmp" / "app.cpp").read_text()
+        text = (REPO / "src" / "rmp" / "app" / "app.cpp").read_text()
         start = text.index("void end_frame() {")
         body = text[start:text.index("\n}\n", start)]
         runner = body.index("rmp::ui::detail::runner_end_frame();")
@@ -2648,9 +2648,9 @@ class ConfigureWindowStretchTest(unittest.TestCase):
         """The mode starts as the .toml's in the LIBRARY, where a test binary
         with no entry point reads it too; app.cpp, compiled into each
         executable, never names it."""
-        stretch = (REPO / "src" / "rmp" / "stretch.cpp").read_text()
+        stretch = (REPO / "src" / "rmp" / "app" / "stretch.cpp").read_text()
         self.assertIn("RMP_WINDOW_STRETCH", stretch)
-        app = (REPO / "src" / "rmp" / "app.cpp").read_text()
+        app = (REPO / "src" / "rmp" / "app" / "app.cpp").read_text()
         self.assertNotIn("RMP_WINDOW_STRETCH", app)
 
 
@@ -2689,11 +2689,11 @@ class TestWindowOnlyUnderTheSmokeTest(unittest.TestCase):
         return out
 
     def test_start_reads_it_only_under_the_smoke_test(self):
-        app = (REPO / "src" / "rmp" / "app.cpp").read_text()
+        app = (REPO / "src" / "rmp" / "app" / "app.cpp").read_text()
         self.assertEqual(self.problems(app), [])
 
     def test_the_check_goes_red_on_each_mistake(self):
-        app = (REPO / "src" / "rmp" / "app.cpp").read_text()
+        app = (REPO / "src" / "rmp" / "app" / "app.cpp").read_text()
         for old, new in (
                 ("if (SmokeTest_maxFrames > 0) {", "if (SmokeTest_maxFrames >= 0) {"),
                 ("InitWindow(size.width, size.height, RMP_WINDOW_TITLE);",
@@ -2760,7 +2760,7 @@ class AFailedBootFailsTheRunTest(unittest.TestCase):
         return out
 
     def sources(self):
-        return ((REPO / "src" / "rmp" / "app.cpp").read_text(),
+        return ((REPO / "src" / "rmp" / "app" / "app.cpp").read_text(),
                 (WORKFLOW_DIR / "_linux.yml").read_text())
 
     def test_a_failed_boot_ends_the_run_with_a_failing_status(self):
@@ -2919,7 +2919,7 @@ class EscapeIsTheGamesKeyTest(unittest.TestCase):
     said."""
 
     APP_H = REPO / "include" / "rmp" / "app.h"
-    APP_CPP = REPO / "src" / "rmp" / "app.cpp"
+    APP_CPP = REPO / "src" / "rmp" / "app" / "app.cpp"
 
     def test_after_ready_takes_the_exit_key_away_before_anything_can_return(self):
         body = function_body(self.APP_CPP.read_text(), "void after_ready() {")
@@ -3020,12 +3020,12 @@ class FactoryActionsAreDocumentedTest(unittest.TestCase):
 
     def test_the_header_table_is_what_input_cpp_binds(self):
         header = (REPO / "include" / "rmp" / "input.h").read_text()
-        source = (REPO / "src" / "rmp" / "input.cpp").read_text()
+        source = (REPO / "src" / "rmp" / "input" / "input.cpp").read_text()
         self.assertEqual(factory_actions_problems(header, source), [])
 
     def test_the_check_sees_each_kind_of_drift(self):
         header = (REPO / "include" / "rmp" / "input.h").read_text()
-        source = (REPO / "src" / "rmp" / "input.cpp").read_text()
+        source = (REPO / "src" / "rmp" / "input" / "input.cpp").read_text()
         for planted, said in (
                 (source.replace("KEY_A, KEY_LEFT", "KEY_Q, KEY_LEFT"), "move_left: rmp/input.h says"),
                 (source.replace('action("ui_cancel"', 'action("ui_back"'), "does not define"),
@@ -3049,7 +3049,7 @@ class InputIsSampledOncePerFrameTest(unittest.TestCase):
     sees the iOS and web runners too."""
 
     APP_H = REPO / "include" / "rmp" / "app.h"
-    APP_CPP = REPO / "src" / "rmp" / "app.cpp"
+    APP_CPP = REPO / "src" / "rmp" / "app" / "app.cpp"
 
     def test_every_runner_begins_the_frame_once_right_before_the_hook(self):
         app_h = self.APP_H.read_text()
@@ -3098,7 +3098,7 @@ class ReleaseStartsFromAnyFolderTest(unittest.TestCase):
     WORKFLOWS = REPO / ".github" / "workflows"
 
     def test_the_desktop_runner_moves_next_to_the_resources_before_opening_them(self):
-        body = function_body((REPO / "src" / "rmp" / "app.cpp").read_text(),
+        body = function_body((REPO / "src" / "rmp" / "app" / "app.cpp").read_text(),
                              "void begin_run() {")
         self.assertIn("enter_executable_folder();", body)
         self.assertLess(body.index("enter_executable_folder();"),
@@ -3107,7 +3107,7 @@ class ReleaseStartsFromAnyFolderTest(unittest.TestCase):
         self.assertIn("RMP_PRODUCTION_BUILD", guard[guard.rindex("#elif"):])
 
     def test_a_system_that_cannot_say_where_the_executable_is_is_said_once(self):
-        text = (REPO / "src" / "rmp" / "app.cpp").read_text()
+        text = (REPO / "src" / "rmp" / "app" / "app.cpp").read_text()
         body = function_body(text, "void enter_executable_folder() {")
         self.assertIn("this system does not say where the executable is", body)
         self.assertNotIn("RMP_REPORT_ONCE", body)
@@ -3953,14 +3953,14 @@ class EntryPointGuardTest(unittest.TestCase):
         return got.returncode, got.stdout + got.stderr
 
     def test_app_cpp_asks_for_the_symbol(self):
-        app = self.compile(REPO / "src" / "rmp" / "app.cpp", "app")
+        app = self.compile(REPO / "src" / "rmp" / "app" / "app.cpp", "app")
         if self.nm is None:
             self.skipTest("nm not installed")
         undefined = self.run_tool([self.nm, "-u", str(app)]).stdout
         self.assertRegex(undefined, r"\b_?rmp_entry_point_is_declared_exactly_once\b")
 
     def test_a_program_with_no_entry_point_is_told_its_name(self):
-        code, said = self.link(self.compile(REPO / "src" / "rmp" / "app.cpp", "app"))
+        code, said = self.link(self.compile(REPO / "src" / "rmp" / "app" / "app.cpp", "app"))
         self.assertNotEqual(code, 0)
         self.assertIn("rmp_entry_point_is_declared_exactly_once", said)
 
@@ -4193,7 +4193,7 @@ class SmallTruthsTest(unittest.TestCase):
         that can throw."""
         text = (REPO / "include" / "rmp" / "assets.h").read_text()
         self.assertNotIn("no exceptions anywhere", text)
-        catches = (REPO / "src" / "rmp" / "save.cpp").read_text().count("catch (...)")
+        catches = (REPO / "src" / "rmp" / "save" / "save.cpp").read_text().count("catch (...)")
         self.assertGreater(catches, 0)
         self.assertIn("src/rmp/save/save.cpp", text)
 
@@ -4244,7 +4244,7 @@ class SmallTruthsTest(unittest.TestCase):
         """[save] said a portable folder exists on "Windows, Linux and the
         BSDs". raylib's GetApplicationDirectory() answers "" on NetBSD and
         OpenBSD, and portable_folder() falls back to the user's folder there."""
-        save = (REPO / "src" / "rmp" / "save.cpp").read_text()
+        save = (REPO / "src" / "rmp" / "save" / "save.cpp").read_text()
         self.assertIn("this system does not say where the", save)
         comment = self.toml_comment("save")
         self.assertNotIn("Windows, Linux and the BSDs have", comment)
@@ -6314,8 +6314,8 @@ class ConfigureMaxDeltaTest(unittest.TestCase):
         self.assertNotIn("FRAME(GetFrameTime())", app_h)
         self.assertEqual(app_h.count("FRAME(rmp::app::detail::step_delta())"), 3)
         # In the library, with the rest of the clock: src/rmp/app/clock.cpp.
-        self.assertIn("RMP_MAX_DELTA", (REPO / "src" / "rmp" / "clock.cpp").read_text())
-        self.assertNotIn("float step_delta()", (REPO / "src" / "rmp" / "app.cpp").read_text())
+        self.assertIn("RMP_MAX_DELTA", (REPO / "src" / "rmp" / "app" / "clock.cpp").read_text())
+        self.assertNotIn("float step_delta()", (REPO / "src" / "rmp" / "app" / "app.cpp").read_text())
 
 
 class ConfigureNotANumberTest(unittest.TestCase):
@@ -11886,7 +11886,7 @@ class ConfigureAudioTest(unittest.TestCase):
             self.assertRegex(text, r"#define RMP_AUDIO_MASTER\s+0\.125f\n")
             self.assertRegex(text, r"#define RMP_AUDIO_MUSIC\s+0\.25f\n")
             self.assertRegex(text, r"#define RMP_AUDIO_SFX\s+0\.5f\n")
-        audio_cpp = (REPO / "src" / "rmp" / "audio.cpp").read_text()
+        audio_cpp = (REPO / "src" / "rmp" / "audio" / "audio.cpp").read_text()
         for define in ("RMP_AUDIO_MASTER", "RMP_AUDIO_MUSIC", "RMP_AUDIO_SFX"):
             with self.subTest(define=define):
                 self.assertIn(define, audio_cpp)
@@ -12171,7 +12171,7 @@ class WebSavesLinkTest(unittest.TestCase):
         web = (REPO / "cmake" / "web" / "rmp_web.js").read_text()
         self.assertIn("'/rmp_save/' + (Module['rmpSaveName']", web)
         self.assertIn("FS.mount(IDBFS, {}, dir)", web)
-        save = (REPO / "src" / "rmp" / "save.cpp").read_text()
+        save = (REPO / "src" / "rmp" / "save" / "save.cpp").read_text()
         self.assertIn('return "/rmp_save/" RMP_PROJECT_NAME "/";', save)
 
     def test_the_generated_name_is_the_project_name_as_a_js_string(self):

@@ -366,7 +366,7 @@ class NamingCheckTreeTest(GateTest):
         """src/rmp/tilemap/tiled_impl.cpp defines it, and the tree passes; the same
         line anywhere else is a macro without RMP_."""
         self.assertIn("#define CUTE_TILED_IMPLEMENTATION",
-                      (self.tree.root / "src" / "rmp" / "tiled_impl.cpp").read_text())
+                      (self.tree.root / "src" / "rmp" / "tilemap" / "tiled_impl.cpp").read_text())
         self.tree.plant("src/rmp/later.cpp", "#define CUTE_TILED_IMPLEMENTATION\n")
         self.assert_red("src/rmp/later.cpp:1: R5 #define CUTE_TILED_IMPLEMENTATION")
 
