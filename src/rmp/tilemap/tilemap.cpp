@@ -500,15 +500,6 @@ std::string next_to(const std::string_view map, const std::string_view path) {
     return std::string(last == std::string_view::npos ? path : path.substr(last + 1));
 }
 
-const char *file_name_of(const char *path) {
-    if (path == nullptr) return "";
-    const char *last = path;
-    for (const char *p = path; *p != '\0'; ++p) {
-        if (*p == '/' || *p == '\\') last = p + 1;
-    }
-    return last;
-}
-
 void report_tileset_image(const char *image, const char *map) {
     const std::string of = map[0] == '\0' ? "" : std::string(" of [") + map + "]";
     // Asked separately, and not through the load that just failed: a corrupt
