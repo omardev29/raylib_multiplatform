@@ -238,6 +238,15 @@ int main(void) {
     return 0;
 }
 ]=])
+  # Against Microsoft's C runtime the build's configuration picks the runtime
+  # itself -- libcmtd in Debug, libcmt otherwise -- and a try_compile with no
+  # configuration links the release one: the probe ran with a runtime the
+  # build then did not use, said yes, and LLVM's ASan, which has no library
+  # for the debug runtime, failed the game's link instead. Only there: on every
+  # other platform the configuration adds -g and changes nothing the probe asks.
+  if(RMP_MSVC_ABI AND CMAKE_BUILD_TYPE)
+    set(CMAKE_TRY_COMPILE_CONFIGURATION "${CMAKE_BUILD_TYPE}")
+  endif()
   foreach(_lang CXX C)
     if(_lang STREQUAL "CXX")
       set(_src "${_dir}/probe.cpp")

@@ -4888,6 +4888,190 @@ class NetbsdAsanRunsWithoutAslrTest(unittest.TestCase):
         self.assertLess(paxctl, run)
 
 
+class ClangForMsvcAbiTest(unittest.TestCase):
+    """Windows' third toolchain: clang and clang++ -- LLVM's installer, Visual
+    Studio's "C++ Clang tools", what [dev] compiler = "clang" finds there --
+    which build for MSVC's ABI and link with lld-link. CMake sets WIN32 for it
+    and neither MSVC nor MINGW, and CMakeLists.txt took it for a GNU toolchain:
+    `rmp package` printed
+
+        lld-link: warning: ignoring unknown argument '--gc-sections'
+        lld-link: warning: ignoring unknown argument '-s'
+        lld-link: warning: ignoring unknown argument '--dynamicbase', did you mean '-dynamicbase'
+
+    (and --nxcompat, --high-entropy-va) for a release that kept its dead code,
+    opened a console behind the game and needed the VC++ Redistributable; a
+    game in C did not link at all, asked for m.lib. check_linker_flag() had
+    said yes to every one of those flags, because lld-link only warns.
+
+    Nothing here is Windows: clang cross-compiles for x86_64-pc-windows-msvc
+    and lld-link links a program that asks for no library, which is all a
+    configure needs. So the real CMakeLists.txt is configured for that
+    toolchain and its link lines read back."""
+
+    TOOLCHAIN = """\
+set(CMAKE_SYSTEM_NAME Windows)
+set(CMAKE_SYSTEM_PROCESSOR x86_64)
+set(CMAKE_C_COMPILER clang)
+set(CMAKE_CXX_COMPILER clang++)
+set(CMAKE_C_COMPILER_TARGET x86_64-pc-windows-msvc)
+set(CMAKE_CXX_COMPILER_TARGET x86_64-pc-windows-msvc)
+set(CMAKE_LINKER lld-link)
+set(CMAKE_RC_COMPILER llvm-rc)
+# No Microsoft SDK on this machine: what a check links asks for no library.
+set(CMAKE_C_STANDARD_LIBRARIES "" CACHE STRING "" FORCE)
+set(CMAKE_CXX_STANDARD_LIBRARIES "" CACHE STRING "" FORCE)
+set(CMAKE_EXE_LINKER_FLAGS_INIT
+    "-nostdlib -fuse-ld=lld-link -Xlinker /entry:main -Xlinker /nodefaultlib")
+"""
+    GNU_LD_ONLY = ("--gc-sections", "-Wl,-s", "--dynamicbase", "--nxcompat", "--high-entropy-va")
+
+    @classmethod
+    def setUpClass(cls):
+        import shutil
+        import subprocess
+        cls.skip = None
+        needs = ("clang", "clang++", "lld-link", "cmake", "ninja")
+        missing = [n for n in needs if shutil.which(n) is None]
+        if missing:
+            if IN_BUILD_IMAGE:
+                raise AssertionError(f"the build image has no {missing}; this cannot skip there")
+            cls.skip = f"needs {', '.join(needs)}"
+            return
+        cls._tmp = tempfile.TemporaryDirectory()
+        cls.tmp = Path(cls._tmp.name)
+        cls.toolchain = cls.tmp / "toolchain.cmake"
+        cls.toolchain.write_text(cls.TOOLCHAIN)
+        cls.said, cls.ninja = {}, {}
+        for kind, flags in (("release", ["-DCMAKE_BUILD_TYPE=Release", "-DPRODUCTION_BUILD=ON"]),
+                            ("debug", ["-DCMAKE_BUILD_TYPE=Debug", "-DPRODUCTION_BUILD=OFF",
+                                       "-DRMP_DEV_TOOLCHAIN=OFF", "-DRMP_BUILD_EXAMPLES=ON"])):
+            got = subprocess.run(
+                ["cmake", "-S", str(REPO), "-B", str(cls.tmp / kind), "-G", "Ninja",
+                 f"-DCMAKE_TOOLCHAIN_FILE={cls.toolchain}", *flags],
+                capture_output=True, text=True, stdin=subprocess.DEVNULL,
+                # No sanitizer runtime for Windows here either: the probe says
+                # so and the configure goes on, as on a developer's machine.
+                env={k: v for k, v in os.environ.items() if k != "RMP_REQUIRE_SANITIZERS"})
+            cls.said[kind] = got.stdout + got.stderr
+            if got.returncode != 0:
+                raise AssertionError(f"{kind} did not configure:\n" + cls.said[kind][-3000:])
+            cls.ninja[kind] = (cls.tmp / kind / "build.ninja").read_text()
+
+    @classmethod
+    def tearDownClass(cls):
+        if getattr(cls, "_tmp", None) is not None:
+            cls._tmp.cleanup()
+
+    def setUp(self):
+        if self.skip:
+            self.skipTest(self.skip)
+
+    def link_of(self, kind: str, target: str) -> dict:
+        """One executable's link statement in build.ninja, as its variables."""
+        found = re.search(rf"^build {re.escape(target)}\.exe: [^\n]*\n((?:  [^\n]*\n)+)",
+                          self.ninja[kind], re.M)
+        self.assertIsNotNone(found, f"no link statement for {target}.exe")
+        return dict(line.strip().split(" = ", 1) for line in found.group(1).splitlines()
+                    if " = " in line)
+
+    def game(self) -> str:
+        return re.search(r"^CMAKE_PROJECT_NAME:STATIC=(.+)$",
+                         (self.tmp / "release" / "CMakeCache.txt").read_text(), re.M).group(1)
+
+    def test_it_is_the_toolchain_this_is_about(self):
+        # WIN32 without MSVC or MINGW: said once, by the branch that sees it.
+        for kind in ("release", "debug"):
+            self.assertIn("Clang's GNU driver for MSVC's ABI", self.said[kind])
+            cache = (self.tmp / kind / "CMakeCache.txt").read_text()
+            self.assertNotIn("CMAKE_GNUtoMS", cache)
+
+    def test_a_release_hands_the_linker_nothing_of_gnu_lds(self):
+        flags = self.link_of("release", self.game())["LINK_FLAGS"]
+        for flag in self.GNU_LD_ONLY:
+            self.assertNotIn(flag, flags)
+
+    def test_no_link_line_of_either_build_has_one(self):
+        for kind in ("release", "debug"):
+            for line in self.ninja[kind].splitlines():
+                if line.startswith("  LINK_FLAGS = "):
+                    for flag in self.GNU_LD_ONLY:
+                        self.assertNotIn(flag, line, kind)
+
+    def test_dead_code_is_dropped_with_the_linkers_own_flags(self):
+        flags = self.link_of("release", self.game())["LINK_FLAGS"]
+        self.assertIn("-Xlinker /OPT:REF", flags)
+        self.assertIn("-Xlinker /OPT:ICF", flags)
+
+    def test_a_release_opens_no_console(self):
+        flags = self.link_of("release", self.game())["LINK_FLAGS"].lower()
+        self.assertIn("/subsystem:windows", flags)
+        self.assertNotIn("/subsystem:console", flags)
+        self.assertIn("/entry:maincrtstartup", flags)
+
+    def test_the_c_runtime_goes_into_the_exe(self):
+        # libcmt, not msvcrt: no VC++ Redistributable on the player's machine.
+        for kind, runtime in (("release", "libcmt"), ("debug", "libcmtd")):
+            compiled = [line for line in self.ninja[kind].splitlines()
+                        if line.startswith("  FLAGS = ")]
+            self.assertTrue(compiled)
+            for line in compiled:
+                self.assertIn(f"--dependent-lib={runtime} ", line + " ", kind)
+                self.assertNotIn("msvcrt", line, kind)
+
+    def test_a_game_in_c_is_not_asked_for_libm(self):
+        # Microsoft's runtime has the maths in it; `m.lib` is a link error.
+        libs = self.link_of("debug", "example_plain_c")["LINK_LIBRARIES"]
+        self.assertNotRegex(libs, r"(^|\s)-lm(\.lib)?(\s|$)")
+        self.assertIn("raylib", libs)
+
+    def test_rmp_linker_takes_is_not_fooled_by_a_warning(self):
+        """The function itself, asked what CMake's own check says yes to."""
+        import subprocess
+        text = (REPO / "CMakeLists.txt").read_text()
+        function = re.search(r"^function\(rmp_linker_takes .*?^endfunction\(\)$", text,
+                             re.M | re.S)
+        self.assertIsNotNone(function)
+        project = self.tmp / "takes"
+        project.mkdir()
+        (project / "CMakeLists.txt").write_text(f"""cmake_minimum_required(VERSION 3.28)
+project(takes C CXX)
+include(CheckSourceCompiles)
+include(CheckLinkerFlag)
+{function.group(0)}
+foreach(_flag IN ITEMS ${{FLAGS}})
+  string(MAKE_C_IDENTIFIER "T${{_flag}}" _var)
+  rmp_linker_takes(C "${{_flag}}" ${{_var}})
+  check_linker_flag(C "${{_flag}}" CMAKE${{_var}})
+  message(STATUS "takes ${{_flag}}: ours=${{${{_var}}}} cmake=${{CMAKE${{_var}}}}")
+endforeach()
+""")
+
+        def ask(build: str, flags: list[str], *more: str) -> str:
+            got = subprocess.run(
+                ["cmake", "-S", str(project), "-B", str(self.tmp / build), "-G", "Ninja",
+                 f"-DFLAGS={';'.join(flags)}", *more],
+                capture_output=True, text=True, stdin=subprocess.DEVNULL)
+            self.assertEqual(got.returncode, 0, got.stdout[-2000:] + got.stderr[-2000:])
+            return got.stdout
+
+        said = ask("takes-windows", ["-Wl,--gc-sections", "-Wl,-s", "-Wl,--dynamicbase",
+                                     "LINKER:/OPT:REF"],
+                   f"-DCMAKE_TOOLCHAIN_FILE={self.toolchain}")
+        for flag in ("-Wl,--gc-sections", "-Wl,-s", "-Wl,--dynamicbase"):
+            self.assertRegex(said, rf"takes {re.escape(flag)}: ours=(0|OFF|)? ", flag)
+        self.assertIn("takes LINKER:/OPT:REF: ours=1", said)
+        # Why the function exists: CMake's own check is the one that is fooled.
+        self.assertIn("takes -Wl,--gc-sections: ours= cmake=1", said)
+        # And it is not a function that says no to everything: this machine's
+        # own linker, asked for a flag it has.
+        if sys.platform.startswith("linux"):
+            said = ask("takes-here", ["-Wl,--gc-sections", "-Wl,--no-such-flag-anywhere"])
+            self.assertIn("takes -Wl,--gc-sections: ours=1", said)
+            self.assertRegex(said, r"takes -Wl,--no-such-flag-anywhere: ours=(0|OFF|)? ")
+
+
+
 class FrameworkDebugIsSanitizedTest(unittest.TestCase):
     """The framework's Debug builds ALWAYS run under ASan and UBSan, and
     "always" is a set of things that can each be undone by an edit nobody

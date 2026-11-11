@@ -134,6 +134,51 @@ message(STATUS "=== C compiler:   ${CMAKE_C_COMPILER} (${CMAKE_C_COMPILER_ID} ${
 message(STATUS "=== C++ compiler: ${CMAKE_CXX_COMPILER} (${CMAKE_CXX_COMPILER_ID} ${CMAKE_CXX_COMPILER_VERSION})")
 message(STATUS "=== Linker:       ${CMAKE_LINKER} (as the C++ compiler drives it; [dev] linker below picks another)")
 
+# --- Windows has three toolchains, and CMake names two of them ---------------
+# MSVC is cl and clang-cl. MINGW is GCC, or Clang, for the GNU ABI. The third
+# is Clang's own driver -- clang and clang++, what LLVM's installer and Visual
+# Studio's "C++ Clang tools" put on PATH, and what [dev] compiler = "clang"
+# finds on Windows -- which builds for MSVC's ABI: it takes GCC's compile
+# flags, links against Microsoft's C runtime, and hands the link to lld-link or
+# link.exe, which take none of GNU ld's flags. CMake sets WIN32 for it and
+# neither MSVC nor MINGW, so every `if(MSVC) ... else()` below took it for a
+# GNU toolchain: -Wl,--gc-sections, -Wl,-s and -Wl,--dynamicbase went to
+# lld-link, which ignores what it does not know with a warning ("ignoring
+# unknown argument '--dynamicbase', did you mean '-dynamicbase'") -- so the
+# release was not stripped of dead code, opened a console behind the game and
+# needed the VC++ Redistributable -- and a game in C asked it for m.lib.
+#
+#   RMP_MSVC_ABI        the C runtime and the linker are Microsoft's
+#   RMP_CLANG_MSVC_ABI  ...and the driver is Clang's GNU one, not cl's
+#
+# tests/configure_test.py configures this file for exactly that toolchain, on
+# any machine with clang and lld-link, and reads the link line back.
+set(RMP_MSVC_ABI OFF)
+set(RMP_CLANG_MSVC_ABI OFF)
+if(MSVC)
+  set(RMP_MSVC_ABI ON)
+elseif(WIN32 AND (CMAKE_CXX_SIMULATE_ID STREQUAL "MSVC" OR CMAKE_C_SIMULATE_ID STREQUAL "MSVC"))
+  set(RMP_MSVC_ABI ON)
+  set(RMP_CLANG_MSVC_ABI ON)
+  message(STATUS "=== Windows: Clang's GNU driver for MSVC's ABI (Microsoft's runtime and linker flags) ===")
+endif()
+
+# Whether the linker TAKES a flag, which is not whether the link succeeds:
+# lld-link and link.exe ignore an option they do not know and say so in a
+# warning, and CMake's check_linker_flag() reads lld-link's wording of it as a
+# yes. VAR is set in the cache, like check_linker_flag()'s, and asked afresh:
+# a cached yes from another linker is how a flag that went away would hide.
+include(CheckSourceCompiles)
+function(rmp_linker_takes lang flags var)
+  unset(${var} CACHE)
+  set(CMAKE_REQUIRED_LINK_OPTIONS ${flags})
+  set(CMAKE_REQUIRED_QUIET ON)
+  check_source_compiles(${lang} "int main(void) { return 0; }" ${var}
+    FAIL_REGEX "ignoring unknown argument" # lld-link
+               "unrecognized option"       # link.exe, LNK4044
+               "unknown option" "[Ww]arning: .*ignor")
+endfunction()
+
 # tcc as the C compiler ([dev] c_compiler): what it takes for its code to link
 # and run with everyone else's. Nothing when the C compiler is not tcc.
 include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/tcc.cmake")
@@ -146,6 +191,8 @@ include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/tcc.cmake")
 # which inherit the variable, are built against the same runtime.
 #
 #   MSVC   /MT (/MTd in Debug): the CRT in the .exe, no VC++ Redistributable.
+#          Clang's GNU driver for MSVC's ABI takes the same variable (CMake
+#          turns it into --dependent-lib=libcmt): RMP_MSVC_ABI, not MSVC.
 #   MinGW  -static: libstdc++, libgcc and winpthread in the .exe, not
 #          libstdc++-6.dll and libgcc_s_seh-1.dll next to a compiler the player
 #          does not have.
@@ -158,7 +205,7 @@ include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/tcc.cmake")
 # No /arch: the x64 baseline is SSE2, which every x64 CPU has. /arch:AVX2 would
 # make the .exe die with an illegal instruction on a CPU without AVX2, and there
 # is no such thing on ARM64.
-if(MSVC)
+if(RMP_MSVC_ABI)
   set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 elseif(MINGW)
   add_link_options(-static)
@@ -370,7 +417,8 @@ endif()
 # x86-64 /usr/bin/strip cannot touch the arm64 or riscv64 output, whereas the
 # linker that produced the file is by definition the right tool for it.
 #
-# Not MSVC: its debug info is already in a separate .pdb. Not Emscripten: at
+# Not MSVC's ABI, whatever the driver: its debug info is in a separate .pdb,
+# and neither of its linkers has a -s. Not Emscripten: at
 # -Oz the wasm carries no DWARF and wasm-ld reads -s as something else. Not
 # Android: gradle strips the .so itself, and wants the unstripped one first so
 # it can upload the symbols to Play for the crash reports.
@@ -380,14 +428,13 @@ endif()
 # twenty minutes away, and ld64 dropped plain -s years ago (-S and -x are the
 # spellings Apple kept). A linker that will not take it simply does not strip.
 set(RMP_STRIP_FLAGS "")
-if(PRODUCTION_BUILD AND NOT MSVC AND NOT EMSCRIPTEN AND NOT ANDROID)
-  include(CheckLinkerFlag)
+if(PRODUCTION_BUILD AND NOT RMP_MSVC_ABI AND NOT EMSCRIPTEN AND NOT ANDROID)
   if(APPLE)
     set(_rmp_strip "-Wl,-S" "-Wl,-x")
   else()
     set(_rmp_strip "-Wl,-s")
   endif()
-  check_linker_flag(CXX "${_rmp_strip}" RMP_LINKER_CAN_STRIP)
+  rmp_linker_takes(CXX "${_rmp_strip}" RMP_LINKER_CAN_STRIP)
   if(RMP_LINKER_CAN_STRIP)
     set(RMP_STRIP_FLAGS ${_rmp_strip})
     message(STATUS "=== RELEASE: stripping symbols at link (${RMP_STRIP_FLAGS}) ===")
@@ -438,6 +485,8 @@ endif()
 #            non-executable stack are the platform's own and always on.
 #   Windows  MSVC: /GS, /DYNAMICBASE, /NXCOMPAT and /HIGHENTROPYVA are its
 #            defaults, and /guard:cf is not here -- it could not be measured.
+#            Clang for MSVC's ABI links with the same two linkers, so the
+#            three link defaults are its own too, and nothing is asked for.
 #            MinGW: --dynamicbase, --nxcompat and --high-entropy-va are
 #            binutils' defaults since 2.36, asked for anyway where the linker
 #            takes them; -fstack-protector-strong is not, because on MinGW it
@@ -457,10 +506,9 @@ set(RMP_RELEASE_CXX_FLAGS "")
 set(RMP_RELEASE_LINK_FLAGS "")
 set(RMP_RELEASE_PIE_APPLIED OFF)
 option(RMP_RELEASE_PIE "Link a Linux or BSD release position-independent (+5.5% on linux-x64-glibc)" ON)
-if(PRODUCTION_BUILD AND NOT MSVC AND NOT EMSCRIPTEN AND NOT ANDROID AND NOT IOS)
+if(PRODUCTION_BUILD AND NOT RMP_MSVC_ABI AND NOT EMSCRIPTEN AND NOT ANDROID AND NOT IOS)
   include(CheckCCompilerFlag)
   include(CheckCSourceCompiles)
-  include(CheckLinkerFlag)
   set(CMAKE_REQUIRED_QUIET ON)
   set(_said "")
   # Each check answers afresh: a cached yes from another compiler is how a flag
@@ -470,7 +518,7 @@ if(PRODUCTION_BUILD AND NOT MSVC AND NOT EMSCRIPTEN AND NOT ANDROID AND NOT IOS)
     if("${kind}" STREQUAL "compile")
       check_c_compiler_flag("${flag}" ${var})
     else()
-      check_linker_flag(C "${flag}" ${var})
+      rmp_linker_takes(C "${flag}" ${var})
     endif()
   endmacro()
 
@@ -555,6 +603,10 @@ function(rmp_apply_link_flags target)
   # Dead-code stripping, the linker half.
   if(MSVC)
     target_link_options(${target} PRIVATE /OPT:REF /OPT:ICF)
+  elseif(RMP_CLANG_MSVC_ABI)
+    # The same two, through Clang's driver: LINKER: is CMake's spelling of
+    # -Xlinker, and survives the de-duplication a bare -Xlinker would not.
+    target_link_options(${target} PRIVATE "LINKER:/OPT:REF" "LINKER:/OPT:ICF")
   elseif(EMSCRIPTEN)
     # wasm-ld has its own --gc-sections and it is enabled by default
   elseif(APPLE)
@@ -571,6 +623,12 @@ function(rmp_apply_link_flags target)
       # There is no console to quit on Windows either
       set_target_properties(${target} PROPERTIES
               LINK_FLAGS "/SUBSYSTEM:WINDOWS /ENTRY:mainCRTStartup")
+    elseif(RMP_CLANG_MSVC_ABI)
+      # WIN32_EXECUTABLE is how CMake says /SUBSYSTEM:WINDOWS through this
+      # driver, in place of the /subsystem:console it writes otherwise; the
+      # entry point stays main().
+      set_target_properties(${target} PROPERTIES WIN32_EXECUTABLE ON)
+      target_link_options(${target} PRIVATE "LINKER:/ENTRY:mainCRTStartup")
     elseif(MINGW)
       target_link_options(${target} PRIVATE -mwindows)
     endif()
@@ -962,8 +1020,10 @@ function(rmp_add_game NAME DIR)
                                "${CMAKE_CURRENT_SOURCE_DIR}/tests")
     target_include_directories(${NAME} SYSTEM PRIVATE
                                "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/raymob")
-    # A C++ executable gets libm through libstdc++; a C one has to ask.
-    if(NOT MSVC)
+    # A C++ executable gets libm through libstdc++; a C one has to ask --
+    # where there is one: Microsoft's C runtime has the maths in it, and
+    # asking lld-link for m.lib is an error.
+    if(NOT RMP_MSVC_ABI)
       target_link_libraries(${NAME} PRIVATE m)
     endif()
   else()
