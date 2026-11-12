@@ -377,6 +377,92 @@ class PackageTest(unittest.TestCase):
         self.assertEqual(code, rmp.FAILED)
         self.assertIn("without both", out)
 
+    def desktop(self, system: str, machine: str, upx: str, bash=True):
+        """`rmp package` on a machine of that kind, whose build "wrote" the
+        game: the commands it ran, and what it said."""
+        release = self.game / rmp.RELEASE_DIR
+        release.mkdir(parents=True, exist_ok=True)
+        (release / "demo").write_text("binary")
+        real_which = shutil.which
+        with recording({"--print-name": (0, "demo"), "--print-upx": (0, upx)}) as rec, \
+                unittest.mock.patch.object(rmp, "system_name", return_value=system), \
+                unittest.mock.patch.object(rmp.platform, "machine", return_value=machine), \
+                unittest.mock.patch.object(
+                    rmp.shutil, "which",
+                    side_effect=lambda n: (real_which(n) or "/bin/bash" if bash else None)
+                    if n == "bash" else real_which(n)), \
+                unittest.mock.patch.dict(os.environ, {"RMP_DRM": "0"}):
+            code, out, err = call(["package"], cwd=self.game)
+        return rec, code, out + err
+
+    def test_a_bsd_without_bash_packages_when_upx_is_not_asked_of_it(self):
+        """FreeBSD, OpenBSD and NetBSD ship no bash, and [upx] enabled names
+        none of them by default: tools/upx_pack.sh was started all the same,
+        to say so, and `rmp package` died on "bash" not being there."""
+        for system, machine, target in (("FreeBSD", "amd64", "freebsd-x64"),
+                                        ("OpenBSD", "arm64", "openbsd-arm64"),
+                                        ("NetBSD", "amd64", "netbsd-x64")):
+            with self.subTest(system=system):
+                rec, code, said = self.desktop(system, machine, '["linux-x64-glibc"]', bash=False)
+                self.assertEqual(code, rmp.OK, said)
+                self.assertFalse([a for a, _ in rec.calls if "tools/upx_pack.sh" in a])
+                self.assertTrue((self.game / f"build/package/demo-{target}.zip").is_file())
+
+    def test_upx_packs_the_copy_that_ships_where_it_is_asked(self):
+        rec, code, said = self.desktop("Linux", "x86_64", '["linux-x64-glibc"]')
+        self.assertEqual(code, rmp.OK, said)
+        packed = [a for a, _ in rec.calls if "tools/upx_pack.sh" in a]
+        self.assertEqual(len(packed), 1)
+        self.assertEqual(packed[0][2:], ["linux-x64-glibc",
+                                         str(self.game / "build/package/demo")])
+        # ...and where it is asked with no bash to run it, that is what is said.
+        rec, code, said = self.desktop("Linux", "x86_64", '["linux-x64-glibc"]', bash=False)
+        self.assertEqual(code, rmp.FAILED)
+        self.assertIn("needs bash", said)
+        self.assertIn("linux-x64-glibc", said)
+
+    def test_an_archive_made_on_musl_says_musl(self):
+        """Alpine's binary does not start on Debian, nor Debian's on Alpine:
+        `rmp package` on Alpine called its archive linux-x64-glibc."""
+        with unittest.mock.patch.object(rmp, "linux_libc", return_value="musl"):
+            rec, code, said = self.desktop("Linux", "x86_64", "[]")
+        self.assertEqual(code, rmp.OK, said)
+        self.assertTrue((self.game / "build/package/demo-linux-x64-musl.zip").is_file())
+        self.assertFalse((self.game / "build/package/demo-linux-x64-glibc.zip").exists())
+        # ...and the name is a target of the framework's, the one [upx] knows.
+        self.assertRegex((REPO / "tools" / "configure.py").read_text(),
+                         r'(?m)^    "linux-x64-musl":')
+
+    @unittest.skipUnless(sys.platform.startswith("linux"), "asks this Linux for its C library")
+    def test_this_machines_c_library_is_the_one_python_was_built_against(self):
+        import platform
+        expected = "glibc" if platform.libc_ver()[0] == "glibc" else "musl"
+        self.assertEqual(rmp.linux_libc(), expected)
+
+    def test_a_list_that_cannot_be_read_is_not_taken_for_an_empty_one(self):
+        rec, code, said = self.desktop("Linux", "x86_64", "not json")
+        self.assertEqual(code, rmp.FAILED)
+        self.assertIn("--print-upx", said)
+
+    def test_a_mac_packages_one_binary_for_both_kinds_of_mac(self):
+        """The macos job configures its release for arm64 and x86_64; `rmp
+        package` on a Mac built for the one it ran on, under the same name."""
+        rec, code, said = self.desktop("Darwin", "arm64", "[]")
+        self.assertEqual(code, rmp.OK, said)
+        configures = [a for a, _ in rec.calls if a[:2] == ["cmake", "--preset"]]
+        self.assertEqual(configures, [["cmake", "--preset", "release", rmp.MACOS_UNIVERSAL]])
+        self.assertTrue((self.game / "build/package/demo-macos.zip").is_file())
+        # Nobody else is handed it.
+        rec, _, _ = self.desktop("Linux", "x86_64", "[]")
+        self.assertEqual([a for a, _ in rec.calls if a[:2] == ["cmake", "--preset"]],
+                         [["cmake", "--preset", "release"]])
+
+    def test_the_macos_job_is_handed_the_same_architectures(self):
+        workflow = (REPO / ".github/workflows/_apple.yml").read_text()
+        said = re.search(r'cmake --preset release (-DCMAKE_OSX_ARCHITECTURES="[^"]+")', workflow)
+        self.assertIsNotNone(said, "the macos job no longer configures a universal release")
+        self.assertEqual(said.group(1).replace('"', ""), rmp.MACOS_UNIVERSAL)
+
     def test_a_staged_archive_holds_the_files_and_the_licences(self):
         ctx = rmp.Ctx(self.game)
         exe = self.game / "demo.exe"

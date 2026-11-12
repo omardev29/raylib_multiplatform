@@ -39,7 +39,8 @@ std::array<Lantern, LANTERNS> &lanterns() {
 EndScene::EndScene(std::string kind) : _kind(std::move(kind)) {}
 
 void EndScene::_ready() {
-    map = rmp::assets::load_map("world.ldtk", "Town");
+    load_town(*this);
+    map.spawn_objects(*this);
     const Rectangle b = map.bounds();
     camera.zoom = ZOOM;
     camera.position = { b.x + b.width / 2, b.y + b.height / 3 };

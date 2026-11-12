@@ -1,12 +1,10 @@
-// The look: Kenney's beige frames and brown plates, his Kenvector font, and a
+// The look: Kenney's beige frames and brown plates, his Kenpixel font, and a
 // Stage whose people each have a face for every mood and a voice of their own.
-// And the story so far, kept with rmp::save.
 
 #include "school.h"
 
 #include <rmp/app.h>
 #include <rmp/assets.h>
-#include <rmp/save.h>
 #include <rmp/ui.h>
 
 #include <array>
@@ -26,7 +24,8 @@ const Color CREAM = { 255, 246, 226, 255 };
 const Color DUSK = { 255, 178, 92, 255 };
 
 rmp::ui::Picture frame(std::string_view file, float border) {
-    return rmp::ui::NineSlice{ .texture = rmp::assets::load_texture(file),
+    return rmp::ui::NineSlice{ .texture =
+                                   rmp::assets::load_texture("ui/" + std::string(file)),
                                .left = border,
                                .top = border,
                                .right = border,
@@ -51,48 +50,12 @@ constexpr std::array<std::string_view, 3> MOODS{ "happy", "sad", "think" };
 
 } // namespace
 
-Story &story() { return rmp::global<Story>(); }
-
-void new_story() { story() = Story{}; }
-
-bool has_saved_story() { return rmp::save::exists("after_school"); }
-
-void load_story() {
-    rmp::Value v;
-    rmp::save::read("after_school", v);
-    Story &s = story();
-    s.hour = v["hour"].as_int(15);
-    s.with = std::string(v["with"].as_string(""));
-    s.met_mika = v["met_mika"].as_bool();
-    s.met_sora = v["met_sora"].as_bool();
-    s.met_aki = v["met_aki"].as_bool();
-    s.met_kai = v["met_kai"].as_bool();
-    s.raced = v["raced"].as_bool();
-    s.flyer = v["flyer"].as_bool();
-}
-
-void save_story() {
-    const Story &s = story();
-    rmp::Value v;
-    v["hour"] = s.hour;
-    v["with"] = s.with;
-    v["met_mika"] = s.met_mika;
-    v["met_sora"] = s.met_sora;
-    v["met_aki"] = s.met_aki;
-    v["met_kai"] = s.met_kai;
-    v["raced"] = s.raced;
-    v["flyer"] = s.flyer;
-    rmp::save::write("after_school", v);
-}
-
-void forget_story() { rmp::save::remove("after_school"); }
-
 void set_look() {
-    rmp::ui::set_font(rmp::assets::load_font("font.ttf", 16));
+    rmp::ui::set_font(rmp::assets::load_font("fonts/font.ttf", 16));
     rmp::ui::Theme look = rmp::ui::theme_light();
     look.text = INK;
     look.primary = DUSK;
-    look.sounds = { .hover = "tap", .click = "click", .volume = 0.5f };
+    look.sounds = { .hover = "audio/tap", .click = "audio/click", .volume = 0.5f };
     look.styles.panel = {
         .skin = rmp::ui::Skin{ .normal = frame("panel.png", FRAME) },
         .shadow =
@@ -116,7 +79,7 @@ void set_look() {
 rmp::ui::DialogueStage make_stage() {
     rmp::ui::DialogueStage stage{
         .flow = { .letters_per_second = 50,
-                  .blip = "tap",
+                  .blip = "audio/tap",
                   .blip_every = 3,
                   .blip_jitter = 0.06f },
         .portrait_height = PORTRAIT_HEIGHT,

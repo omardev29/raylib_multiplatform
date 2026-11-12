@@ -394,6 +394,84 @@ jobs:
           path: windows-x64-build.zip
           retention-days: 7
 
+  # Windows' third toolchain: clang and clang++ for MSVC's ABI -- what LLVM's
+  # installer and Visual Studio's "C++ Clang tools" put on PATH, and what
+  # [dev] compiler = "clang", the framework's own setting, finds on Windows.
+  # CMake sets WIN32 for it and neither MSVC nor MINGW, and nothing built with
+  # it: CMakeLists.txt took it for a GNU toolchain, so a release linked with
+  # five flags lld-link ignores ("ignoring unknown argument '--gc-sections'"),
+  # a console behind the game and the VC++ Redistributable to install, and a
+  # game in C did not link at all. tests/configure_test.py reads the link lines
+  # CMake writes for this toolchain, on any machine; this job is the build
+  # itself, with the runner's LLVM, in both configurations -- and the release
+  # read back: what it imports, and that it opens no console.
+  #
+  # The framework's job only: a game's [dev] compiler is its own choice.
+  x64-clang:
+    if: inputs.framework && contains(fromJSON(inputs.targets), 'windows-x64')
+    runs-on: ${{ inputs.runner }}
+    defaults:
+      run:
+        shell: pwsh
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      # Exit codes are read by hand in both steps: a compiler's stderr through
+      # a pipe must not end the step before its log is whole.
+      - name: Debug, with [dev] compiler = "clang"
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $false
+          $ErrorActionPreference = "Continue"
+          clang --version
+          cmake --preset debug 2>&1 | Tee-Object -FilePath debug-configure.log
+          if ($LASTEXITCODE -ne 0) { Write-Host "FAIL: the debug preset did not configure with clang"; exit 1 }
+          $cxx = (Select-String -Path build/debug/CMakeCache.txt -Pattern '^CMAKE_CXX_COMPILER:[A-Z]+=(.+)$').Matches[0].Groups[1].Value
+          Write-Host "compiler: $cxx"
+          if ($cxx -notmatch 'clang') { Write-Host "FAIL: [dev] compiler = clang, and the build uses $cxx"; exit 1 }
+          if (-not (Select-String -Path debug-configure.log -SimpleMatch "Clang's GNU driver for MSVC's ABI" -Quiet)) {
+            Write-Host "FAIL: this is not clang for MSVC's ABI, which is what this job is for"; exit 1
+          }
+          cmake --build --preset debug --target "${{ inputs.project_name }}" 2>&1 | Tee-Object -FilePath debug-build.log
+          if ($LASTEXITCODE -ne 0) { Write-Host "FAIL: the debug build with clang"; exit 1 }
+          if (-not (Test-Path "build/debug/${{ inputs.project_name }}.exe")) { Write-Host "FAIL: no .exe"; exit 1 }
+          $ignored = @(Select-String -Path debug-configure.log, debug-build.log -Pattern 'unknown argument|LNK4044|unrecognized option')
+          if ($ignored.Count -ne 0) {
+            $ignored | ForEach-Object { Write-Host $_.Line }
+            Write-Host "FAIL: the linker was handed a flag it does not know"; exit 1
+          }
+          Write-Host "PASS: debug with clang"
+
+      - name: Release, with clang as the compiler CMake finds
+        env:
+          CC: clang
+          CXX: clang++
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $false
+          $ErrorActionPreference = "Continue"
+          cmake --preset release 2>&1 | Tee-Object -FilePath release-configure.log
+          if ($LASTEXITCODE -ne 0) { Write-Host "FAIL: the release preset did not configure with clang"; exit 1 }
+          $cxx = (Select-String -Path build/release/CMakeCache.txt -Pattern '^CMAKE_CXX_COMPILER:[A-Z]+=(.+)$').Matches[0].Groups[1].Value
+          Write-Host "compiler: $cxx"
+          if ($cxx -notmatch 'clang') { Write-Host "FAIL: CXX=clang++, and the build uses $cxx"; exit 1 }
+          cmake --build --preset release --target "${{ inputs.project_name }}" 2>&1 | Tee-Object -FilePath release-build.log
+          if ($LASTEXITCODE -ne 0) { Write-Host "FAIL: the release build with clang"; exit 1 }
+          $ignored = @(Select-String -Path release-configure.log, release-build.log -Pattern 'unknown argument|LNK4044|unrecognized option')
+          if ($ignored.Count -ne 0) {
+            $ignored | ForEach-Object { Write-Host $_.Line }
+            Write-Host "FAIL: the linker was handed a flag it does not know"; exit 1
+          }
+          $exe = "build/release/${{ inputs.project_name }}.exe"
+          # No DLL but Windows' own: the C runtime is in the .exe.
+          python tools/binary_check.py windows $exe
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          # The subsystem, from the PE optional header: 2 is a window, 3 a console.
+          $bytes = [System.IO.File]::ReadAllBytes($exe)
+          $pe = [System.BitConverter]::ToInt32($bytes, 0x3C)
+          $subsystem = [System.BitConverter]::ToUInt16($bytes, $pe + 0x5C)
+          if ($subsystem -ne 2) { Write-Host "FAIL: the release's subsystem is $subsystem, not 2: it opens a console"; exit 1 }
+          Write-Host "PASS: release with clang ($((Get-Item $exe).Length) bytes, no console, nothing to install)"
+
   # `rmp` from the two Windows shells, on its own runner so that a launcher
   # bug and a build bug never hide each other. The launchers are the part of
   # rmp the Linux tests cannot run: rmp.ps1 under PowerShell, rmp.cmd under

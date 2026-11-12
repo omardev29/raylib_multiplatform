@@ -441,14 +441,14 @@ def remove_tree(path: Path) -> None:
         path.unlink()
 
 
-def build(ctx: Ctx, release: bool = False) -> str:
+def build(ctx: Ctx, release: bool = False, extra: tuple[str, ...] = ()) -> str:
     """Configure and build the game: debug in DEBUG_DIR, release in
     RELEASE_DIR (on a Linux console, DEBUG_DRM_DIR and RELEASE_DRM_DIR).
     None ever configures another's folder, so a release never inherits the
     [dev] compiler a debug configure FORCEd into its cache, and switching
-    between them rebuilds nothing."""
+    between them rebuilds nothing. `extra` is handed to the configure."""
     preset = ctx.preset(release)
-    configure(ctx, preset)
+    configure(ctx, preset, *extra)
     name = ctx.name()
     # --target is not a detail: without it this builds whatever else the
     # directory has configured -- the tests `rmp test` asked for -- and a test
@@ -1247,6 +1247,19 @@ def run_windows(ctx: Ctx, toolchain: str) -> int:
 
 
 
+def linux_libc() -> str:
+    """This Linux's C library, glibc or musl -- two libraries, and a binary
+    of one does not start on the other, so the archive's name says which.
+    glibc answers confstr() with its version; musl knows the question and
+    has no answer. A door the tests can stand in for."""
+    try:
+        if os.confstr("CS_GNU_LIBC_VERSION"):
+            return "glibc"
+    except (ValueError, OSError):
+        pass
+    return "musl"
+
+
 def host_target(ctx: Ctx) -> str:
     """This machine's target name, as the release jobs name theirs."""
     system = system_name()
@@ -1258,8 +1271,29 @@ def host_target(ctx: Ctx) -> str:
     if system == "Windows":
         return f"windows-{arch}"
     if system == "Linux":
-        return f"linux-{arch}-glibc" + ("-drm" if ctx.session().drm else "")
+        return f"linux-{arch}-{linux_libc()}" + ("-drm" if ctx.session().drm else "")
     return f"{system.lower()}-{arch}"
+
+
+# What the macos job hands its configure (_apple.yml): one binary for both
+# kinds of Mac. `rmp package` on a Mac built for the one it ran on, and called
+# the archive by the release's name.
+MACOS_UNIVERSAL = "-DCMAKE_OSX_ARCHITECTURES=arm64;x86_64"
+
+
+def upx_wanted(ctx: Ctx, target: str) -> bool:
+    """Whether [upx] enabled names this target. Asked here, before
+    tools/upx_pack.sh, which is bash: FreeBSD, OpenBSD and NetBSD ship none,
+    and `rmp package` there stopped on "bash: not found" to be told by the
+    script that there was nothing to pack."""
+    got = ctx.run([ctx.python, "tools/configure.py", "--print-upx"], check=False, capture=True)
+    if got.returncode != 0:
+        raise Refused("tools/configure.py --print-upx failed, so [upx] enabled could not be "
+                      "read:\n" + (got.stderr or got.stdout or "").strip())
+    try:
+        return target in json.loads(got.stdout or "[]")
+    except json.JSONDecodeError as e:
+        raise Refused(f"tools/configure.py --print-upx did not print a list: {e}") from e
 
 
 def make_pack(ctx: Ctx) -> None:
@@ -1296,7 +1330,8 @@ def cmd_package(ctx, args):
     if target == "desktop":
         no_args(rest)
         make_pack(ctx)
-        name = build(ctx, release=True)
+        universal = (MACOS_UNIVERSAL,) if system_name() == "Darwin" else ()
+        name = build(ctx, release=True, extra=universal)
         exe = ctx.exe(f"{ctx.build_dir(release=True)}/{name}")
         if not exe.is_file():
             raise Refused(f"{exe.relative_to(ctx.root)} is not there: the build wrote no such file")
@@ -1304,7 +1339,11 @@ def cmd_package(ctx, args):
         shipped = ctx.root / "build/package" / exe.name
         shipped.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(exe, shipped)
-        if not on_windows():
+        if not on_windows() and upx_wanted(ctx, where):
+            if shutil.which("bash") is None:
+                raise Refused(f"[upx] enabled names {where}, and tools/upx_pack.sh, which packs "
+                              "it, needs bash, which is not installed here.\nInstall bash, or "
+                              f"take {where} out of [upx] enabled.")
             ctx.run([ctx.bash(), "tools/upx_pack.sh", where, shipped])
         stage_and_zip(ctx, where, [shipped], licences)
         shipped.unlink()
