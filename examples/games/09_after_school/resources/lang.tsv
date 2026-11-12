@@ -19,7 +19,7 @@ You found a festival flyer!		You found a festival flyer!	¡Has encontrado un fol
 {hour}:{minutes} pm		{hour}:{minutes} pm	{hour}:{minutes} p. m.	
 A festival flyer		A festival flyer	Un folleto del festival	
 The festival is at seven		The festival is at seven	El festival es a las siete	
-E: Talk		E: Talk	E: Hablar	
+Talk		Talk	Hablar	
 line:mika_hi		Mika: You survived the last class of the week!	Mika: ¡Has sobrevivido a la última clase de la semana!	
 line:mika_festival		Mika: The lantern festival starts at seven. Everyone's going.	Mika: El festival de los faroles empieza a las siete. Va todo el mundo.	
 line:mika_again		Mika: Still here? It's already {0} o'clock.	Mika: ¿Sigues aquí? Ya son las {0}.	
@@ -53,3 +53,7 @@ line:end_mika		Mika: There you are! Look, the lanterns!	Mika: ¡Ahí estás! ¡M
 line:end_sora		Sora: You came. Front row, like you said.	Sora: Has venido. En primera fila, como dijiste.	
 line:home_early		You think about going home, but the afternoon isn't over yet.	Piensas en volver a casa, pero la tarde aún no ha terminado.	
 line:end_home		The lanterns rise over town. You watch them from your window.	Los faroles suben sobre el pueblo. Los miras desde tu ventana.	
+line:seven_bell		The bell of the school strikes seven.	La campana del instituto da las siete.	
+line:seven_mika		Mika: There you are! Come on, they're lighting the lanterns!	Mika: ¡Ahí estás! ¡Vamos, que están encendiendo los faroles!	
+line:seven_sora		Sora: You made it. Front row, like you said.	Sora: Has llegado. En primera fila, como dijiste.	
+line:seven_alone		The first lanterns rise over the roofs. You watch them from the street.	Los primeros faroles suben sobre los tejados. Los miras desde la calle.	

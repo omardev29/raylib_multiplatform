@@ -1,24 +1,21 @@
 // The town: the map, you, whoever LDtk put in it, and the conversations.
 //
-// Every person is an entity of world.ldtk with a Talker: their `node` of
-// school.yarn, their `look` (which .aseprite walks around, which portraits
-// the Stage shows). When a conversation is loaded the game hands it what it
-// needs: the story's variables, bound (the script's $hour IS story().hour),
-// has_item(), and the two commands, <<walk who place>> -- which the dialogue
-// waits on until they arrive -- and <<ending kind>>.
+// Everything here is an entity of maps/world.ldtk. A Person is a Talker: their
+// `node` of dialogue/school.yarn, their `look` (which sheet walks around, which
+// portraits the Stage shows). A Place is where a <<walk who place>> of the
+// script goes, and Home is the way out of the afternoon. The trees and the
+// street lamps are src/scenery.cpp's, in every scene that shows the town.
 
 #include "school.h"
 
 #include <rmp/app.h>
 #include <rmp/assets.h>
-#include <rmp/audio.h>
 #include <rmp/behavior.h>
 #include <rmp/dialogue.h>
 #include <rmp/input.h>
 #include <rmp/tilemap.h>
 #include <rmp/ui.h>
 
-#include <array>
 #include <cmath>
 #include <map>
 #include <string>
@@ -28,12 +25,21 @@ namespace game {
 
 namespace {
 
-constexpr float SPEED = 70; // yours, in world units a second
-constexpr float STROLL = 40; // theirs, walking where the script sends them
-constexpr float ARRIVED = 2; // close enough to a place
+constexpr float SPEED = 72; // yours, in world units a second
+constexpr float STROLL = 44; // theirs, walking where the script sends them
+constexpr float ARRIVED = 6; // close enough to a place
 constexpr float MINUTES_A_SECOND = 3; // the afternoon's pace
-constexpr float PROMPT_LIFT = -20; // the "Talk" bubble over a head
+constexpr float MINUTES_AN_HOUR = 60;
 constexpr float KAI_SECONDS = 4; // Kai's race: say yes in time
+constexpr float CAMERA_DRIFT = 8; // how quickly the view catches up with you
+constexpr Vector2 FEET{ 10, 6 }; // what of a person stops at a wall
+constexpr Vector2 OVER_HEAD{ 0, -14 }; // where a person's prompt floats
+constexpr int ON_THE_GROUND = -1; // drawn under everyone
+
+const Color INK = { 62, 39, 35, 235 };
+const Color CREAM = { 255, 246, 226, 255 };
+
+constexpr Rectangle POSTER{ 11 * TILE, 13 * TILE, TILE, TILE }; // in maps/tiles.png
 
 // Where a <<walk>> goes, by the names LDtk gives them, and who is in town.
 struct Town {
@@ -42,46 +48,42 @@ struct Town {
 };
 Town &town() { return rmp::global<Town>(); }
 
-// Someone the script walks somewhere: TopDown's animation tags, by hand.
-struct Stroll {
-    Vector2 to{};
-    bool going = false;
-    [[nodiscard]] bool arrived() const { return !going; }
+bool close_to(Vector2 a, Vector2 b) {
+    return std::hypot(a.x - b.x, a.y - b.y) <= ARRIVED;
+}
 
-    void _update(rmp::Object &self, float delta) {
-        if (!going) return;
-        const Vector2 d{ to.x - self.position.x, to.y - self.position.y };
-        const float far = std::hypot(d.x, d.y);
-        if (far <= ARRIVED) {
-            going = false;
-            self.sprite.play("idle_s");
-            return;
-        }
-        const float step = std::min(far, STROLL * delta);
-        self.position.x += d.x / far * step;
-        self.position.y += d.y / far * step;
-        const bool across = std::abs(d.x) > std::abs(d.y);
-        self.sprite.play(across ? (d.x > 0 ? "walk_e" : "walk_w")
-                                : (d.y > 0 ? "walk_s" : "walk_n"));
+// Someone with a sheet of their own, standing on their feet.
+rmp::Object &person(rmp::Scene &scene, Vector2 position, std::string_view look) {
+    auto &someone = scene.spawn({ .position = position });
+    someone.sprite.sheet =
+        rmp::assets::load_sheet("sprites/" + std::string(look) + ".aseprite");
+    someone.collider = rmp::rect(FEET);
+    someone.solid = true;
+    return someone;
+}
+
+// Sends `who` to one of the map's places; the dialogue waits until they are there.
+void walk(rmp::Dialogue &talk, std::string_view who, std::string_view where) {
+    const auto walker = town().people.find(who);
+    const auto place = town().places.find(where);
+    if (walker == town().people.end() || place == town().places.end()) return;
+    const rmp::Handle<rmp::Object> them = walker->second;
+    const Vector2 to = place->second;
+    if (const auto o = them.get()) {
+        if (auto path = o->get<rmp::behavior::Pathfind>()) path->goal = to;
     }
-};
+    talk.wait_until([them, to, asked = 0]() mutable {
+        const auto o = them.get();
+        if (!o || close_to(o->position, to)) return true;
+        // With no way there the script goes on, rather than wait for ever.
+        const auto path = o->get<rmp::behavior::Pathfind>();
+        return ++asked > 2 && (!path || path->arrived());
+    });
+}
 
-// You stand facing where you last walked.
-struct Standing {
-    void _update(rmp::Object &self, float /*delta*/) {
-        const auto walk = self.get<rmp::behavior::TopDown>();
-        if (!walk || self.velocity.x != 0 || self.velocity.y != 0) return;
-        const int sector = walk->sector();
-        static constexpr std::array<std::string_view, 8> IDLE{
-            "idle_e", "idle_e", "idle_n", "idle_w", "idle_w", "idle_w", "idle_s", "idle_e"
-        };
-        self.sprite.play(IDLE[static_cast<std::size_t>(sector)]);
-    }
-};
+} // namespace
 
-// What the story's conversations need from the game, given to each one when
-// it is loaded.
-void prepare(rmp::Dialogue &talk, TownScene &scene) {
+void TownScene::prepare(rmp::Dialogue &talk) {
     Story &s = story();
     talk.bind("$hour", s.hour);
     talk.bind("$with", s.with);
@@ -94,31 +96,22 @@ void prepare(rmp::Dialogue &talk, TownScene &scene) {
     talk.on_function("has_item", [](const std::string &item) -> bool {
         return item == "flyer" && story().flyer;
     });
-    // Walks a person to one of the map's places; the dialogue waits for them.
-    talk.on_command("walk", [&talk](const std::string &who, const std::string &where) {
-        const auto person = town().people.find(who);
-        const auto place = town().places.find(where);
-        if (person == town().people.end() || place == town().places.end()) return;
-        if (const auto o = person->second.get()) {
-            auto stroll = o->get<Stroll>();
-            stroll->to = place->second;
-            stroll->going = true;
-            const rmp::Handle<rmp::Object> h = person->second;
-            talk.wait_until([h] {
-                const auto p = h.get();
-                return !p || p->get<Stroll>()->arrived();
-            });
-        }
-    });
+    // The view goes with whoever the script walks somewhere, until the
+    // conversation is over.
+    talk.on_command("walk",
+                    [this, &talk](const std::string &who, const std::string &where) {
+                        walk(talk, who, where);
+                        if (const auto walker = town().people.find(who);
+                            walker != town().people.end()) {
+                            camera.follow = walker->second;
+                        }
+                    });
     // The evening's end: festival, concert or home.
-    talk.on_command("ending",
-                    [&scene](std::string kind) { scene.ending(std::move(kind)); });
+    talk.on_command("ending", [this](std::string kind) { ending(std::move(kind)); });
 }
 
-} // namespace
-
 void TownScene::_ready() {
-    background = Color{ 109, 190, 106, 255 };
+    background = Color{ 60, 200, 168, 255 };
     rmp::input::action("pause", KEY_ESCAPE, KEY_P, GAMEPAD_BUTTON_MIDDLE_RIGHT);
     rmp::input::action("interact", KEY_E, KEY_SPACE, GAMEPAD_BUTTON_RIGHT_FACE_DOWN);
     build();
@@ -126,19 +119,13 @@ void TownScene::_ready() {
 
 void TownScene::build() {
     town() = Town{};
-    map = rmp::assets::load_map("world.ldtk", "Town");
-    auto &you = spawn({ .shape = rmp::rect({ 10, 8 }) });
-    you.sprite.sheet = rmp::assets::load_sheet("you.aseprite");
-    you.sprite.play("idle_n");
-    you.solid = true;
-    you.layer = 5;
-    you.add<rmp::behavior::TopDown>(
-        { .speed = SPEED,
-          .eight_way = true,
-          .idle = "",
-          .walk = "walk",
-          .suffixes = { "e", "e", "n", "w", "w", "w", "s", "e" } });
-    you.add<Standing>();
+    load_town(*this);
+    _seven = rmp::assets::load_dialogue("dialogue/school.yarn");
+    prepare(_seven);
+
+    auto &you = person(*this, {}, "you");
+    you.add<rmp::behavior::TopDown>({ .speed = SPEED, .idle = "", .walk = "" });
+    you.add<Character>({ .facing = { 0, -1 } });
     _you = you.handle();
 
     map.on_object("Player", [this](rmp::Scene &, const rmp::MapObject &o) {
@@ -148,29 +135,27 @@ void TownScene::build() {
         town().places[std::string(o.property_string("name"))] = o.position;
     });
     map.on_object("Person", [this](rmp::Scene &scene, const rmp::MapObject &o) {
-        auto &person =
-            scene.spawn({ .position = o.position, .shape = rmp::rect({ 10, 8 }) });
-        const std::string look(o.property_string("look", "mika"));
-        person.sprite.sheet = rmp::assets::load_sheet(look + ".aseprite");
-        person.sprite.play("idle_s");
-        person.solid = true;
-        person.layer = 4;
-        person.add<Stroll>();
+        auto &them = person(scene, o.position, o.property_string("look", "mika"));
+        // Nobody is pushed out of their conversation.
+        them.immovable = true;
+        them.add<rmp::behavior::Pathfind>({ .speed = STROLL, .clearance = FEET.x / 2 });
+        them.add<Character>();
         rmp::behavior::Talker talker = rmp::behavior::Talker::from(o);
         talker.player = _you;
-        talker.on_load = [this](rmp::Dialogue &d) { prepare(d, *this); };
-        const rmp::Handle<rmp::Object> me = person.handle();
+        talker.on_load = [this](rmp::Dialogue &d) { prepare(d); };
+        const rmp::Handle<rmp::Object> me = them.handle();
         talker.on_talk = [this, me](rmp::Dialogue &) { talking(me); };
         talker.on_done = [this] { done_talking(); };
-        person.add<rmp::behavior::Talker>(std::move(talker));
+        them.add<rmp::behavior::Talker>(std::move(talker));
         town().people[std::string(o.property_string("name", "Mika"))] = me;
     });
     map.on_object("Home", [this](rmp::Scene &scene, const rmp::MapObject &o) {
         auto &home = scene.spawn({ .position = o.position });
+        home.visible = false;
         rmp::behavior::Talker talker = rmp::behavior::Talker::from(o);
         talker.player = _you;
         talker.action = ""; // walking onto it is enough
-        talker.on_load = [this](rmp::Dialogue &d) { prepare(d, *this); };
+        talker.on_load = [this](rmp::Dialogue &d) { prepare(d); };
         const rmp::Handle<rmp::Object> me = home.handle();
         talker.on_talk = [this, me](rmp::Dialogue &) { talking(me); };
         talker.on_done = [this] { done_talking(); };
@@ -179,10 +164,11 @@ void TownScene::build() {
     map.on_object("Flyer", [](rmp::Scene &scene, const rmp::MapObject &o) {
         if (story().flyer) return;
         auto &flyer = scene.spawn({ .position = o.position, .shape = rmp::circle(6) });
-        flyer.sprite.texture = rmp::assets::load_texture("tiles.png");
-        flyer.sprite.source = Rectangle{ 11 * TILE, 13 * TILE, TILE, TILE }; // a poster
+        flyer.sprite.texture = rmp::assets::load_texture("maps/tiles.png");
+        flyer.sprite.source = POSTER;
+        flyer.layer = ON_THE_GROUND;
         flyer.add<rmp::behavior::Collectible>(
-            { .sound = "switch", .on_collect = [](rmp::Object &, rmp::Object &) {
+            { .sound = "audio/switch", .on_collect = [](rmp::Object &, rmp::Object &) {
                  story().flyer = true;
                  rmp::ui::notify("You found a festival flyer!");
              } });
@@ -191,54 +177,77 @@ void TownScene::build() {
 
     camera.follow = _you;
     camera.limits = map.bounds();
-    camera.smoothing = 6;
+    camera.smoothing = CAMERA_DRIFT;
     camera.zoom = ZOOM;
 }
 
 void TownScene::talking(rmp::Handle<rmp::Object> speaker) {
     _speaker = speaker;
     _stage.ours = {};
+    const auto them = speaker.get();
+    const auto talker =
+        them ? them->get<rmp::behavior::Talker>() : rmp::Ref<rmp::behavior::Talker>{};
     // Kai's race: a choice with a clock on it.
-    const auto o = speaker.get();
-    const auto t =
-        o ? o->get<rmp::behavior::Talker>() : rmp::Ref<rmp::behavior::Talker>{};
-    _stage.flow.choice_seconds = t && t->node == "Kai" ? KAI_SECONDS : 0;
+    _stage.flow.choice_seconds = talker && talker->node == "Kai" ? KAI_SECONDS : 0;
     _stage.flow.default_choice = 1;
-    if (const auto y = _you.get()) y->enable<rmp::behavior::TopDown>(false);
+    const auto you = _you.get();
+    if (!you) return;
+    // You stop where you are, and the two of you look at each other.
+    you->enable<rmp::behavior::TopDown>(false);
+    you->velocity = {};
+    if (them) {
+        face(*you, them->position);
+        face(*them, you->position);
+    }
 }
 
 void TownScene::done_talking() {
     _speaker = {};
-    if (const auto y = _you.get()) y->enable<rmp::behavior::TopDown>(true);
+    camera.follow = _you;
+    if (const auto you = _you.get()) you->enable<rmp::behavior::TopDown>(true);
     save_story();
-    if (!_ending.empty()) {
-        forget_story();
-        rmp::Scene::change<EndScene>(_ending);
-    }
+    if (_ending.empty()) return;
+    forget_story();
+    rmp::Scene::change<EndScene>(std::exchange(_ending, {}));
 }
 
 void TownScene::ending(std::string kind) { _ending = std::move(kind); }
 
-void TownScene::_update(float delta) {
-    if (rmp::input::just_pressed("pause") && !_speaker) {
-        rmp::Scene::push<PauseScene>();
+// The afternoon goes on while you walk, not while you talk; at seven it is over.
+void TownScene::pass_time(float delta) {
+    Story &s = story();
+    if (s.hour >= FESTIVAL_HOUR) {
+        s.hour = FESTIVAL_HOUR;
+        s.minutes = 0;
+        if (_seven.start("Seven")) talking({});
         return;
     }
-    // The afternoon goes on while you walk, not while you talk.
-    if (!_speaker) {
-        Story &s = story();
-        s.minutes += delta * MINUTES_A_SECOND;
-        while (s.minutes >= 60) {
-            s.minutes -= 60;
-            ++s.hour;
-        }
+    s.minutes += delta * MINUTES_A_SECOND;
+    while (s.minutes >= MINUTES_AN_HOUR && s.hour < FESTIVAL_HOUR) {
+        s.minutes -= MINUTES_AN_HOUR;
+        ++s.hour;
     }
 }
 
-void TownScene::_draw() {
+void TownScene::_update(float delta) {
+    const bool at_seven = _seven.running();
+    if (_speaker || at_seven) return;
+    // Seven's last line was read: the evening it asked for.
+    if (!_ending.empty()) {
+        done_talking();
+        return;
+    }
+    if (rmp::input::just_pressed("pause")) {
+        rmp::Scene::push<PauseScene>();
+        return;
+    }
+    pass_time(delta);
+}
+
+void TownScene::draw_clock() const {
     const Story &s = story();
-    rmp::ui::begin({ .placement = rmp::ui::Align::TOP_LEFT, .padding = 14 });
-    rmp::ui::panel([&] {
+    rmp::ui::begin({ .placement = rmp::ui::Align::TOP_LEFT, .padding = 10 });
+    rmp::ui::panel({ .box = { .gap = 2, .padding = 12 } }, [&] {
         rmp::ui::text(
             rmp::Text("{hour}:{minutes} pm",
                       { { "hour", s.hour - 12 },
@@ -249,26 +258,43 @@ void TownScene::_draw() {
                       { .color = rmp::ui::ColorRole::MUTED, .wrap = false });
     });
     rmp::ui::end();
+}
 
-    if (const auto speaker = _speaker.get()) {
-        auto talker = speaker->get<rmp::behavior::Talker>();
-        rmp::ui::begin({ .placement = rmp::ui::Align::BOTTOM_CENTER, .grow = true });
-        if (talker) _stage.show(talker->conversation());
-        rmp::ui::end();
-        return;
-    }
-    // "Talk" over whoever is close enough.
+// "Talk" over whoever is close enough to talk to.
+void TownScene::draw_prompts() const {
     for (const auto &[name, handle] : town().people) {
-        const auto o = handle.get();
-        const auto t =
-            o ? o->get<rmp::behavior::Talker>() : rmp::Ref<rmp::behavior::Talker>{};
-        if (!t || !t->in_range()) continue;
+        const auto them = handle.get();
+        const auto talker =
+            them ? them->get<rmp::behavior::Talker>() : rmp::Ref<rmp::behavior::Talker>{};
+        if (!talker || !talker->in_range()) continue;
         rmp::ui::begin();
-        rmp::ui::at({ o->position.x, o->position.y + PROMPT_LIFT }, [] {
-            rmp::ui::panel([] { rmp::ui::text("E: Talk", { .wrap = false }); });
+        rmp::ui::at(them->position, { .offset = OVER_HEAD, .id = name }, [] {
+            rmp::ui::Label prompt{ .text = "Talk",
+                                   .wrap = false,
+                                   .style = { .background = INK,
+                                              .radius = 6,
+                                              .padding_x = 8,
+                                              .padding_y = 3,
+                                              .text = CREAM } };
+            prompt.show();
         });
         rmp::ui::end();
     }
+}
+
+void TownScene::_draw() {
+    DrawRectangle(0, 0, GetScreenWidth(), GetScreenHeight(), dusk(story()));
+    draw_clock();
+    const auto them = _speaker.get();
+    auto talker =
+        them ? them->get<rmp::behavior::Talker>() : rmp::Ref<rmp::behavior::Talker>{};
+    if (!talker && !_seven.running()) {
+        draw_prompts();
+        return;
+    }
+    rmp::ui::begin({ .placement = rmp::ui::Align::BOTTOM_CENTER, .grow = true });
+    _stage.show(talker ? talker->conversation() : _seven);
+    rmp::ui::end();
 }
 
 } // namespace game

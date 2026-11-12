@@ -21,8 +21,9 @@ const Color OUTLINE = { 62, 39, 35, 255 };
 void TitleScene::_ready() {
     rmp::app::set_stretch(rmp::app::Stretch::EXPAND);
     set_look();
-    background = Color{ 109, 190, 106, 255 };
-    map = rmp::assets::load_map("world.ldtk", "Town");
+    background = Color{ 60, 200, 168, 255 };
+    load_town(*this);
+    map.spawn_objects(*this);
     camera.limits = map.bounds();
     camera.zoom = ZOOM;
 }

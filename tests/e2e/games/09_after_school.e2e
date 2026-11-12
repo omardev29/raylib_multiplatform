@@ -1,6 +1,7 @@
 # examples/games/09_after_school, played: the title, into town, Aki at the
-# café, the flyer by the east trees, Mika at the school gate -- asked to the
-# festival -- and home, to the festival ending.
+# cafe, the flyer by the east trees, Mika at the school gate -- asked to the
+# festival, then asked about Sora, so she walks to the pond and the script
+# waits for her -- and home, to the festival ending.
 #
 # The arrows walk, E talks, Enter goes on through a line (a first press shows
 # all of it, a second goes on). See tests/e2e/script.h for the grammar.
@@ -8,7 +9,7 @@
 # The title's panel appears for 0.25 s: the shot waits.
 24 shot title
 25 expect scene TitleScene
-# The languages lang.tsv has, under the menu: Español, and back to English.
+# The languages lang.tsv has, under the menu: Espanol, and back to English.
 26 click 463 268
 40 shot title_es
 41 click 334 268
@@ -16,11 +17,15 @@
 43 tap KEY_ENTER
 43 expect scene TownScene
 60 shot town
-# Up the school path to the crossing, then west to the café.
+# Up the street to the crossing, west to the cafe's path, and up it to Aki.
 61 press KEY_UP
-230 release KEY_UP
-231 press KEY_LEFT
-420 release KEY_LEFT
+221 release KEY_UP
+222 press KEY_LEFT
+409 release KEY_LEFT
+410 press KEY_UP
+424 release KEY_UP
+# Close enough to talk: "Talk" floats over her.
+429 shot prompt
 431 tap KEY_E
 470 shot aki
 # Aki's two lines: a press shows all of a line, the next goes on.
@@ -28,23 +33,23 @@
 480 tap KEY_ENTER
 500 tap KEY_ENTER
 505 tap KEY_ENTER
-# East along the street, down past the plaza, and east to the flyer.
-521 press KEY_RIGHT
-806 release KEY_RIGHT
-807 press KEY_DOWN
-960 release KEY_DOWN
-961 press KEY_RIGHT
-1071 release KEY_RIGHT
-1080 shot flyer
-# Back the way it came, and up to Mika at the school gate.
-1081 press KEY_LEFT
-1191 release KEY_LEFT
-1192 press KEY_UP
-1345 release KEY_UP
-1346 press KEY_LEFT
-1469 release KEY_LEFT
-1470 press KEY_UP
-1484 release KEY_UP
+# Back to the street, east to its end, down past the pond, and the flyer.
+521 press KEY_DOWN
+535 release KEY_DOWN
+536 press KEY_RIGHT
+936 release KEY_RIGHT
+937 press KEY_DOWN
+1084 release KEY_DOWN
+1085 press KEY_LEFT
+1097 release KEY_LEFT
+1110 shot flyer
+# Back the way it came, to Mika at the school gate.
+1111 press KEY_RIGHT
+1123 release KEY_RIGHT
+1124 press KEY_UP
+1271 release KEY_UP
+1272 press KEY_LEFT
+1485 release KEY_LEFT
 1491 tap KEY_E
 1530 tap KEY_ENTER
 1535 tap KEY_ENTER
@@ -55,17 +60,27 @@
 1581 tap KEY_ENTER
 1610 tap KEY_ENTER
 1615 tap KEY_ENTER
-# Home, down the school path, to the evening.
-1631 press KEY_RIGHT
-1665 release KEY_RIGHT
-1666 press KEY_DOWN
-1886 release KEY_DOWN
-1920 shot home
-1925 tap KEY_ENTER
-1926 expect scene EndScene
-1990 shot ending
+# Again: now the first choice is Sora, and she walks to the pond to show him.
+1630 tap KEY_E
+1670 tap KEY_ENTER
+1675 tap KEY_ENTER
+1700 tap KEY_ENTER
+1740 tap KEY_ENTER
+1745 tap KEY_ENTER
+# The view goes with her, and the line after <<walk>> waits until she is there.
+1850 shot walking
+2040 shot pond
+2045 tap KEY_ENTER
+2050 tap KEY_ENTER
+# Home, down the street, to the evening: Mika's line, and the festival.
+2070 press KEY_DOWN
+2260 release KEY_DOWN
+2290 shot home
+2295 tap KEY_ENTER
+2300 expect scene EndScene
+2360 shot ending
 # Back to the title has the focus.
-1991 tap KEY_ENTER
-1992 expect scene TitleScene
-2020 shot title_again
-2021 end
+2361 tap KEY_ENTER
+2363 expect scene TitleScene
+2390 shot title_again
+2391 end

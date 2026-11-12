@@ -3,7 +3,7 @@
 // own (bound in src/scenes/town.cpp), so every conversation sees what the
 // others decided.
 //
-//   $hour          the town's clock, an hour of the afternoon
+//   $hour          the town's clock, an hour of the afternoon (15 to 19)
 //   $with          who you go to the festival with: "", "mika" or "sora"
 //   $met_*         whom you have talked to
 //   $raced         Kai's race, run
@@ -25,7 +25,7 @@ title: Mika
     Mika: The lantern festival starts at seven. Everyone's going. #line:mika_festival
     <<set $met_mika = true>>
 <<else>>
-    Mika: Still here? It's already {$hour} o'clock. #line:mika_again #mood:think
+    Mika: Still here? It's already {$hour - 12} o'clock. #line:mika_again #mood:think
 <<endif>>
 -> Want to go to the festival together? <<if has_item("flyer") and $with == "">> #line:mika_ask
     Mika: With you? [wave]Yes![/wave] Meet me at the gate at seven. #line:mika_yes #mood:happy
@@ -80,7 +80,7 @@ Kai: Race you to the station! Now or never! #line:kai_hi #mood:happy
     Kai: [speed=2]Three, two, one... GO![/speed] #line:kai_go #mood:happy
     <<set $raced = true>>
     <<set $hour = $hour + 1>>
-    Kai: An hour of running and we're right back here. It's {$hour} now. #line:kai_back #mood:sad
+    Kai: An hour of running and we're right back here. It's {$hour - 12} now. #line:kai_back #mood:sad
 -> Not today. #line:kai_no
     Kai: Your loss! #line:kai_loss #mood:think
 ===
@@ -97,6 +97,22 @@ title: Home
     You think about going home, but the afternoon isn't over yet. #line:home_early
 <<else>>
     The lanterns rise over town. You watch them from your window. #line:end_home
+    <<ending home>>
+<<endif>>
+===
+
+// Seven o'clock, wherever you are: the scene starts this one itself.
+title: Seven
+---
+The bell of the school strikes seven. #line:seven_bell
+<<if $with == "mika">>
+    Mika: There you are! Come on, they're lighting the lanterns! #line:seven_mika #mood:happy
+    <<ending festival>>
+<<elseif $with == "sora">>
+    Sora: You made it. Front row, like you said. #line:seven_sora #mood:happy
+    <<ending concert>>
+<<else>>
+    The first lanterns rise over the roofs. You watch them from the street. #line:seven_alone
     <<ending home>>
 <<endif>>
 ===
