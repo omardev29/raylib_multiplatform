@@ -5072,6 +5072,63 @@ endforeach()
 
 
 
+class RaymobOffAndroidTest(unittest.TestCase):
+    """thirdparty/raymob is Android's, and the desktop's Debug build compiles
+    every file of it all the same, each to nothing: the framework links
+    raymoblib so that rmp::ads has its no-ops. helper.c included <unistd.h>
+    above its `#ifdef __ANDROID__`, and Microsoft's C library has none: with
+    [dev] compiler = "clang" on Windows -- clang for MSVC's ABI -- `rmp build`
+    stopped at "'unistd.h' file not found", where MinGW, which ships one, went
+    on, and a release, which does not build raymob, never met it.
+
+    Off Android a file here may ask for nothing but raylib.h and what the
+    compiler itself brings (stdarg.h, stdbool.h): so each is compiled for
+    Windows with no system header to find at all."""
+
+    SOURCES = sorted((REPO / "thirdparty" / "raymob").glob("*.c"))
+
+    def test_there_are_sources_to_check(self):
+        # Seven today; a glob that stopped matching would pass by finding none.
+        self.assertGreaterEqual(len(self.SOURCES), 7)
+        self.assertIn("helper.c", [s.name for s in self.SOURCES])
+
+    def test_every_file_compiles_with_no_system_header(self):
+        import shutil
+        import subprocess
+        if shutil.which("clang") is None:
+            if IN_BUILD_IMAGE:
+                raise AssertionError("the build image has no clang; this cannot skip there")
+            self.skipTest("needs clang")
+        for source in self.SOURCES:
+            with self.subTest(source.name):
+                got = subprocess.run(
+                    ["clang", "--target=x86_64-pc-windows-msvc", "-nostdlibinc", "-fsyntax-only",
+                     "-DRAYMOB_IMPLEMENTATION", "-DPLATFORM_DESKTOP", "-DGRAPHICS_API_OPENGL_33",
+                     f"-I{REPO / 'thirdparty' / 'raymob'}",
+                     "-isystem", str(REPO / "thirdparty" / "raylib" / "src"), str(source)],
+                    capture_output=True, text=True, stdin=subprocess.DEVNULL)
+                self.assertEqual(got.returncode, 0, got.stderr[-1500:])
+
+    def test_the_check_sees_a_system_header(self):
+        """The same command on a file that asks for one: it has to fail, or
+        the test above proves nothing."""
+        import shutil
+        import subprocess
+        if shutil.which("clang") is None:
+            self.skipTest("needs clang")
+        with tempfile.TemporaryDirectory() as tmp:
+            probe = Path(tmp) / "probe.c"
+            probe.write_text('#include "raymob.h"\n#include <unistd.h>\n')
+            got = subprocess.run(
+                ["clang", "--target=x86_64-pc-windows-msvc", "-nostdlibinc", "-fsyntax-only",
+                 f"-I{REPO / 'thirdparty' / 'raymob'}",
+                 "-isystem", str(REPO / "thirdparty" / "raylib" / "src"), str(probe)],
+                capture_output=True, text=True, stdin=subprocess.DEVNULL)
+            self.assertNotEqual(got.returncode, 0)
+            self.assertIn("'unistd.h' file not found", got.stderr)
+
+
+
 class FrameworkDebugIsSanitizedTest(unittest.TestCase):
     """The framework's Debug builds ALWAYS run under ASan and UBSan, and
     "always" is a set of things that can each be undone by an edit nobody

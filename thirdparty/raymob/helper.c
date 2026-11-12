@@ -23,11 +23,16 @@
  */
 
 #include "raymob.h"
+
+#ifdef __ANDROID__
+
+/* [rmp patch] Inside the guard, with everything that uses them: the desktop's
+ * Debug build compiles this file too, to nothing, and <unistd.h> is not a
+ * header Microsoft's C library has -- clang for MSVC's ABI and cl both stopped
+ * here ("'unistd.h' file not found"), where MinGW, which ships one, went on. */
 #include <stdlib.h>
 #include <unistd.h>
 #include <string.h>
-
-#ifdef __ANDROID__
 
 /* Static variables */
 
