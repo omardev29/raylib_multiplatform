@@ -1,5 +1,8 @@
 # raylib_multiplatform
 
+[![CI](https://github.com/omardev29/raylib_multiplatform/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/omardev29/raylib_multiplatform/actions/workflows/ci.yml?query=branch%3Amain)
+[![Docs](https://github.com/omardev29/rmp-docs/actions/workflows/pages.yml/badge.svg?branch=main)](https://github.com/omardev29/rmp-docs/actions/workflows/pages.yml?query=branch%3Amain)
+
 **📖 Documentation: <https://omardev29.github.io/rmp-docs/>** — a tutorial that builds a game
 from nothing to a release, the manual, the examples (most of them playable in the browser),
 publishing, and the reference. Every C and C++ block there is compiled against this repository.
