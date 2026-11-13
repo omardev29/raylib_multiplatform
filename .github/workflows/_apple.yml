@@ -275,7 +275,7 @@ jobs:
       - name: Within its size budget
         run: python3 tools/size_check.py macos "build/release/${{ inputs.project_name }}" "package/${{ inputs.project_name }}"
 
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
         with:
           name: macos-build
           path: macos-build.zip
@@ -510,7 +510,7 @@ jobs:
           ditto -c -k --sequesterRsrc --keepParent "$APP_PATH" ios-app-simulator.zip
           ls -la ios-app-simulator.zip
 
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
         with:
           name: ios-raylib-xcframework
           path: thirdparty/raylib-ios/raylib.xcframework
@@ -519,7 +519,7 @@ jobs:
       # The release used to ship only the xcframework — a library, not the game.
       # This is the simulator build of the app itself; it is unsigned and NOT
       # installable on a device (that needs an Apple developer account).
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
         with:
           name: ios-app-simulator
           path: ios-app-simulator.zip
