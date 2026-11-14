@@ -1454,3 +1454,23 @@ TEST_SUITE("assets: a map's files next to it") {
         CHECK(next_to("maps/town.ldtk", "").empty());
     }
 }
+
+TEST_SUITE("assets: the glyphs a font is baked with") {
+    TEST_CASE(
+        "the default is ASCII, Latin-1, Latin Extended-A and the typography, exactly") {
+        // A font loaded with no codepoints of its own is baked with these:
+        // raylib's own default is the 95 of ASCII, and drew an n with a tilde as
+        // '?'. Every edge is asked, so a range one short or one long is seen.
+        const std::span<const int> all = rmp::assets::detail::default_codepoints();
+        std::vector<int> want;
+        for (int c = 32; c <= 126; ++c) want.push_back(c);
+        for (int c = 160; c <= 383; ++c) want.push_back(c);
+        for (const int c : { 0x2013, 0x2014, 0x2018, 0x2019, 0x201A, 0x201C, 0x201D,
+                             0x201E, 0x2022, 0x2026, 0x20AC, 0x2122 })
+            want.push_back(c);
+        CHECK(std::vector<int>(all.begin(), all.end()) == want);
+        for (const int absent : { 31, 127, 159, 384 }) {
+            CHECK_MESSAGE(std::ranges::find(all, absent) == all.end(), absent);
+        }
+    }
+}

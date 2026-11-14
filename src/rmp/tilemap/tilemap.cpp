@@ -736,7 +736,8 @@ void tilemap::detail::index_map(MapData &data) {
                 const auto column = static_cast<int>(at % width);
                 const auto row = static_cast<int>(at / width);
                 if (row >= layer.height) return;
-                layer.solid[at] = solid_cell_from_source(data, layer, column, row) ? 1 : 0;
+                layer.solid[at] =
+                    solid_cell_from_source(data, layer, column, row) ? 1 : 0;
             };
             if (layer.sparse) {
                 for (const std::size_t at : layer.marked) ask(at);

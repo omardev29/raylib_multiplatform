@@ -1333,7 +1333,8 @@ TEST_SUITE("ldtk") {
             R"({"value":2,"identifier":"Solid"}]}]},)"
             R"("levels":[{"identifier":"L","pxWid":65536,"pxHei":65536,"layerInstances":[)"
             R"({"__type":"IntGrid","__gridSize":16,"__cWid":4096,"__cHei":4096,"layerDefUid":3,)"
-            R"("intGridCsv":[)" + csv + "]}]}]}";
+            R"("intGridCsv":[)" +
+            csv + "]}]}]}";
         const Parsed p(doc, "claims.ldtk");
         REQUIRE(p.map.layer_count() == 1);
         const auto &layer = p.data->layers[0];
