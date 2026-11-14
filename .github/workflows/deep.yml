@@ -194,11 +194,22 @@ jobs:
           path: build/findings/
           if-no-files-found: ignore
 
+  # RapidCheck at a random seed, 5000 cases a property, in SHARDS: the
+  # properties under ASan took longer than one job's hour once the dialogue and
+  # text ones joined them (about 26 minutes of property on a fast machine, more
+  # on a runner, and Hypothesis after it), and the job was cancelled every night
+  # with nothing found and nothing said. Each shard runs a contiguous range of
+  # the test cases in doctest's own order (--first/--last), all of them across
+  # the four, and records its finding under its own name.
   properties:
     needs: plan
     if: needs.plan.outputs.mode == 'nightly'
     runs-on: ubuntu-24.04
     timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
     permissions:
       contents: read
       packages: read
@@ -210,6 +221,9 @@ jobs:
     defaults:
       run:
         shell: bash
+    env:
+      SHARD: ${{ matrix.shard }}
+      SHARDS: 4
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 
@@ -229,12 +243,18 @@ jobs:
         id: rapidcheck
         run: |
           set -euo pipefail
+          total=$(./build/debug/property_test --count | sed -nE 's/.*passing the current filters: ([0-9]+).*/\1/p')
+          case "$total" in ''|*[!0-9]*|0) echo "FAIL: property_test --count said [$total]"; exit 1 ;; esac
+          per=$(( (total + SHARDS - 1) / SHARDS ))
+          first=$(( (SHARD - 1) * per + 1 ))
+          last=$(( SHARD * per ))
           seed=$(od -An -N4 -tu4 /dev/urandom | tr -d ' ')
-          echo "RC_PARAMS=\"seed=$seed max_success=5000\""
+          echo "shard $SHARD of $SHARDS: test cases $first to $last of $total"
+          echo "RC_PARAMS=\"seed=$seed max_success=5000\" ./build/debug/property_test --first=$first --last=$last"
           mkdir -p build/findings
           status=0
           RC_PARAMS="seed=$seed max_success=5000" ./build/debug/property_test \
-            > build/findings/rapidcheck.log 2>&1 || status=$?
+            --first="$first" --last="$last" > build/findings/rapidcheck.log 2>&1 || status=$?
           tail -60 build/findings/rapidcheck.log
           exit "$status"
 
@@ -242,17 +262,41 @@ jobs:
         if: failure() && steps.rapidcheck.conclusion == 'failure'
         run: |
           repro=$(grep -o 'RC_PARAMS="reproduce=[^"]*"' build/findings/rapidcheck.log | head -1 || true)
-          python3 tools/finding.py record property rapidcheck build/findings/rapidcheck.log \
+          python3 tools/finding.py record property "rapidcheck-$SHARD" build/findings/rapidcheck.log \
             --repro "cmake --build --preset debug --target property_test && ${repro:-RC_PARAMS=<the seed above>} ./build/debug/property_test"
+
+      - name: Keep the finding
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: finding-properties-${{ matrix.shard }}
+          path: build/findings/
+          if-no-files-found: ignore
+
+  hypothesis:
+    needs: plan
+    if: needs.plan.outputs.mode == 'nightly'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      packages: read
+    container:
+      image: ghcr.io/omardev29/raylib-build@sha256:6fb4255df4a9731744c42fddb9a10d5f123c234890c922ef213a228c22c61ce0
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 
       - name: Hypothesis, at its nightly profile
         id: hypothesis
-        if: always()
         env:
           RMP_REQUIRE_HYPOTHESIS: "1"
           RMP_HYPOTHESIS_PROFILE: nightly
         run: |
           set -euo pipefail
+          python3 tools/configure.py > /dev/null
           mkdir -p build/findings
           status=0
           python3 -m unittest discover -s tests -p '*_property_test.py' -v \
@@ -270,7 +314,7 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
-          name: finding-properties
+          name: finding-hypothesis
           path: build/findings/
           if-no-files-found: ignore
 
@@ -342,7 +386,7 @@ jobs:
           if-no-files-found: ignore
 
   report:
-    needs: [plan, fuzz, properties, mutation]
+    needs: [plan, fuzz, properties, hypothesis, mutation]
     if: always() && needs.plan.result == 'success'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
