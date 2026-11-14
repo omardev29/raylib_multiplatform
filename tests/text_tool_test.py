@@ -211,6 +211,14 @@ class SameTsvAsTheFrameworkTest(unittest.TestCase):
                 self.assertEqual(text_tool.parse_tsv(text_tool.write_tsv([[cell, "x"]]))[0][0],
                                  cell)
 
+    def test_a_carriage_return_inside_a_line_is_dropped(self):
+        # As text.cpp reads it (#38): a CR anywhere in a line never reaches a
+        # cell, so every cell read writes back as itself.
+        rows = text_tool.parse_tsv("Open\tdoor\tAbrir\rla\r\r\n\r\n#c\r\n")
+        self.assertEqual(rows, [["Open", "door", "Abrirla"]])
+        for cell in rows[0]:
+            self.assertEqual(text_tool.parse_tsv(text_tool.write_tsv([[cell]])), [[cell]])
+
     def test_the_plural_counts_are_the_frameworks(self):
         source = (REPO / "src/rmp/text/text.cpp").read_text()
         for code, n in (("en", 2), ("ja", 1), ("ru", 4), ("fr", 2), ("pl", 4)):

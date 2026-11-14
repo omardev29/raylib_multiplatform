@@ -277,7 +277,8 @@ def parse_tsv(text: str) -> list[list[str]]:
         text = text[1:]
     rows = []
     for line in text.split("\n"):
-        line = line.rstrip("\r")
+        # No carriage return survives into a cell, as text.cpp reads it.
+        line = line.replace("\r", "")
         if not line or line.startswith("#"):
             continue
         rows.append([unescape(c) for c in line.split("\t")])

@@ -72,18 +72,14 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t *data, std::size_t size
                             "every line shown is in the program");
                     m.advance();
                 } else if (e.is == rmp::yarn::Event::Is::OPTIONS) {
+                    // One choice a step, of the set shown NOW. A choice can lead
+                    // straight to another set of options, so nothing read from
+                    // the set before it is used after (the count of the old set
+                    // indexed the new, shorter one: #39). An unavailable pick
+                    // leaves the same set up, and the next step's index is the
+                    // next one, so every option is reached in `count` steps.
                     const int count = static_cast<int>(e.options.size());
                     m.choose(count == 0 ? -1 : (pick + step) % count);
-                    if (m.event().is == rmp::yarn::Event::Is::OPTIONS) m.choose(-1);
-                    if (m.event().is == rmp::yarn::Event::Is::OPTIONS) {
-                        // Every option it offers may be unavailable but one: take the first that is.
-                        for (int k = 0; k < count; ++k) {
-                            if (e.options[static_cast<std::size_t>(k)].available) {
-                                m.choose(k);
-                                break;
-                            }
-                        }
-                    }
                 } else {
                     m.advance();
                 }

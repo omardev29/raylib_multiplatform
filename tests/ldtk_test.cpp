@@ -1321,6 +1321,29 @@ TEST_SUITE("ldtk") {
         CHECK(p.map.solid_at({ 24, 8 }));
     }
 
+    TEST_CASE("a level costs what it paints, not the cells it claims") {
+        // #28, #36: index_map() asked every one of the 4096 x 4096 cells an
+        // empty level may claim whether it was solid -- eleven seconds under
+        // the sanitizers. Only the cells the reader marked are asked now, and
+        // the one painted solid is still solid.
+        const Quiet quiet;
+        std::string csv = "0,0,2";
+        const std::string doc =
+            R"({"defs":{"tilesets":[],"layers":[{"uid":3,"intGridValues":[)"
+            R"({"value":2,"identifier":"Solid"}]}]},)"
+            R"("levels":[{"identifier":"L","pxWid":65536,"pxHei":65536,"layerInstances":[)"
+            R"({"__type":"IntGrid","__gridSize":16,"__cWid":4096,"__cHei":4096,"layerDefUid":3,)"
+            R"("intGridCsv":[)" + csv + "]}]}]}";
+        const Parsed p(doc, "claims.ldtk");
+        REQUIRE(p.map.layer_count() == 1);
+        const auto &layer = p.data->layers[0];
+        CHECK(layer.sparse);
+        CHECK(layer.marked == std::vector<std::size_t>{ 2 });
+        CHECK(p.map.solid_at({ 40, 8 }));
+        CHECK_FALSE(p.map.solid_at({ 8, 8 }));
+        CHECK_FALSE(p.map.solid_at({ 65000, 65000 }));
+    }
+
     TEST_CASE("a Point field without both its cell's coordinates is no point") {
         const Quiet quiet;
         const std::string doc =

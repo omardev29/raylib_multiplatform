@@ -725,15 +725,23 @@ void tilemap::detail::index_map(MapData &data) {
                                : layer.solid_cells.size(),
                            0);
         // The cells the reader stored, and no more: a layer that CLAIMS a
-        // billion cells and stores a hundred is a hundred cells of work.
+        // billion cells and stores a hundred is a hundred cells of work. An
+        // LDtk layer holds a slot for every cell it claims, so only the cells
+        // its reader marked are asked (#28, #36); a Tiled layer holds what its
+        // file stored.
         if (layer.width > 0 && layer.height > 0) {
             const auto width = static_cast<std::size_t>(layer.width);
-            for (std::size_t at = 0; at < layer.solid.size(); ++at) {
+            const auto ask = [&](std::size_t at) {
+                if (at >= layer.solid.size()) return;
                 const auto column = static_cast<int>(at % width);
                 const auto row = static_cast<int>(at / width);
-                if (row >= layer.height) break;
-                layer.solid[at] =
-                    solid_cell_from_source(data, layer, column, row) ? 1 : 0;
+                if (row >= layer.height) return;
+                layer.solid[at] = solid_cell_from_source(data, layer, column, row) ? 1 : 0;
+            };
+            if (layer.sparse) {
+                for (const std::size_t at : layer.marked) ask(at);
+            } else {
+                for (std::size_t at = 0; at < layer.solid.size(); ++at) ask(at);
             }
         }
 

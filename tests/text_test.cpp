@@ -233,6 +233,19 @@ TEST_SUITE("text: the pieces") {
               "tab\there\nline\\slash");
     }
 
+    TEST_CASE("TSV: a carriage return inside a line is dropped, so a cell reads back") {
+        // #38: the reader kept a CR in the middle of a cell, the writer drops
+        // every CR, and the cell written back was another cell.
+        const auto rows = d::parse_tsv("Open\tdoor\tAbrir\rla\\a\r\r\n\r\n#c\r\n");
+        REQUIRE(rows.size() == 1);
+        CHECK(rows[0] == std::vector<std::string>{ "Open", "door", "Abrirla\\a" });
+        for (const std::string &cell : rows[0]) {
+            const auto again = d::parse_tsv(d::escape_cell(cell));
+            REQUIRE(again.size() == 1);
+            CHECK(again[0] == std::vector<std::string>{ cell });
+        }
+    }
+
     TEST_CASE("plural rules per language") {
         CHECK(d::plural_count("en") == 2);
         CHECK(d::plural_count("ja") == 1);

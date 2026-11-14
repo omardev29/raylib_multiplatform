@@ -125,8 +125,12 @@ inline void walk_tiles(const MapData &data, const rmp::Tilemap &map) {
     for (std::size_t index = 0; index < data.layers.size(); ++index) {
         const Layer &layer = data.layers[index];
         const int layer_index = static_cast<int>(index);
+        // A layer of no columns has no cells, however many rows it says: the
+        // row loop counted nothing and ran its height out, two billion times
+        // for a 2 KB file (#13, #14). Rows are bounded on their own too.
+        if (layer.width <= 0 || layer.height <= 0) continue;
         int asked = 0;
-        for (int row = 0; row < layer.height && asked < WALKED; ++row) {
+        for (int row = 0; row < layer.height && row < WALKED && asked < WALKED; ++row) {
             for (int column = 0; column < layer.width && asked < WALKED;
                  ++column, ++asked) {
                 const int gid = map.tile_at(layer_index, column, row);

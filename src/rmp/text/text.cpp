@@ -300,9 +300,14 @@ std::vector<std::vector<std::string>> parse_tsv(std::string_view text) {
     while (start < text.size()) {
         std::size_t end = text.find('\n', start);
         if (end == std::string_view::npos) end = text.size();
-        std::string_view line = text.substr(start, end - start);
+        // No carriage return survives into a cell: a CRLF file's, or one a
+        // spreadsheet left inside a line. escape_cell() writes none either, so
+        // a cell read here is a cell written back (#38).
+        std::string line;
+        for (const char c : text.substr(start, end - start)) {
+            if (c != '\r') line += c;
+        }
         start = end + 1;
-        if (line.ends_with('\r')) line.remove_suffix(1);
         if (line.empty() || line.front() == '#') continue;
         std::vector<std::string> cells(1);
         for (std::size_t i = 0; i < line.size(); ++i) {
