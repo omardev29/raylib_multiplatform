@@ -532,7 +532,7 @@ DEFAULTS: dict = {
                                       "locale=en,orientation=portrait"}},
     # Generates the push and pull_request triggers of .github/workflows/ci.yml:
     # sync_ci_triggers() below.
-    "ci": {"on_push": True},
+    "ci": {"on_push": True, "riscv64": "rise"},
 }
 
 EXAMPLE_IDS = {"com.example.raytest", "com.raylib.raymob"}
@@ -1489,8 +1489,11 @@ def validate_deploy(cfg: dict) -> None:
             ("deploy.itch", missing))
 
 
+RISCV64_RUNNERS = ("rise", "cross")
+
+
 def validate_ci(cfg: dict) -> None:
-    """[ci] on_push."""
+    """[ci] on_push and [ci] riscv64."""
     # [ci] on_push writes the triggers of ci.yml (sync_ci_triggers), and a
     # string there would be truthy: "false" would keep every push running.
     if not isinstance(cfg["ci"]["on_push"], bool):
@@ -1498,6 +1501,20 @@ def validate_ci(cfg: dict) -> None:
             f"[ci] on_push = {cfg['ci']['on_push']!r} is a switch: true or false.\n"
             "true runs CI on every push to main and on every pull request; false only "
             "on a tag v* and by hand, with gh workflow run ci.yml.")
+    # [ci] riscv64 picks the runner of the linux-riscv64-glibc job. "rise" runs
+    # it natively on a RISE RISC-V board, falling back to the cross build when
+    # RISE fails; "cross" runs only the cross build. A repository without RISE's
+    # GitHub App gets no RISE board at all, and its job would wait in the queue
+    # until GitHub gives up on it -- so a game starts on "cross".
+    riscv = cfg["ci"]["riscv64"]
+    if not isinstance(riscv, str) or riscv not in RISCV64_RUNNERS:
+        raise ConfigError(
+            f"[ci] riscv64 = {riscv!r} is not a runner. It is \"rise\" or \"cross\".\n"
+            "\"rise\" builds and starts linux-riscv64-glibc on a RISE RISC-V runner "
+            "(https://riscv-runners.riseproject.dev/; install its GitHub App first) and falls "
+            "back to the cross build under QEMU when RISE fails; \"cross\" builds it only "
+            "the cross way, on GitHub's own amd64 runners.",
+            ("ci", "riscv64"))
 
 
 def validate_input(cfg: dict) -> None:
@@ -3514,6 +3531,7 @@ def answer(args: argparse.Namespace, cfg: dict, targets: list[str]) -> int | Non
         return 0
     if args.print_ci:
         print(f"on_push={str(cfg['ci']['on_push']).lower()}")
+        print(f"riscv64={cfg['ci']['riscv64']}")
         return 0
     if args.print_stamp:
         print(compute_stamp())

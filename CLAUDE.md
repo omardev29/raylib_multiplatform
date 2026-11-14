@@ -743,9 +743,23 @@ here so that nobody "fixes" one back.
   jobs print the lines and say so, and the day it commits one it is held to it.
 - **`[upx] enabled`'s default is exactly the targets whose packed binary CI
   starts**: linux-x64-glibc, linux-arm64-glibc, linux-x64-musl (on Alpine,
-  under Xvfb), linux-x64-glibc-drm (on vkms) and linux-riscv64-glibc (under
-  QEMU in the build image -- an emulator, not a RISC-V machine, and in the
-  default by Omar's decision of 2026-10-11). Each of those jobs unzips the
+  under Xvfb), linux-x64-glibc-drm (on vkms) and linux-riscv64-glibc (on a
+  RISE RISC-V board, and under QEMU in the build image when it falls back --
+  in the default by Omar's decision of 2026-10-11).
+- **linux-riscv64-glibc is built on RISC-V, and the cross build is its
+  fallback** (Omar, 2026-11-14). `[ci] riscv64 = "rise"` (the framework's)
+  runs the `riscv64-rise` job on a RISE runner (`runs-on: ubuntu-24.04-riscv`,
+  real hardware the RISE project lends to open source through its GitHub App)
+  inside `ghcr.io/omardev29/raylib-build-riscv64` (`riscv64/` in the image
+  repository, built and verified on RISE; Ubuntu 24.04 riscv64 at the build
+  image's apt snapshot, so the binary is the cross build's: one size line, one
+  glibc floor). It is the one job allowed `continue-on-error`
+  (`NoJobLevelContinueOnErrorTest.FALLBACKS`): RISE is a gift, and when it
+  fails, or never gives the job a board, the `riscv64` job -- the cross build
+  under QEMU -- runs, ships, and says on the run's summary that it fell back.
+  `rmp new` writes `"cross"`: a game's repository has no RISE app until its
+  author installs it. A job with no board waits in GitHub's queue, up to 24
+  hours, before the fallback runs. Each of those jobs unzips the
   archive it ships and starts what is in it; `UpxDefaultIsWhatCiStartsTest`
   holds the default to the workflows, both ways.
 - **Debug is sanitized, Release is hardened, and both are measured.** Every
@@ -937,8 +951,8 @@ lesson outlives the fix.
 
 ## Caveats that have already cost time
 
-- **riscv64 runs under QEMU, in the build image.** There is no riscv64 runner,
-  so the `riscv64` job starts the archive it ships with the image's
+- **riscv64's fallback runs under QEMU, in the build image.** When RISE gives
+  no board, the `riscv64` job starts the archive it ships with the image's
   `qemu-riscv64-static -L /`: the sysroot is the image's riscv64 multiarch
   packages (glibc, the X libraries GLFW opens, libglvnd, Mesa), the X server is
   the image's amd64 Xvfb (X is a socket), and the GL is riscv64 Mesa's llvmpipe

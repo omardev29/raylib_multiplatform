@@ -19,6 +19,13 @@ build_image_digest        sha256:6fb4255df4a9731744c42fddb9a10d5f123c234890c922e
 # by digest, Xvfb, Mesa, the X libraries GLFW opens), amd64 only. Pinned here
 # and in _linux.yml's musl-x64-run; versions_check.sh fails if they disagree.
 run_alpine_digest         sha256:5823e1e4fa870083781977cfa30878c4c88f913a9dc0cd19b47a3f82ac409841
+# The image linux-riscv64-glibc is built and started in on a RISE RISC-V
+# runner: ghcr.io/omardev29/raylib-build-riscv64, built from riscv64/ in the
+# image repository ON RISE (Ubuntu 24.04 riscv64 at build_image_digest's apt
+# snapshot, CMake and UPX from source, Xvfb and llvmpipe), riscv64 only.
+# Pinned here and in ci.yml's config job; versions_check.sh fails if they
+# disagree.
+build_riscv64_digest      sha256:0000000000000000000000000000000000000000000000000000000000000000
 android_platform          android-36
 android_build_tools       36.0.0
 android_ndk               28.2.13676358

@@ -84,6 +84,11 @@ jobs:
       families: ${{ steps.o.outputs.families }}
       bsd_matrix: ${{ steps.o.outputs.bsd_matrix }}
       build_image: ${{ steps.o.outputs.build_image }}
+      # [ci] riscv64 ("rise" or "cross") and the riscv64 build image the RISE
+      # job builds in, by digest (thirdparty/FROZEN_VERSIONS.md:
+      # build_riscv64_digest; versions_check.sh holds the two together).
+      riscv64: ${{ steps.o.outputs.riscv64 }}
+      riscv64_image: ${{ steps.o.outputs.riscv64_image }}
       full: ${{ steps.o.outputs.full }}
       version: ${{ steps.o.outputs.version }}
       itch_user: ${{ steps.o.outputs.itch_user }}
@@ -116,6 +121,10 @@ jobs:
           # change what every Linux job compiles with.
           PINNED_IMAGE: 'ghcr.io/omardev29/raylib-build@sha256:6fb4255df4a9731744c42fddb9a10d5f123c234890c922ef213a228c22c61ce0'
           OVERRIDE: ${{ inputs.image_digest }}
+          # The riscv64 build image (raylib-build-image's riscv64/), which only
+          # the RISE job runs. Bumped like the one above, from the run summary
+          # of that repository's riscv64-image.yaml.
+          PINNED_RISCV64_IMAGE: 'ghcr.io/omardev29/raylib-build-riscv64@sha256:0000000000000000000000000000000000000000000000000000000000000000'
           # Through the environment and never interpolated into the script: this
           # one is a free-text box on a web page, and `${{ }}` inside a `run:`
           # is string substitution before bash ever sees it.
@@ -123,6 +132,7 @@ jobs:
         run: |
           set -euo pipefail
           echo "build_image=${OVERRIDE:-$PINNED_IMAGE}" >> "$GITHUB_OUTPUT"
+          echo "riscv64_image=$PINNED_RISCV64_IMAGE" >> "$GITHUB_OUTPUT"
           # Asking for targets means you want those targets built, so it
           # implies the full lane for them -- otherwise `-f targets=drm` would
           # resolve to drm and then be filtered out again by every
@@ -178,6 +188,8 @@ jobs:
             echo "families=$(python3 tools/configure.py --print-families ${NARROW:+"$NARROW"})"
             echo "bsd_matrix=$(python3 tools/configure.py --print-matrix bsd ${NARROW:+"$NARROW"})"
             python3 tools/configure.py --print-deploy
+            # on_push=... and riscv64=...; only the second is read downstream.
+            python3 tools/configure.py --print-ci
             # The pins the Apple and Windows jobs build with. They live in
             # thirdparty/FROZEN_VERSIONS.md and are read ONCE, here, so that
             # `_apple.yml` and `_windows.yml` carry no version of their own --
@@ -1248,6 +1260,8 @@ jobs:
       build_image: ${{ needs.config.outputs.build_image }}
       full: ${{ needs.config.outputs.full == 'true' }}
       targets: ${{ needs.config.outputs.targets }}
+      riscv64: ${{ needs.config.outputs.riscv64 }}
+      riscv64_image: ${{ needs.config.outputs.riscv64_image }}
     permissions:
       contents: read
       packages: read

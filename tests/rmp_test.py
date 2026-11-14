@@ -2962,15 +2962,20 @@ class NewTest(unittest.TestCase):
         # tcc for a game's Debug C where it can work; the framework keeps its own.
         self.assertEqual(base["dev"]["c_compiler"], "same")
         self.assertEqual(mine["dev"]["c_compiler"], "auto")
+        # RISE needs its GitHub App on the repository; a game starts on the
+        # cross build, the framework on RISE (Omar, 2026-11-14).
+        self.assertEqual(base["ci"]["riscv64"], "rise")
+        self.assertEqual(mine["ci"]["riscv64"], "cross")
         # Omar, 2026-10-10: a new game letterboxes, like the framework.
         self.assertEqual(base["window"]["stretch"], "letterbox")
         self.assertEqual(mine["window"]["stretch"], "letterbox")
-        for table in ("project", "window", "android", "ios", "resources", "dev"):
+        for table in ("project", "window", "android", "ios", "resources", "dev", "ci"):
             mine[table] = dict(mine[table])
         mine["android"]["admob"] = dict(mine["android"]["admob"], enabled=True)
         mine["android"]["gl_version"] = base["android"]["gl_version"]
         mine["dev"]["sanitize"] = base["dev"]["sanitize"]
         mine["dev"]["c_compiler"] = base["dev"]["c_compiler"]
+        mine["ci"]["riscv64"] = base["ci"]["riscv64"]
         for key in ("name",):
             mine["project"][key] = base["project"][key]
         mine["window"]["title"] = base["window"]["title"]
@@ -3225,10 +3230,12 @@ class MakeGameInProcessTest(unittest.TestCase):
         self.assertRegex(toml.split("\n[dev]")[1].split("\n[")[0], r"(?m)^sanitize\s*= \[\]")
         self.assertRegex(toml.split("\n[dev]")[1].split("\n[")[0],
                          r'(?m)^c_compiler\s*= "auto"')
+        self.assertRegex(toml.split("\n[ci]")[1].split("\n[")[0],
+                         r'(?m)^riscv64\s*= "cross"')
         # Nothing else moved: every other line is the framework's.
         changed = [a for a, b in zip(framework.splitlines(), toml.splitlines()) if a != b]
         self.assertEqual(len(framework.splitlines()), len(toml.splitlines()))
-        self.assertEqual(len(changed), 9, changed)
+        self.assertEqual(len(changed), 10, changed)
 
     def test_the_licence_records_credit_the_framework_and_forget_rapidcheck(self):
         licences = self.text("THIRD_PARTY_LICENSES.md")

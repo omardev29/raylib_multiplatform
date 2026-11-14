@@ -994,6 +994,7 @@ SIZE_STEPS = {
     ("_linux.yml", "arm64"): "linux-arm64-glibc",
     ("_linux.yml", "musl-x64"): "linux-x64-musl",
     ("_linux.yml", "riscv64"): "linux-riscv64-glibc",
+    ("_linux.yml", "riscv64-rise"): "linux-riscv64-glibc",
     ("_linux.yml", "drm-x64"): "linux-x64-glibc-drm",
     ("_linux.yml", "drm-arm64"): "linux-arm64-glibc-drm",
     ("_windows.yml", "x64"): "windows-x64",
@@ -1091,14 +1092,14 @@ class UpxDefaultIsWhatCiStartsTest(unittest.TestCase):
         of the step that unzips it."""
         started = set()
         for target in cfgmod.UPX_TARGETS:
-            unzip = re.search(rf"unzip -q \S*{re.escape(target)}-build\.zip -d", text)
-            if not unzip:
-                continue
-            begin = text.rfind("\n      - ", 0, unzip.start())
-            end = text.find("\n      - ", unzip.end())
-            step = without_comments(text[begin:] if end < 0 else text[begin:end])
-            if ("qemu-" in step) == emulated:
-                started.add(target)
+            # Every step that unzips it: linux-riscv64-glibc's is started twice,
+            # on a RISE board and, in its fallback, under QEMU.
+            for unzip in re.finditer(rf"unzip -q \S*{re.escape(target)}-build\.zip -d", text):
+                begin = text.rfind("\n      - ", 0, unzip.start())
+                end = text.find("\n      - ", unzip.end())
+                step = without_comments(text[begin:] if end < 0 else text[begin:end])
+                if ("qemu-" in step) == emulated:
+                    started.add(target)
         return started
 
     def test_the_default_packs_musl_drm_and_riscv64_too(self):
@@ -1444,7 +1445,12 @@ DOCKER_FLAGS = {"--rm", "--init", "-i", "-t", "-it", "-ti", "-d", "--detach", "-
 
 # The `${{ }}` expressions that name the build image: the config job's output
 # of ci.yml's PINNED_IMAGE, and the input each reusable workflow receives it as.
-BUILD_IMAGE_EXPRESSIONS = {"${{ inputs.build_image }}", "${{ needs.config.outputs.build_image }}"}
+# The build images, pinned by digest in ci.yml's config job and held to
+# thirdparty/FROZEN_VERSIONS.md by versions_check.sh: the amd64/arm64 build
+# image, and the riscv64 one the RISE job builds in.
+BUILD_IMAGE_EXPRESSIONS = {"${{ inputs.build_image }}", "${{ needs.config.outputs.build_image }}",
+                           "${{ inputs.riscv64_image }}",
+                           "${{ needs.config.outputs.riscv64_image }}"}
 
 
 def workflow_images(text: str) -> list[tuple[int, str, str]]:
@@ -9234,16 +9240,51 @@ class NoJobLevelContinueOnErrorTest(unittest.TestCase):
     test is the argument for why even that is usually wrong.
     """
 
+    # The one job allowed to fail without failing the run, and the job that
+    # takes over when it does (Omar, 2026-11-14): RISE's RISC-V board is the
+    # RISE project's to give, so the native riscv64 job may fail for reasons
+    # that are not ours, and the cross build under QEMU is then the gate and
+    # what ships -- saying so on the run's summary.
+    FALLBACKS = {("_linux.yml", "riscv64-rise"): "riscv64"}
+
     def test_no_job_declares_continue_on_error(self):
         offenders = []
         for path in WORKFLOWS:
+            job = None
             for n, line in enumerate(path.read_text().splitlines(), 1):
+                named = re.match(r"^  ([A-Za-z0-9_-]+):\s*$", line)
+                if named:
+                    job = named.group(1)
                 # Four spaces = a key of a job. Eight = a key of a step.
-                if re.match(r"^    continue-on-error:\s*true\s*$", line):
+                if re.match(r"^    continue-on-error:\s*true\s*$", line) \
+                        and (path.name, job) not in self.FALLBACKS:
                     offenders.append(f"{path.name}:{n}")
         self.assertEqual(offenders, [],
                          "a job-level continue-on-error reports failure as success:\n  "
                          + "\n  ".join(offenders))
+
+    def test_a_job_allowed_to_fail_has_a_fallback_that_says_so(self):
+        for (name, job), fallback in self.FALLBACKS.items():
+            with self.subTest(job=job):
+                path = REPO / ".github" / "workflows" / name
+                allowed = job_block(path, job)
+                self.assertRegex(allowed, r"(?m)^    continue-on-error: true$")
+                taker = job_block(path, fallback)
+                self.assertRegex(taker, rf"(?m)^    needs: {re.escape(job)}$")
+                self.assertIn(f"needs.{job}.result != 'success'", taker)
+                self.assertIn("!cancelled()", taker)
+                self.assertNotIn("continue-on-error", taker)
+                # Said where it is read, not in silence.
+                self.assertIn("::warning title=", taker)
+                self.assertIn("GITHUB_STEP_SUMMARY", taker)
+                # Both ship the same artifact: the fallback IS the target.
+                for block in (allowed, taker):
+                    self.assertIn("name: linux-riscv64-glibc-build", block)
+
+    def test_the_check_sees_what_it_is_for(self):
+        planted = "jobs:\n  build:\n    runs-on: x\n    continue-on-error: true\n"
+        self.assertTrue(re.search(r"(?m)^    continue-on-error:\s*true\s*$", planted))
+        self.assertNotIn(("x.yml", "build"), self.FALLBACKS)
 
 
 class PinnedInputsHaveNoDefaultTest(unittest.TestCase):
@@ -12828,7 +12869,7 @@ class CiOnPushTest(unittest.TestCase):
                 self.assertIsNone(caught, caught)
                 out, caught = run_cli("--print-ci", "--config", str(other))
                 self.assertIsNone(caught, caught)
-                self.assertEqual(out, "on_push=false\n")
+                self.assertEqual(out, "on_push=false\nriscv64=rise\n")
             finally:
                 cfgmod.TOML = saved
             self.assertEqual(CI_YML.read_bytes(), before)
@@ -12836,7 +12877,7 @@ class CiOnPushTest(unittest.TestCase):
     def test_print_ci_says_the_value(self):
         out, caught = run_cli("--print-ci")
         self.assertIsNone(caught)
-        self.assertEqual(out, "on_push=true\n")
+        self.assertEqual(out, "on_push=true\nriscv64=rise\n")
 
     def test_the_value_has_to_be_a_bool(self):
         for bad in ("false", "true", 0, 1, None, [False], {"on": True}):
@@ -12844,6 +12885,54 @@ class CiOnPushTest(unittest.TestCase):
                 with self.assertRaises(cfgmod.ConfigError) as caught, quiet():
                     cfgmod.validate(ci_config(bad), False)
                 self.assertIn("[ci] on_push", str(caught.exception))
+
+
+class CiRiscv64Test(unittest.TestCase):
+    """[ci] riscv64: "rise" runs linux-riscv64-glibc on a RISE RISC-V board
+    with the cross build as its fallback, "cross" only the cross build (Omar,
+    2026-11-14). The value reaches the workflows through --print-ci and the
+    config job, and nothing else is accepted."""
+
+    def test_the_framework_is_on_rise(self):
+        self.assertEqual(cfgmod.DEFAULTS["ci"]["riscv64"], "rise")
+        self.assertRegex(toml_section("ci"), r'(?m)^riscv64 = "rise"$')
+
+    def test_both_runners_are_valid(self):
+        for good in ("rise", "cross"):
+            with self.subTest(value=good), quiet():
+                cfgmod.validate(base_config(ci={"riscv64": good}), False)
+
+    def test_anything_else_is_refused_with_the_two_words(self):
+        for bad in ("RISE", "Cross", "native", "qemu", "", " rise", True, False, None, 1,
+                    ["rise"], {"rise": True}):
+            with self.subTest(value=bad):
+                with self.assertRaises(cfgmod.ConfigError) as caught, quiet():
+                    cfgmod.validate(base_config(ci={"riscv64": bad}), False)
+                said = str(caught.exception)
+                self.assertIn("[ci] riscv64", said)
+                self.assertIn('is not a runner. It is "rise" or "cross"', said)
+                self.assertIn('"rise"', said)
+                self.assertIn('"cross"', said)
+
+    def test_print_ci_says_cross_when_the_toml_does(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            other = Path(tmp) / "x.toml"
+            other.write_text('[ci]\nriscv64 = "cross"\n')
+            saved = cfgmod.TOML
+            try:
+                out, caught = run_cli("--print-ci", "--config", str(other))
+            finally:
+                cfgmod.TOML = saved
+            self.assertIsNone(caught, caught)
+            self.assertEqual(out, "on_push=true\nriscv64=cross\n")
+
+    def test_the_config_job_hands_it_to_the_linux_workflow(self):
+        ci = CI_YML.read_text()
+        self.assertRegex(ci, r"(?m)^      riscv64: \$\{\{ steps\.o\.outputs\.riscv64 \}\}$")
+        self.assertIn("python3 tools/configure.py --print-ci", ci)
+        self.assertRegex(ci, r"(?m)^      riscv64: \$\{\{ needs\.config\.outputs\.riscv64 \}\}$")
+        linux = (REPO / ".github/workflows/_linux.yml").read_text()
+        self.assertRegex(linux, r"(?m)^      riscv64:\n(.*\n){0,4}?        type: string$")
 
 
 class GradleOfflineTest(unittest.TestCase):

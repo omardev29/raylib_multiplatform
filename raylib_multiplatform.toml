@@ -662,6 +662,16 @@ rres_password = "raylib-template"
 # refused here, at this line, and by CI's first step.
 on_push = true
 
+# Where linux-riscv64-glibc is built and started, when the full matrix or a
+# release builds it:
+#   "rise"   natively, on a RISE RISC-V runner (real hardware, free for open
+#            source: https://riscv-runners.riseproject.dev/). It needs RISE's
+#            GitHub App installed on this repository; without it the job waits
+#            in GitHub's queue for a board that never comes. When RISE fails,
+#            the cross build below runs instead and ships.
+#   "cross"  cross-compiled on GitHub's amd64 runners and started under QEMU.
+riscv64 = "rise"
+
 [deploy]
 # Ship a LICENSES.txt next to the binary, with the full notice of everything
 # vendored — raylib, Clay, rres and whatever comes later. Generated from the
