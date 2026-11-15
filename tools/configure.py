@@ -389,7 +389,7 @@ def expand_targets(enabled: list[str], disabled: list[str]) -> list[str]:
 #                compressed stream does not compress again.
 #   web          it is .wasm, and the browser fetches it gzipped anyway.
 UPX_TARGETS: list[str] = [
-    "linux-x64-glibc", "linux-arm64-glibc", "linux-riscv64-glibc", "linux-x64-glibc-drm",
+    "linux-x64-glibc", "linux-arm64-glibc", "linux-x64-glibc-drm",
     "linux-arm64-glibc-drm", "linux-x64-musl",
     "windows-x64", "windows-arm64",
     "freebsd-x64", "freebsd-arm64", "openbsd-x64", "openbsd-arm64", "netbsd-x64",
@@ -401,6 +401,18 @@ UPX_REFUSED = {
     "android": "what ships is a .so inside an APK, which is already a zip — "
                "compressing it makes the APK bigger",
     "web":   "it is .wasm, and the browser fetches it gzipped anyway",
+    # Omar, 2026-11-15. Found on a RISE board (kernel 5.10) and reproduced on
+    # x86-64 with qemu-riscv64 under a seccomp filter that answers
+    # memfd_create(MFD_EXEC) with EINVAL, as every kernel before 6.3 does.
+    # The riscv64 stub's own upxfd_create (src/stub/src/riscv64-linux.elf-fold.S)
+    # returns that error as a file descriptor, and the stub stops on its
+    # ebreak; amd64's and arm64's try again without the flag. A modified stub
+    # is not ours to ship: UPX's licence exception covers only the unmodified
+    # one, and a game is not GPL.
+    "linux-riscv64-glibc": "UPX 5.2.0's riscv64 stub dies with SIGTRAP on every Linux "
+                           "kernel before 6.3, where memfd_create(MFD_EXEC) is EINVAL "
+                           "and it never tries again without the flag -- the kernels "
+                           "most RISC-V boards ship",
 }
 
 UPX_GROUPS: dict[str, list[str]] = {
@@ -514,7 +526,7 @@ DEFAULTS: dict = {
     "windows": {"backend": "glfw"},
     # Exactly the targets whose packed binary CI starts -- see the .toml.
     "upx": {"enabled": ["linux-x64-glibc", "linux-arm64-glibc", "linux-x64-musl",
-                        "linux-x64-glibc-drm", "linux-riscv64-glibc"], "disabled": [],
+                        "linux-x64-glibc-drm"], "disabled": [],
             "max_size_mb": 600},
     "linux": {"backend": "glfw", "wayland": False, "glibc": "2.28"},
     "dialogue": {"build": "auto"},
@@ -1489,7 +1501,7 @@ def validate_deploy(cfg: dict) -> None:
             ("deploy.itch", missing))
 
 
-RISCV64_RUNNERS = ("rise", "cross")
+RISCV64_RUNNERS = ("rise", "cloud-v", "cross")
 
 
 def validate_ci(cfg: dict) -> None:
@@ -1502,18 +1514,23 @@ def validate_ci(cfg: dict) -> None:
             "true runs CI on every push to main and on every pull request; false only "
             "on a tag v* and by hand, with gh workflow run ci.yml.")
     # [ci] riscv64 picks the runner of the linux-riscv64-glibc job. "rise" runs
-    # it natively on a RISE RISC-V board, falling back to the cross build when
-    # RISE fails; "cross" runs only the cross build. A repository without RISE's
-    # GitHub App gets no RISE board at all, and its job would wait in the queue
-    # until GitHub gives up on it -- so a game starts on "cross".
+    # it natively on a RISE RISC-V board, "cloud-v" on a Cloud-V board (for a
+    # private repository, which RISE's open-source offer does not cover), each
+    # falling back to the cross build when the board fails; "cross" runs only
+    # the cross build. A repository without the provider's GitHub App gets no
+    # board at all, and its job would wait in the queue until GitHub gives up
+    # on it -- so a game starts on "cross".
     riscv = cfg["ci"]["riscv64"]
     if not isinstance(riscv, str) or riscv not in RISCV64_RUNNERS:
         raise ConfigError(
-            f"[ci] riscv64 = {riscv!r} is not a runner. It is \"rise\" or \"cross\".\n"
-            "\"rise\" builds and starts linux-riscv64-glibc on a RISE RISC-V runner "
-            "(https://riscv-runners.riseproject.dev/; install its GitHub App first) and falls "
-            "back to the cross build under QEMU when RISE fails; \"cross\" builds it only "
-            "the cross way, on GitHub's own amd64 runners.",
+            f"[ci] riscv64 = {riscv!r} is not a runner. It is \"rise\", \"cloud-v\" or "
+            "\"cross\".\n"
+            "\"rise\" builds and starts linux-riscv64-glibc on a RISE RISC-V runner, free "
+            "for open source (https://riscv-runners.riseproject.dev/); \"cloud-v\" on a "
+            "Cloud-V board, for a private repository (https://cloud-v.co/github-riscv-runner). "
+            "Install the provider's GitHub App first; either falls back to the cross build "
+            "under QEMU when its board fails. \"cross\" builds it only the cross way, on "
+            "GitHub's own amd64 runners.",
             ("ci", "riscv64"))
 
 

@@ -994,7 +994,7 @@ SIZE_STEPS = {
     ("_linux.yml", "arm64"): "linux-arm64-glibc",
     ("_linux.yml", "musl-x64"): "linux-x64-musl",
     ("_linux.yml", "riscv64"): "linux-riscv64-glibc",
-    ("_linux.yml", "riscv64-rise"): "linux-riscv64-glibc",
+    ("_linux.yml", "riscv64-native"): "linux-riscv64-glibc",
     ("_linux.yml", "drm-x64"): "linux-x64-glibc-drm",
     ("_linux.yml", "drm-arm64"): "linux-arm64-glibc-drm",
     ("_windows.yml", "x64"): "windows-x64",
@@ -1079,9 +1079,11 @@ class ReleaseJobsHoldTheirSizeTest(unittest.TestCase):
 class UpxDefaultIsWhatCiStartsTest(unittest.TestCase):
     """[upx] enabled's default is EXACTLY the targets whose packed binary a CI
     job starts -- the .toml says so, and this holds it to the workflows: a job
-    that unzips <target>-build.zip and starts what is in it. On a machine of
-    its own architecture, or, for linux-riscv64-glibc, under QEMU in the build
-    image: in the default by Omar's decision of 2026-10-11."""
+    that unzips <target>-build.zip and starts what is in it, on a machine of
+    its own architecture. linux-riscv64-glibc's archive is started too, on a
+    RISC-V board and under QEMU, but never packed (Omar, 2026-11-15): UPX
+    5.2.0's riscv64 stub dies on every kernel before 6.3, and UPX_REFUSED says
+    so."""
 
     # Started from the archive, but emulated: target -> the emulator.
     EMULATED = {"linux-riscv64-glibc": "qemu-riscv64-static"}
@@ -1091,7 +1093,7 @@ class UpxDefaultIsWhatCiStartsTest(unittest.TestCase):
         architecture, or, with `emulated`, under QEMU -- a `qemu-` in the code
         of the step that unzips it."""
         started = set()
-        for target in cfgmod.UPX_TARGETS:
+        for target in cfgmod.TARGETS:
             # Every step that unzips it: linux-riscv64-glibc's is started twice,
             # on a RISE board and, in its fallback, under QEMU.
             for unzip in re.finditer(rf"unzip -q \S*{re.escape(target)}-build\.zip -d", text):
@@ -1102,10 +1104,10 @@ class UpxDefaultIsWhatCiStartsTest(unittest.TestCase):
                     started.add(target)
         return started
 
-    def test_the_default_packs_musl_drm_and_riscv64_too(self):
+    def test_the_default_packs_musl_and_drm_too(self):
         self.assertEqual(cfgmod.DEFAULTS["upx"]["enabled"],
                          ["linux-x64-glibc", "linux-arm64-glibc", "linux-x64-musl",
-                          "linux-x64-glibc-drm", "linux-riscv64-glibc"])
+                          "linux-x64-glibc-drm"])
         toml = toml_section("upx")
         enabled = re.search(r"^enabled\s*=\s*(\[[^\]]*\])", toml, re.M).group(1)
         self.assertEqual(json.loads(enabled), cfgmod.DEFAULTS["upx"]["enabled"])
@@ -1114,22 +1116,45 @@ class UpxDefaultIsWhatCiStartsTest(unittest.TestCase):
         text = (WORKFLOW_DIR / "_linux.yml").read_text()
         native = self.started_from_the_archive(text)
         emulated = self.started_from_the_archive(text, emulated=True)
-        self.assertEqual(native | emulated, set(cfgmod.DEFAULTS["upx"]["enabled"]))
+        # Started and packable: the default, exactly.
+        self.assertEqual((native | emulated) - set(cfgmod.UPX_REFUSED),
+                         set(cfgmod.DEFAULTS["upx"]["enabled"]))
         self.assertEqual(emulated, set(self.EMULATED))
 
-    def test_riscv64_is_started_under_qemu_and_packed_by_default(self):
-        """Its archive is started, packed, under the emulator the .toml names,
-        and the .toml says that it is an emulator and whose decision it was."""
+    def test_riscv64_is_started_on_a_board_and_under_qemu_and_never_packed(self):
+        """Both of its jobs start its archive -- the board's natively, the
+        fallback under the emulator -- and UPX is refused for it, with the
+        reason, in configure.py and in the .toml (Omar, 2026-11-15)."""
         text = (WORKFLOW_DIR / "_linux.yml").read_text()
         for target, emulator in self.EMULATED.items():
             with self.subTest(target=target):
-                self.assertIn(target, cfgmod.DEFAULTS["upx"]["enabled"])
+                self.assertIn(target, self.started_from_the_archive(text))
+                self.assertIn(target, self.started_from_the_archive(text, emulated=True))
                 self.assertIn(emulator, text)
+                self.assertNotIn(target, cfgmod.DEFAULTS["upx"]["enabled"])
+                self.assertNotIn(target, cfgmod.UPX_TARGETS)
+                self.assertIn("kernel before 6.3", cfgmod.UPX_REFUSED[target])
+                self.assertIn("SIGTRAP", cfgmod.UPX_REFUSED[target])
         section = toml_section("upx")
-        para = " ".join(section[section.index("THE DEFAULT IS EXACTLY"):
-                                section.index("\nenabled")].replace("#", " ").split())
-        self.assertRegex(para, r"linux-riscv64-glibc on a full run, under QEMU in the build image")
-        self.assertIn("by Omar's decision of 2026-10-11", para)
+        para = " ".join(section.replace("#", " ").split())
+        self.assertIn("linux-riscv64-glibc (Omar, 2026-11-15)", para)
+        self.assertIn("memfd_create(MFD_EXEC) is EINVAL", para)
+        self.assertIn("licence exception covers only the unmodified one", para)
+
+    def test_naming_riscv64_in_upx_is_refused_with_the_reason(self):
+        for where in ("enabled", "disabled"):
+            with self.subTest(where=where):
+                cfg = base_config()
+                cfg["upx"][where] = ["linux-riscv64-glibc"]
+                with self.assertRaises(cfgmod.ConfigError) as caught, quiet():
+                    cfgmod.validate(cfg, False)
+                said = str(caught.exception)
+                self.assertIn("'linux-riscv64-glibc' cannot be compressed", said)
+                self.assertIn("before 6.3", said)
+        # The groups never bring it back.
+        for group, members in cfgmod.UPX_GROUPS.items():
+            with self.subTest(group=group):
+                self.assertNotIn("linux-riscv64-glibc", members)
 
     def test_an_archive_started_under_qemu_is_not_counted_as_native(self):
         """Seen red: the step that tells the two apart, with and without its
@@ -9241,11 +9266,11 @@ class NoJobLevelContinueOnErrorTest(unittest.TestCase):
     """
 
     # The one job allowed to fail without failing the run, and the job that
-    # takes over when it does (Omar, 2026-11-14): RISE's RISC-V board is the
-    # RISE project's to give, so the native riscv64 job may fail for reasons
-    # that are not ours, and the cross build under QEMU is then the gate and
-    # what ships -- saying so on the run's summary.
-    FALLBACKS = {("_linux.yml", "riscv64-rise"): "riscv64"}
+    # takes over when it does (Omar, 2026-11-14): a RISC-V board -- RISE's or
+    # Cloud-V's -- is the provider's to give, so the native riscv64 job may
+    # fail for reasons that are not ours, and the cross build under QEMU is
+    # then the gate and what ships -- saying so on the run's summary.
+    FALLBACKS = {("_linux.yml", "riscv64-native"): "riscv64"}
 
     def test_no_job_declares_continue_on_error(self):
         offenders = []
@@ -12888,31 +12913,35 @@ class CiOnPushTest(unittest.TestCase):
 
 
 class CiRiscv64Test(unittest.TestCase):
-    """[ci] riscv64: "rise" runs linux-riscv64-glibc on a RISE RISC-V board
-    with the cross build as its fallback, "cross" only the cross build (Omar,
-    2026-11-14). The value reaches the workflows through --print-ci and the
-    config job, and nothing else is accepted."""
+    """[ci] riscv64: "rise" runs linux-riscv64-glibc on a RISE RISC-V board,
+    "cloud-v" on a Cloud-V board (a private repository's native way), each
+    with the cross build as its fallback, and "cross" only the cross build
+    (Omar, 2026-11-14 and 2026-11-15). The value reaches the workflows through
+    --print-ci and the config job, and nothing else is accepted."""
 
     def test_the_framework_is_on_rise(self):
         self.assertEqual(cfgmod.DEFAULTS["ci"]["riscv64"], "rise")
         self.assertRegex(toml_section("ci"), r'(?m)^riscv64 = "rise"$')
 
     def test_both_runners_are_valid(self):
-        for good in ("rise", "cross"):
+        self.assertEqual(cfgmod.RISCV64_RUNNERS, ("rise", "cloud-v", "cross"))
+        for good in ("rise", "cloud-v", "cross"):
             with self.subTest(value=good), quiet():
                 cfgmod.validate(base_config(ci={"riscv64": good}), False)
 
     def test_anything_else_is_refused_with_the_two_words(self):
-        for bad in ("RISE", "Cross", "native", "qemu", "", " rise", True, False, None, 1,
-                    ["rise"], {"rise": True}):
+        for bad in ("RISE", "Cross", "native", "qemu", "", " rise", "cloudv", "cloud_v",
+                    "Cloud-V", "cloud-v ", True, False, None, 1, ["rise"], {"rise": True}):
             with self.subTest(value=bad):
                 with self.assertRaises(cfgmod.ConfigError) as caught, quiet():
                     cfgmod.validate(base_config(ci={"riscv64": bad}), False)
                 said = str(caught.exception)
                 self.assertIn("[ci] riscv64", said)
-                self.assertIn('is not a runner. It is "rise" or "cross"', said)
-                self.assertIn('"rise"', said)
-                self.assertIn('"cross"', said)
+                self.assertIn('is not a runner. It is "rise", "cloud-v" or "cross"', said)
+                for word in ("rise", "cloud-v", "cross"):
+                    self.assertIn(f'"{word}"', said)
+                self.assertIn("https://riscv-runners.riseproject.dev/", said)
+                self.assertIn("https://cloud-v.co/github-riscv-runner", said)
 
     def test_print_ci_says_cross_when_the_toml_does(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -12925,6 +12954,41 @@ class CiRiscv64Test(unittest.TestCase):
                 cfgmod.TOML = saved
             self.assertIsNone(caught, caught)
             self.assertEqual(out, "on_push=true\nriscv64=cross\n")
+
+    def test_print_ci_says_cloud_v_when_the_toml_does(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            other = Path(tmp) / "x.toml"
+            other.write_text('[ci]\nriscv64 = "cloud-v"\n')
+            saved = cfgmod.TOML
+            try:
+                out, caught = run_cli("--print-ci", "--config", str(other))
+            finally:
+                cfgmod.TOML = saved
+            self.assertIsNone(caught, caught)
+            self.assertEqual(out, "on_push=true\nriscv64=cloud-v\n")
+
+    def test_each_native_runner_has_its_board_and_the_cross_build_behind_it(self):
+        linux = REPO / ".github/workflows/_linux.yml"
+        native = job_block(linux, "riscv64-native")
+        # One native job for every value but "cross", on the board it names.
+        self.assertIn("inputs.riscv64 != 'cross'", native)
+        self.assertRegex(
+            native,
+            r"(?m)^    runs-on: \$\{\{ inputs\.riscv64 == 'cloud-v' && "
+            r"fromJSON\('\[\"self-hosted\", \"milkv-pioneer\"\]'\) \|\| "
+            r"'ubuntu-24\.04-riscv' \}\}$")
+        # A board without Docker fails at once, so the fallback ships.
+        self.assertIn("command -v docker", native)
+        # The cross build is the whole job on "cross", and the fallback of both.
+        cross = job_block(linux, "riscv64")
+        self.assertIn("inputs.riscv64 == 'cross' || needs.riscv64-native.result != 'success'",
+                      cross)
+        # Every runner the .toml accepts is one the workflows know.
+        for runner in cfgmod.RISCV64_RUNNERS:
+            with self.subTest(runner=runner):
+                if runner == "rise":
+                    continue  # the runs-on expression's default
+                self.assertIn(f"'{runner}'", native + cross)
 
     def test_the_config_job_hands_it_to_the_linux_workflow(self):
         ci = CI_YML.read_text()

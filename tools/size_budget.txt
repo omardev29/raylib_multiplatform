@@ -33,7 +33,7 @@
 # binary               kind    unpacked    packed
 linux-x64-glibc        elf      1384712    453528  # measured at 46b3c95
 linux-arm64-glibc      elf      1271376    415768  # measured at 9bc4418
-linux-riscv64-glibc    elf      1032080    466500  # measured at 9bc4418
+linux-riscv64-glibc    elf      1032080         -  # measured at 9bc4418; not packed since 2026-11-15
 linux-x64-musl         elf      1381440    453108  # measured at 9bc4418
 linux-x64-glibc-drm    elf       955080    386300  # measured at 9bc4418
 linux-arm64-glibc-drm  elf       860984         -  # measured at 9bc4418

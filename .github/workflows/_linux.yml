@@ -37,12 +37,12 @@ on:
       riscv64:
         description: >-
           [ci] riscv64: "rise" builds linux-riscv64-glibc natively on a RISE
-          RISC-V runner, with the cross build as its fallback; "cross" builds
-          it only the cross way.
+          RISC-V runner, "cloud-v" on a Cloud-V board, each with the cross
+          build as its fallback; "cross" builds it only the cross way.
         type: string
         default: cross
       riscv64_image:
-        description: The riscv64 build image the RISE job builds in, by digest.
+        description: The riscv64 build image the native job builds in, by digest.
         type: string
         default: ''
 
@@ -632,30 +632,37 @@ jobs:
           fi
           echo "PASS: the archive's binary booted and rendered on Alpine"
 
-  # linux-riscv64-glibc, NATIVELY, on a RISE RISC-V runner ([ci] riscv64 =
-  # "rise"): real RISC-V hardware, given free to open source by the RISE
-  # project (https://riscv-runners.riseproject.dev/) through its GitHub App,
-  # one board per job. The steps run on the board and enter the riscv64 build
-  # image (ghcr.io/omardev29/raylib-build-riscv64, by digest) with `docker run`
+  # linux-riscv64-glibc, NATIVELY, on a RISC-V board: real hardware, one board
+  # per job, from the provider [ci] riscv64 names --
+  #   "rise"     a RISE runner (`ubuntu-24.04-riscv`), lent free to open
+  #              source by the RISE project (https://riscv-runners.riseproject.dev/)
+  #              through its GitHub App: the framework's own;
+  #   "cloud-v"  a Cloud-V Milk-V Pioneer (`[self-hosted, milkv-pioneer]`, 64
+  #              cores) through Cloud-V's GitHub App
+  #              (https://cloud-v.co/github-riscv-runner): the native way for a
+  #              private repository, a game's, which RISE's offer does not cover.
+  # The steps run on the board and enter the riscv64 build image
+  # (ghcr.io/omardev29/raylib-build-riscv64, by digest) with `docker run`
   # for everything that builds, packs or starts the game, with no network: the
   # image is Ubuntu 24.04 riscv64 at the build image's apt snapshot, so its gcc
   # 13 and glibc are the cross toolchain's and both paths make the same binary
-  # -- one size line, one glibc floor.
+  # -- one size line, one glibc floor. A board with no Docker fails the first
+  # step and says so, and the fallback ships.
   #
-  # THE FALLBACK. This job is RISE's generosity, not ours to count on, so it
-  # may fail without failing the run (continue-on-error), and `riscv64`
-  # below runs whenever it did not succeed: the cross build in the amd64 image,
-  # started under QEMU, which ships instead and says on the run's summary that
-  # it did. A job RISE has no board for waits in the queue until one is free;
-  # if none ever comes, GitHub ends it after 24 hours and the fallback runs then.
+  # THE FALLBACK. The board is the provider's generosity, not ours to count
+  # on, so this job may fail without failing the run (continue-on-error), and
+  # `riscv64` below runs whenever it did not succeed: the cross build in the
+  # amd64 image, started under QEMU, which ships instead and says on the run's
+  # summary that it did. A job no board is free for waits in the queue; if none
+  # ever comes, GitHub ends it after 24 hours and the fallback runs then.
   # What the native run proves and QEMU cannot: the binary on a RISC-V
   # machine's own caches, timing and Mesa, and an archive with its resource
   # pack, because the packer runs here.
-  riscv64-rise:
+  riscv64-native:
     if: >-
-      inputs.full && inputs.riscv64 == 'rise'
+      inputs.full && inputs.riscv64 != 'cross'
       && contains(fromJSON(inputs.targets), 'linux-riscv64-glibc')
-    runs-on: ubuntu-24.04-riscv
+    runs-on: ${{ inputs.riscv64 == 'cloud-v' && fromJSON('["self-hosted", "milkv-pioneer"]') || 'ubuntu-24.04-riscv' }}
     continue-on-error: true
     timeout-minutes: 90
     permissions:
@@ -663,6 +670,7 @@ jobs:
       packages: read
     env:
       PIN: ${{ inputs.riscv64_image }}
+      RUNNER: ${{ inputs.riscv64 }}
     defaults:
       run:
         shell: bash
@@ -670,8 +678,11 @@ jobs:
       - name: The machine, and the image
         run: |
           set -euo pipefail
+          echo "[ci] riscv64 = \"$RUNNER\""
           uname -a
           test "$(uname -m)" = riscv64 || { echo "FAIL: not a RISC-V runner: $(uname -m)"; exit 1; }
+          command -v docker > /dev/null \
+            || { echo "FAIL: this board has no Docker, and every step runs in the riscv64 build image"; exit 1; }
           case "$PIN" in
             ghcr.io/omardev29/raylib-build-riscv64@sha256:*) ;;
             *) echo "FAIL: the riscv64 image is not pinned by digest: [$PIN]"; exit 1 ;;
@@ -764,13 +775,13 @@ jobs:
     # X11/GL multiarch libraries. The archive it ships is started under QEMU
     # user-mode emulation, in the same image -- see "The archive starts from
     # any folder, under QEMU". It is the whole riscv64 job when [ci] riscv64 =
-    # "cross", and the FALLBACK of the RISE job above when that did not
+    # "cross", and the FALLBACK of the native job above when that did not
     # succeed: failed, timed out, or never given a board.
-    needs: riscv64-rise
+    needs: riscv64-native
     if: >-
       !cancelled() && inputs.full
       && contains(fromJSON(inputs.targets), 'linux-riscv64-glibc')
-      && (inputs.riscv64 != 'rise' || needs.riscv64-rise.result != 'success')
+      && (inputs.riscv64 == 'cross' || needs.riscv64-native.result != 'success')
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
@@ -788,14 +799,14 @@ jobs:
         run: cat /etc/raylib-build-image.json
 
       # Said where it is read: a fallback that ships in silence would hide the
-      # day RISE found a bug QEMU cannot.
+      # day a board found a bug QEMU cannot.
       - name: Why the cross build
         env:
           RUNNER: ${{ inputs.riscv64 }}
-          RISE: ${{ needs.riscv64-rise.result }}
+          NATIVE: ${{ needs.riscv64-native.result }}
         run: |
-          if [ "$RUNNER" = rise ]; then
-            MSG="RISE's native riscv64-rise job ended '$RISE', so the cross build under QEMU ships instead. Read the riscv64-rise job's log: a failure in its build, size or boot steps is the code's, one before them is RISE's."
+          if [ "$RUNNER" != cross ]; then
+            MSG="The native riscv64-native job on $RUNNER ended '$NATIVE', so the cross build under QEMU ships instead. Read the riscv64-native job's log: a failure in its build, size or boot steps is the code's, one before them is the board's."
             echo "::warning title=linux-riscv64-glibc fell back to the cross build::$MSG"
             echo "### linux-riscv64-glibc: cross build (fallback)" >> "$GITHUB_STEP_SUMMARY"
             echo "$MSG" >> "$GITHUB_STEP_SUMMARY"

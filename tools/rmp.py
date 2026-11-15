@@ -2060,9 +2060,10 @@ def make_game(framework: Path, target: Path, name: str, app_id: str, bundle_id: 
         # raylib and GLFW in a second instead of ten. The framework keeps
         # "same", so its Debug builds sanitize raylib too.
         (setting_in("dev", "c_compiler"), assign("auto")),
-        # The cross build: RISE gives a RISC-V board only to a repository with
-        # its GitHub App, and a game's repository starts without it. The
-        # .toml's comment says how to move to "rise" once it is installed.
+        # The cross build: RISE and Cloud-V give a RISC-V board only to a
+        # repository with their GitHub App, and a game's repository starts
+        # without either. The .toml's comment says how to move to "cloud-v"
+        # (a private game) or "rise" (an open-source one) once it is installed.
         (setting_in("ci", "riscv64"), assign("cross")),
     ])
     edit_lines(target / "THIRD_PARTY_LICENSES.md", [

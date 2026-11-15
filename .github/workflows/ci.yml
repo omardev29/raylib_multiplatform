@@ -84,8 +84,8 @@ jobs:
       families: ${{ steps.o.outputs.families }}
       bsd_matrix: ${{ steps.o.outputs.bsd_matrix }}
       build_image: ${{ steps.o.outputs.build_image }}
-      # [ci] riscv64 ("rise" or "cross") and the riscv64 build image the RISE
-      # job builds in, by digest (thirdparty/FROZEN_VERSIONS.md:
+      # [ci] riscv64 ("rise", "cloud-v" or "cross") and the riscv64 build image
+      # the native job builds in, by digest (thirdparty/FROZEN_VERSIONS.md:
       # build_riscv64_digest; versions_check.sh holds the two together).
       riscv64: ${{ steps.o.outputs.riscv64 }}
       riscv64_image: ${{ steps.o.outputs.riscv64_image }}
