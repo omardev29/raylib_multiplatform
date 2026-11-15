@@ -1013,6 +1013,39 @@ TEST_CASE_FIXTURE(Fixture, "a ray that ends exactly on a circle's edge hits it")
     CHECK_FALSE(boxes.raycast({ 0, 0 }, { 89, 0 }));
 }
 
+TEST_CASE_FIXTURE(
+    Fixture, "an object spawned with a size collides as that rectangle, edge for edge") {
+    World world;
+    auto &box = world.spawn({ .position = { 100, 50 }, .size = { 20, 40 } });
+    const Rectangle b = box.world_bounds();
+    REQUIRE(b.width == doctest::Approx(20));
+    REQUIRE(b.height == doctest::Approx(40));
+    const float mid_x = b.x + (b.width / 2);
+    const float mid_y = b.y + (b.height / 2);
+    // Each face where the bounds put it, from each side.
+    const rmp::RayHit left = world.raycast({ b.x - 100, mid_y }, { b.x + 100, mid_y });
+    REQUIRE(static_cast<bool>(left));
+    CHECK(left.point.x == doctest::Approx(b.x));
+    const rmp::RayHit right =
+        world.raycast({ b.x + b.width + 100, mid_y }, { b.x - 100, mid_y });
+    REQUIRE(static_cast<bool>(right));
+    CHECK(right.point.x == doctest::Approx(b.x + b.width));
+    const rmp::RayHit top = world.raycast({ mid_x, b.y - 100 }, { mid_x, b.y + 100 });
+    REQUIRE(static_cast<bool>(top));
+    CHECK(top.point.y == doctest::Approx(b.y));
+    const rmp::RayHit bottom =
+        world.raycast({ mid_x, b.y + b.height + 100 }, { mid_x, b.y - 100 });
+    REQUIRE(static_cast<bool>(bottom));
+    CHECK(bottom.point.y == doctest::Approx(b.y + b.height));
+    // And just past each side, nothing.
+    CHECK_FALSE(world.raycast({ b.x - 1, b.y - 100 }, { b.x - 1, b.y + 200 }));
+    CHECK_FALSE(world.raycast({ b.x + b.width + 1, b.y - 100 },
+                              { b.x + b.width + 1, b.y + 200 }));
+    CHECK_FALSE(world.raycast({ b.x - 100, b.y - 1 }, { b.x + 200, b.y - 1 }));
+    CHECK_FALSE(world.raycast({ b.x - 100, b.y + b.height + 1 },
+                              { b.x + 200, b.y + b.height + 1 }));
+}
+
 TEST_CASE_FIXTURE(Fixture, "a ray of zero length is not a crash") {
     World world;
     world.spawn({ .position = { 0, 0 }, .shape = rmp::rect({ 10, 10 }) });
