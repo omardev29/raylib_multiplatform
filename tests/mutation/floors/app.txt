@@ -8,3 +8,20 @@ tests    property_test -sf=*clock_prop.cpp
 # clamp_delta(), step_delta() and frame_delta() against any reading and ceiling.
 tests    property_test -ts=*app
 floor    85
+# Equivalent where Mull mutates (Omar's rules-approved, 2026-11-15). It stores
+# 42 where a bool is stored, and clang reads a bool back as its lowest bit: 42
+# is false. Where the code stores false, the mutant stores false -- the same
+# lines set to true by hand fail the clock suites.
+equivalent cxx_assign_const:src/rmp/app/clock.cpp:131:22 zero_once = 42 is read back as false, which is what the line stores
+equivalent cxx_assign_const:src/rmp/app/clock.cpp:146:20 stepped = 42 is read back as false, which is what the line stores
+equivalent cxx_assign_const:src/rmp/app/clock.cpp:206:23 paused = 42 is read back as false, which is what the line stores
+equivalent cxx_assign_const:src/rmp/app/clock.cpp:231:28 pause_unfocused = 42 is read back as false, and the framework's RMP_WINDOW_PAUSE_UNFOCUSED is 0
+equivalent cxx_assign_const:src/rmp/app/clock.cpp:232:19 paused = 42 is read back as false, which is what the line stores
+equivalent cxx_assign_const:src/rmp/app/clock.cpp:234:17 held = 42 is read back as false, which is what the line stores
+equivalent cxx_assign_const:src/rmp/app/clock.cpp:235:22 zero_once = 42 is read back as false, which is what the line stores
+# Equivalent at the boundary: both sides give the same result there.
+equivalent cxx_gt_to_ge:src/rmp/app/clock.cpp:118:24 a reading equal to the ceiling is returned as the ceiling either way
+equivalent cxx_ge_to_gt:src/rmp/app/clock.cpp:123:15 a reading of 0 returns 0 either way
+equivalent cxx_gt_to_ge:src/rmp/app/clock.cpp:153:28 a fixed step of 0 is stored as 0 either way
+equivalent cxx_lt_to_le:src/rmp/app/clock.cpp:227:22 drawn stops at 3 instead of 2, and is only ever asked whether it is below 2
+equivalent cxx_assign_const:src/rmp/app/clock.cpp:236:18 drawn = 42 is not below 2, as 2 is not, and frame_drawn() leaves either alone
