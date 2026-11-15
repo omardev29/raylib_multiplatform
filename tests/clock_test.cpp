@@ -267,11 +267,10 @@ struct Clocked {
     Clocked() {
         rmp::app::detail::reset_pace_for_tests();
         rmp::app::detail::set_fixed_delta(0);
-        state() = {};
-        state().reading.window = true;
+        reading.window = true;
         rmp::app::detail::set_clock_provider(
-            [](rmp::app::detail::ClockReading &r) { r = state().reading; },
-            [](double seconds) { state().waits.push_back(seconds); });
+            [this](rmp::app::detail::ClockReading &r) { r = reading; },
+            [this](double seconds) { waits.push_back(seconds); });
     }
     ~Clocked() {
         rmp::app::detail::set_clock_provider({}, {});
@@ -280,19 +279,11 @@ struct Clocked {
     }
     Clocked(const Clocked &) = delete;
     Clocked &operator=(const Clocked &) = delete;
+    Clocked(Clocked &&) = delete;
+    Clocked &operator=(Clocked &&) = delete;
 
-    rmp::app::detail::ClockReading &reading() { return state().reading; }
-    const std::vector<double> &waits() { return state().waits; }
-
-private:
-    struct State {
-        rmp::app::detail::ClockReading reading;
-        std::vector<double> waits;
-    };
-    static State &state() {
-        static State s;
-        return s;
-    }
+    rmp::app::detail::ClockReading reading;
+    std::vector<double> waits;
 };
 
 } // namespace
@@ -408,32 +399,32 @@ TEST_SUITE("app: the window's pace") {
     TEST_CASE("on the real clock a skipped frame waits what it is told, and only there") {
         Clocked c;
         rmp::app::detail::frame_skipped(0.25);
-        CHECK(c.waits() == std::vector<double>{ 0.25 });
+        CHECK(c.waits == std::vector<double>{ 0.25 });
         rmp::app::detail::frame_skipped(0.0); // nothing to wait for
         rmp::app::detail::frame_skipped(-1.0);
-        CHECK(c.waits().size() == 1);
+        CHECK(c.waits.size() == 1);
         rmp::app::detail::set_fixed_delta(STEP); // a fixed step waits for nothing
         rmp::app::detail::frame_skipped(0.25);
-        CHECK(c.waits().size() == 1);
+        CHECK(c.waits.size() == 1);
         rmp::app::detail::set_fixed_delta(0);
-        c.reading().window = false; // and nor does a run with no window
+        c.reading.window = false; // and nor does a run with no window
         rmp::app::detail::frame_skipped(0.25);
-        CHECK(c.waits().size() == 1);
+        CHECK(c.waits.size() == 1);
     }
 
     TEST_CASE("after a skipped frame the step is timed from the last one, until two "
               "frames are drawn") {
         Clocked c;
-        c.reading().now = 10.0;
+        c.reading.now = 10.0;
         (void)rmp::app::detail::step_delta(); // the mark: 10 s
         rmp::app::detail::frame_skipped(0.0);
-        c.reading().now = 10.05;
+        c.reading.now = 10.05;
         CHECK(rmp::app::detail::step_delta() == doctest::Approx(0.05f));
         rmp::app::detail::frame_drawn(); // one drawn: still the clock's
-        c.reading().now = 10.08;
+        c.reading.now = 10.08;
         CHECK(rmp::app::detail::step_delta() == doctest::Approx(0.03f));
         rmp::app::detail::frame_drawn(); // two: raylib's frame time again (0, headless)
-        c.reading().now = 11.0;
+        c.reading.now = 11.0;
         CHECK(rmp::app::detail::step_delta() == 0.0f);
     }
 
@@ -442,15 +433,15 @@ TEST_SUITE("app: the window's pace") {
         // none: the clock's reading is not a step, however far it has gone.
         Clocked c;
         rmp::app::detail::frame_skipped(0.0);
-        c.reading().now = 50.0;
+        c.reading.now = 50.0;
         CHECK(rmp::app::detail::step_delta() == 0.0f); // raylib's, headless
         rmp::app::detail::frame_skipped(0.0); // now there is a mark: 50 s
-        c.reading().now = 50.02;
+        c.reading.now = 50.02;
         CHECK(rmp::app::detail::step_delta() == doctest::Approx(0.02f));
     }
 
     TEST_CASE("every step counts one frame") {
-        Clocked c;
+        const Clocked c; // the fake clock, for the test's length
         rmp::app::detail::set_fixed_delta(STEP);
         (void)rmp::app::detail::step_delta();
         const std::uint64_t first = rmp::app::detail::frame_number();
@@ -463,7 +454,7 @@ TEST_SUITE("app: the window's pace") {
 
     TEST_CASE(
         "reset_pace_for_tests() leaves no pause, no hold and no first zero behind") {
-        Clocked c;
+        const Clocked c; // the fake clock, for the test's length
         rmp::app::detail::set_pause_unfocused(!rmp::app::detail::pause_unfocused());
         rmp::app::detail::set_window_state_provider(
             [](rmp::app::detail::WindowState &w) { w.focused = false; });

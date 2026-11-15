@@ -1327,7 +1327,7 @@ TEST_SUITE("ldtk") {
         // the sanitizers. Only the cells the reader marked are asked now, and
         // the one painted solid is still solid.
         const Quiet quiet;
-        std::string csv = "0,0,2";
+        const std::string csv = "0,0,2";
         const std::string doc =
             R"({"defs":{"tilesets":[],"layers":[{"uid":3,"intGridValues":[)"
             R"({"value":2,"identifier":"Solid"}]}]},)"
