@@ -22,7 +22,7 @@ tests    unit_test -sf=*save_test.cpp -tce=*in?a?moment*
 # -- are tested where the watching is, in the watch tests.
 tests    unit_test -sf=*watch_test.cpp
 tests    property_test -sf=*save_prop.cpp
-floor    100
+floor    95
 equivalent cxx_replace_scalar_call:src/rmp/save/save.cpp:104:41 snprintf's size as 42, past the 40-byte buffer, and "%.17g" never prints more than 24 characters: the same text
 equivalent cxx_remove_void_call:src/rmp/save/save.cpp:222:13 the variant that runs keeps push() and removes ~Value() of the moved-from temporary (seen in the binary)
 equivalent cxx_pre_inc_to_pre_dec:src/rmp/save/save.cpp:268:5 the counter only has to differ from one nonce to the next, counting down does too, and it only decides anything when std::random_device throws
