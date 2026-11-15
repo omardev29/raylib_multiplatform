@@ -12,4 +12,4 @@ tests    unit_test -ts=resources*
 # A resource that remembers its file: changed() and reload() (hot reload, #31).
 tests    unit_test -sf=*watch_test.cpp
 tests    property_test -tc=the?resource?table*
-floor    70
+floor    80
