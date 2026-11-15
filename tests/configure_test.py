@@ -9313,7 +9313,18 @@ class NoJobLevelContinueOnErrorTest(unittest.TestCase):
                 self.assertRegex(allowed, r"(?m)^    continue-on-error: true$")
                 taker = job_block(path, fallback)
                 self.assertRegex(taker, rf"(?m)^    needs: {re.escape(job)}$")
-                self.assertIn(f"needs.{job}.result != 'success'", taker)
+                # Never needs.<job>.result: under a job-level
+                # continue-on-error GitHub reports a failed job to its
+                # dependents as "success", and the fallback was skipped on the
+                # first board run that failed (43732019095). An output only the
+                # allowed job's LAST step sets is what says it shipped.
+                self.assertNotIn(f"needs.{job}.result", taker)
+                self.assertIn(f"needs.{job}.outputs.shipped != 'true'", taker)
+                self.assertRegex(allowed,
+                                 r"(?m)^    outputs:\n      shipped: \$\{\{ steps\.shipped\.outputs\.shipped \}\}$")
+                steps = re.findall(r"(?m)^      - (?:name|uses): (.*)$", allowed)
+                self.assertEqual(steps[-1], "Shipped", "the shipped step is the last one")
+                self.assertIn('echo "shipped=true" >> "$GITHUB_OUTPUT"', allowed)
                 self.assertIn("!cancelled()", taker)
                 self.assertNotIn("continue-on-error", taker)
                 # Said where it is read, not in silence.
@@ -12998,7 +13009,7 @@ class CiRiscv64Test(unittest.TestCase):
         self.assertIn("command -v docker", native)
         # The cross build is the whole job on "cross", and the fallback of both.
         cross = job_block(linux, "riscv64")
-        self.assertIn("inputs.riscv64 == 'cross' || needs.riscv64-native.result != 'success'",
+        self.assertIn("inputs.riscv64 == 'cross' || needs.riscv64-native.outputs.shipped != 'true'",
                       cross)
         # Every runner the .toml accepts is one the workflows know.
         for runner in cfgmod.RISCV64_RUNNERS:

@@ -665,6 +665,13 @@ jobs:
     runs-on: ${{ inputs.riscv64 == 'cloud-v' && fromJSON('["self-hosted", "milkv-pioneer"]') || 'ubuntu-24.04-riscv' }}
     continue-on-error: true
     timeout-minutes: 90
+    # What the fallback reads. Not needs.riscv64-native.result: under a
+    # job-level continue-on-error GitHub reports a failed job as "success" to
+    # the jobs that need it, and the fallback was skipped on the first board
+    # run that failed. Only the last step below sets this, so a job that
+    # failed anywhere, was cancelled or never got a board leaves it empty.
+    outputs:
+      shipped: ${{ steps.shipped.outputs.shipped }}
     permissions:
       contents: read
       packages: read
@@ -772,6 +779,10 @@ jobs:
           path: linux-riscv64-glibc-build.zip
           retention-days: 7
 
+      - name: Shipped
+        id: shipped
+        run: echo "shipped=true" >> "$GITHUB_OUTPUT"
+
   riscv64:
     # Cross-compiled inside the amd64 container: the image ships the riscv64
     # X11/GL multiarch libraries. The archive it ships is started under QEMU
@@ -783,7 +794,7 @@ jobs:
     if: >-
       !cancelled() && inputs.full
       && contains(fromJSON(inputs.targets), 'linux-riscv64-glibc')
-      && (inputs.riscv64 == 'cross' || needs.riscv64-native.result != 'success')
+      && (inputs.riscv64 == 'cross' || needs.riscv64-native.outputs.shipped != 'true')
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
@@ -805,10 +816,9 @@ jobs:
       - name: Why the cross build
         env:
           RUNNER: ${{ inputs.riscv64 }}
-          NATIVE: ${{ needs.riscv64-native.result }}
         run: |
           if [ "$RUNNER" != cross ]; then
-            MSG="The native riscv64-native job on $RUNNER ended '$NATIVE', so the cross build under QEMU ships instead. Read the riscv64-native job's log: a failure in its build, size or boot steps is the code's, one before them is the board's."
+            MSG="The native riscv64-native job on $RUNNER did not ship its archive (it failed, was cancelled, or no board ran it), so the cross build under QEMU ships instead. Read the riscv64-native job's log: a failure in its build, size or boot steps is the code's, one before them is the board's."
             echo "::warning title=linux-riscv64-glibc fell back to the cross build::$MSG"
             echo "### linux-riscv64-glibc: cross build (fallback)" >> "$GITHUB_STEP_SUMMARY"
             echo "$MSG" >> "$GITHUB_STEP_SUMMARY"
