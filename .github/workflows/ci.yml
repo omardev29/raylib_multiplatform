@@ -122,9 +122,9 @@ jobs:
           PINNED_IMAGE: 'ghcr.io/omardev29/raylib-build@sha256:6fb4255df4a9731744c42fddb9a10d5f123c234890c922ef213a228c22c61ce0'
           OVERRIDE: ${{ inputs.image_digest }}
           # The riscv64 build image (raylib-build-image's riscv64/), which only
-          # the RISE job runs. Bumped like the one above, from the run summary
+          # the native riscv64 job runs. Bumped like the one above, from the run summary
           # of that repository's riscv64-image.yaml.
-          PINNED_RISCV64_IMAGE: 'ghcr.io/omardev29/raylib-build-riscv64@sha256:0000000000000000000000000000000000000000000000000000000000000000'
+          PINNED_RISCV64_IMAGE: 'ghcr.io/omardev29/raylib-build-riscv64@sha256:c3946112f78f4ac57f5793e38881a5f033aa5ad615e5be9deae9adc353ee620f'
           # Through the environment and never interpolated into the script: this
           # one is a free-text box on a web page, and `${{ }}` inside a `run:`
           # is string substitution before bash ever sees it.
