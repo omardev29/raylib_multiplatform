@@ -693,13 +693,15 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 
       # Configured and built in the image, the way the cross job builds, minus
-      # the toolchain file: this IS a riscv64 machine.
+      # the toolchain file: this IS a riscv64 machine -- so rres_pack runs here
+      # and the archive ships resources.rres, as x64's does.
       - name: Build
         run: |
           set -euo pipefail
           docker run --rm --init --network none -v "$PWD:/work" -w /work "${{ inputs.riscv64_image }}" bash -euo pipefail -c '
             cmake -B build/release -G Ninja -DCMAKE_BUILD_TYPE=Release -DPRODUCTION_BUILD=ON
-            cmake --build build/release'
+            cmake --build build/release
+            cmake --build build/release --target pack_resources'
 
       # The same floor as the cross build's, for the same reason: Ubuntu 24.04's
       # riscv64 glibc, whose one symbol past 2.37 is __isoc23_strtol.
