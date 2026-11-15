@@ -319,6 +319,59 @@ TEST_SUITE("tilemap: culling, by hand") {
         CHECK(drawn_in(m.map, 110 + 600, 70 + 600) == 1);
     }
 
+    TEST_CASE("the chunks cover the whole layer, and a tile up to its far edge") {
+        // A layer of 40 x 40 cells is 640 px: three chunks each way, whatever
+        // its tiles cover.
+        auto big = map_of_cells();
+        Layer wide;
+        wide.width = 40;
+        wide.height = 40;
+        wide.placed.push_back(PlacedTile{ .at = { 0, 0 }, .gid = 1 });
+        big->layers.push_back(std::move(wide));
+        const Handmade m(std::move(big));
+        CHECK(m.data().layers[0].chunk_columns == 3);
+        CHECK(m.data().layers[0].chunk_rows == 3);
+        // A small layer and a tile at (500, 500): its far edge, 516, is in the
+        // third chunk, where its near one is in the second.
+        auto small = map_of_cells();
+        Layer one;
+        one.width = 2;
+        one.height = 2;
+        one.placed.push_back(PlacedTile{ .at = { 500, 500 }, .gid = 1 });
+        small->layers.push_back(std::move(one));
+        const Handmade n(std::move(small));
+        CHECK(n.data().layers[0].chunk_columns == 3);
+        CHECK(n.data().layers[0].chunk_rows == 3);
+    }
+
+    TEST_CASE("a placed tile is as big as its tileset's tiles, or a cell without one") {
+        auto data = map_of_cells();
+        Tileset large; // 32 px tiles over 16 px cells
+        large.first_gid = 10;
+        large.last_gid = 13;
+        large.columns = 2;
+        large.tile_width = 32;
+        large.tile_height = 32;
+        data->tilesets.push_back(std::move(large));
+        Layer layer;
+        layer.width = 10;
+        layer.height = 10;
+        // 230 + 32 reaches the second chunk; 230 + 16 does not.
+        layer.placed.push_back(PlacedTile{ .at = { 230, 230 }, .gid = 10 });
+        // No tileset: a cell, 16 px, so 230 + 16 stays in the first chunk.
+        layer.placed.push_back(PlacedTile{ .at = { 230, 0 }, .gid = 99 });
+        data->layers.push_back(std::move(layer));
+        const Handmade m(std::move(data));
+        const Layer &got = m.data().layers[0];
+        REQUIRE(got.chunk_columns == 2);
+        REQUIRE(got.chunk_rows == 2);
+        using List = std::vector<std::uint32_t>;
+        CHECK(got.chunks[0] == List{ 0, 1 });
+        CHECK(got.chunks[1] == List{ 0 });
+        CHECK(got.chunks[2] == List{ 0 });
+        CHECK(got.chunks[3] == List{ 0 });
+    }
+
     TEST_CASE("a hidden layer and a layer faded to nothing draw nothing") {
         for (const bool hidden : { true, false }) {
             CAPTURE(hidden);
@@ -415,6 +468,14 @@ TEST_SUITE("tilemap: culling, by hand") {
             .offset = { 400, 225 }, .target = { 100, 50 }, .rotation = 0, .zoom = 1
         };
         CHECK(near(visible_area(camera, screen), Rectangle{ -300, -175, 800, 450 }));
+        // A world wholly left of and above the origin: every corner negative.
+        camera = Camera2D{
+            .offset = { 0, 0 }, .target = { -2000, -1000 }, .rotation = 0, .zoom = 1
+        };
+        CHECK(near(visible_area(camera, screen), Rectangle{ -2000, -1000, 800, 450 }));
+        camera = Camera2D{
+            .offset = { 400, 225 }, .target = { 100, 50 }, .rotation = 0, .zoom = 1
+        };
         // Turned a quarter: the view is as tall as the screen is wide, around
         // the target.
         camera.rotation = 90;
