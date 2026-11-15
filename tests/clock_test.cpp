@@ -437,6 +437,30 @@ TEST_SUITE("app: the window's pace") {
         CHECK(rmp::app::detail::step_delta() == 0.0f);
     }
 
+    TEST_CASE("a skipped frame before any step is raylib's frame, not the clock's") {
+        // The mark is the last step's time, and before the first step there is
+        // none: the clock's reading is not a step, however far it has gone.
+        Clocked c;
+        rmp::app::detail::frame_skipped(0.0);
+        c.reading().now = 50.0;
+        CHECK(rmp::app::detail::step_delta() == 0.0f); // raylib's, headless
+        rmp::app::detail::frame_skipped(0.0); // now there is a mark: 50 s
+        c.reading().now = 50.02;
+        CHECK(rmp::app::detail::step_delta() == doctest::Approx(0.02f));
+    }
+
+    TEST_CASE("every step counts one frame") {
+        Clocked c;
+        rmp::app::detail::set_fixed_delta(STEP);
+        (void)rmp::app::detail::step_delta();
+        const std::uint64_t first = rmp::app::detail::frame_number();
+        CHECK(first > 0);
+        for (std::uint64_t i = 1; i <= 3; ++i) {
+            (void)rmp::app::detail::step_delta();
+            CHECK(rmp::app::detail::frame_number() == first + i);
+        }
+    }
+
     TEST_CASE(
         "reset_pace_for_tests() leaves no pause, no hold and no first zero behind") {
         Clocked c;
