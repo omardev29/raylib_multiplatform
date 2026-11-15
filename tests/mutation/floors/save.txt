@@ -13,7 +13,11 @@
 # reads it as false, a size as 42.
 kind     cxx
 sources  src/rmp/save/save.cpp
-tests    unit_test -sf=*save_test.cpp
+# Without the two timing cases ("... in a moment"): their 3 s ceiling is a
+# build's without sanitizers, and four Mull workers at once on a loaded
+# runner went past it -- a mutant counted killed by the clock, and an
+# equivalent one "killed now" from one weekly run to the next.
+tests    unit_test -sf=*save_test.cpp -tce=*in?a?moment*
 # Value::changed() and reload() -- the hot reload of a value read from a file
 # -- are tested where the watching is, in the watch tests.
 tests    unit_test -sf=*watch_test.cpp

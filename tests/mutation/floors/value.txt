@@ -12,7 +12,11 @@
 # line: an edit above one moves it, and the line here goes with it.
 kind     cxx
 sources  src/rmp/save/value.cpp
-tests    unit_test -sf=*save_test.cpp
+# Without the two timing cases ("... in a moment"): their 3 s ceiling is a
+# build's without sanitizers, and four Mull workers at once on a loaded
+# runner went past it -- a mutant counted killed by the clock, and an
+# equivalent one "killed now" from one weekly run to the next.
+tests    unit_test -sf=*save_test.cpp -tce=*in?a?moment*
 tests    property_test -sf=*value_prop.cpp,*save_prop.cpp
 floor    100
 equivalent cxx_remove_void_call:src/rmp/save/value.cpp:414:42 the variant that runs removes ~Value() of the moved-from parameter, not the push (seen in the binary): nothing left to free
