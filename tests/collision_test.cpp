@@ -947,6 +947,72 @@ TEST_CASE_FIXTURE(
     CHECK_FALSE(other.raycast({ -32.5f, -55.5f }, { -3.505f, -41.835f }));
 }
 
+TEST_CASE_FIXTURE(Fixture, "every face of a box hits with its own normal") {
+    World world;
+    world.spawn({ .position = { 0, 0 }, .shape = rmp::rect({ 20, 40 }) });
+    struct Way {
+        Vector2 from, to, point, normal;
+    };
+    for (const Way &way : { Way{ { -100, 0 }, { 100, 0 }, { -10, 0 }, { -1, 0 } },
+                            Way{ { 100, 0 }, { -100, 0 }, { 10, 0 }, { 1, 0 } },
+                            Way{ { 0, -100 }, { 0, 100 }, { 0, -20 }, { 0, -1 } },
+                            Way{ { 0, 100 }, { 0, -100 }, { 0, 20 }, { 0, 1 } } }) {
+        CAPTURE(way.from.x);
+        CAPTURE(way.from.y);
+        const rmp::RayHit hit = world.raycast(way.from, way.to);
+        REQUIRE(static_cast<bool>(hit));
+        CHECK(hit.point.x == doctest::Approx(way.point.x));
+        CHECK(hit.point.y == doctest::Approx(way.point.y));
+        CHECK(hit.normal.x == doctest::Approx(way.normal.x));
+        CHECK(hit.normal.y == doctest::Approx(way.normal.y));
+    }
+}
+
+TEST_CASE_FIXTURE(
+    Fixture, "from inside a box the normal points back down the ray, whichever way") {
+    World world;
+    world.spawn({ .position = { 0, 0 }, .shape = rmp::rect({ 100, 100 }) });
+    const rmp::RayHit right = world.raycast({ 0, 0 }, { 300, 0 });
+    REQUIRE(static_cast<bool>(right));
+    CHECK(right.normal.x == doctest::Approx(-1));
+    CHECK(right.normal.y == doctest::Approx(0));
+    const rmp::RayHit up = world.raycast({ 0, 0 }, { 0, -300 });
+    REQUIRE(static_cast<bool>(up));
+    CHECK(up.normal.x == doctest::Approx(0));
+    CHECK(up.normal.y == doctest::Approx(1));
+}
+
+TEST_CASE_FIXTURE(Fixture,
+                  "a ray along a box's side is inside its slab, and a hair out is not") {
+    World world;
+    world.spawn({ .position = { 0, 0 }, .shape = rmp::rect({ 20, 20 }) });
+    // Straight down at x = -10, the box's left face: inside the slab, so it
+    // meets the top face.
+    const rmp::RayHit edge = world.raycast({ -10, -100 }, { -10, 100 });
+    REQUIRE(static_cast<bool>(edge));
+    CHECK(edge.point.y == doctest::Approx(-10));
+    CHECK(edge.normal.y == doctest::Approx(-1));
+    CHECK_FALSE(world.raycast({ -10.5f, -100 }, { -10.5f, 100 }));
+    CHECK_FALSE(world.raycast({ 10.5f, -100 }, { 10.5f, 100 }));
+    // And across, at y = 10, the bottom face.
+    CHECK(static_cast<bool>(world.raycast({ -100, 10 }, { 100, 10 })));
+    CHECK_FALSE(world.raycast({ -100, 10.5f }, { 100, 10.5f }));
+}
+
+TEST_CASE_FIXTURE(Fixture, "a ray that ends exactly on a circle's edge hits it") {
+    World world;
+    world.spawn({ .position = { 100, 0 }, .shape = rmp::circle(10) });
+    const rmp::RayHit touch = world.raycast({ 0, 0 }, { 90, 0 }); // t is exactly 1
+    REQUIRE(static_cast<bool>(touch));
+    CHECK(touch.distance == doctest::Approx(90));
+    CHECK_FALSE(world.raycast({ 0, 0 }, { 89, 0 }));
+    // And a box's near face, at the ray's very end, too.
+    World boxes;
+    boxes.spawn({ .position = { 100, 0 }, .shape = rmp::rect({ 20, 20 }) });
+    CHECK(static_cast<bool>(boxes.raycast({ 0, 0 }, { 90, 0 })));
+    CHECK_FALSE(boxes.raycast({ 0, 0 }, { 89, 0 }));
+}
+
 TEST_CASE_FIXTURE(Fixture, "a ray of zero length is not a crash") {
     World world;
     world.spawn({ .position = { 0, 0 }, .shape = rmp::rect({ 10, 10 }) });
