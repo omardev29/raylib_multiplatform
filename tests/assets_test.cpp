@@ -1406,6 +1406,19 @@ TEST_SUITE("assets: before the window") {
         rmp::detail::set_report_sink(
             [&](std::string_view line) { said.emplace_back(line); });
 
+        // A load with no name loads nothing, and is no load before the window:
+        // it changes neither the first name nor the count (seen red: a run in
+        // another order had '' as its first name).
+        const auto before = loaded_before_window();
+        (void)rmp::assets::load_texture("");
+        (void)rmp::assets::load_font("", 12);
+        const auto unnamed = loaded_before_window();
+        CHECK(unnamed.has_value() == before.has_value());
+        if (before && unnamed) {
+            CHECK(unnamed->first == before->first);
+            CHECK(unnamed->count == before->count);
+        }
+
         (void)rmp::assets::load_texture("not_there_before_window.png");
         const EarlyLoads first = loaded_before_window().value_or(EarlyLoads{});
         CHECK_FALSE(first.first.empty());
