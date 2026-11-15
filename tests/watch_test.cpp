@@ -24,6 +24,7 @@
 #include "pack_writer.h"
 
 #include <rmp/assets.h>
+#include <rmp/object.h> // rmp::Callback
 #include <rmp/config.h>
 #include <rmp/save.h>
 
@@ -237,13 +238,31 @@ TEST_SUITE("assets: hot reload, values") {
     }
 
     TEST_CASE("the files are looked at four times a second, not on every question") {
+        // On a clock of the test's own: a loaded machine -- four copies of
+        // this binary at once under Mull -- let a quarter of a second pass
+        // between two questions, and the "not yet" below failed by itself.
+        struct Clock {
+            Clock() {
+                rmp::assets::detail::set_watch_clock_for_tests(
+                    [this](double &seconds) { seconds = now; });
+            }
+            ~Clock() { rmp::assets::detail::set_watch_clock_for_tests({}); }
+            Clock(const Clock &) = delete;
+            Clock &operator=(const Clock &) = delete;
+            Clock(Clock &&) = delete;
+            Clock &operator=(Clock &&) = delete;
+            double now = 100.0;
+        } clock;
         const Root root("poll");
         root.put("p.json", "1");
         const rmp::Value value = rmp::assets::load_value("p.json");
-        CHECK_FALSE(changed_now(value)); // looked at just now
+        CHECK_FALSE(changed_now(value)); // looked at just now, at 100 s
         root.put("p.json", "123");
-        CHECK_FALSE(value.changed()); // not looked at again yet
-        rmp::assets::detail::poll_watched_now();
+        clock.now = 100.1;
+        CHECK_FALSE(value.changed()); // a tenth of a second later: not looked at
+        clock.now = 100.24;
+        CHECK_FALSE(value.changed());
+        clock.now = 100.26; // past a quarter of a second: looked at again
         CHECK(value.changed());
     }
 

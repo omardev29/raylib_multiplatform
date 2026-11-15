@@ -204,6 +204,10 @@ unsigned watch_generation(int index);
 std::optional<std::string> read_watched(int index);
 void forget_watched(); // for the tests: watch nothing again
 void poll_watched_now(); // for the tests: the next query looks at the files
+// For the tests: the polls paced by this clock, in seconds, instead of the
+// steady clock -- a loaded machine waits a quarter of a second between two
+// questions as easily as not. Empty: the steady clock again.
+void set_watch_clock_for_tests(rmp::Callback<double &> seconds);
 
 // One entry, by its name in the central directory. Returns bytes owned by the
 // caller (malloc'd, so UnloadFileData/RL_FREE frees them), or nullptr if the
