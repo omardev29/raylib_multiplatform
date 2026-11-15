@@ -54,6 +54,7 @@
 #include <system_error>
 #include <utility>
 #include <vector>
+#include <random>
 
 namespace {
 
@@ -986,8 +987,8 @@ Rectangle drawn(Clay_RenderCommandType type) {
 // the new picture. A file that does not decode keeps the old one.
 void a_texture_reloads_in_place() {
 #if !RMP_PRODUCTION_BUILD
-    const std::filesystem::path folder =
-        std::filesystem::temp_directory_path() / "rmp-ui-render-reload";
+    const std::filesystem::path folder = std::filesystem::temp_directory_path() /
+        ("rmp-ui-render-reload-" + std::to_string(std::random_device{}()));
     std::filesystem::create_directories(folder);
     const std::string root = (folder / "").string();
     rmp::assets::detail::set_resources_root(root.c_str());

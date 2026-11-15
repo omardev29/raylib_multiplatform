@@ -61,6 +61,7 @@
 #include <system_error>
 #include <type_traits>
 #include <vector>
+#include <random>
 
 namespace {
 
@@ -81,12 +82,25 @@ struct AtRoot {
     AtRoot &operator=(AtRoot &&) = delete;
 };
 
+// A name no other process running these tests has: Mull runs four copies of
+// one binary at once, and two that shared a folder emptied and rewrote each
+// other's files -- a mutant "killed" by its neighbour, the weekly run's floors
+// moving with the load.
+std::string process_tag() {
+    static const std::string TAG = [] {
+        std::random_device device;
+        return std::to_string(device()) + "-" + std::to_string(device());
+    }();
+    return TAG;
+}
+
 // A folder of the test's own, gone with it.
 class Scratch {
 public:
     explicit Scratch(const std::string &name) {
         std::error_code error;
-        _path = std::filesystem::temp_directory_path(error) / ("rmp-assets-test-" + name);
+        _path = std::filesystem::temp_directory_path(error) /
+            ("rmp-assets-test-" + process_tag() + "-" + name);
         std::filesystem::remove_all(_path, error);
         std::filesystem::create_directories(_path, error);
     }
@@ -474,8 +488,8 @@ TEST_SUITE("assets: pack") {
         CHECK(rmp::assets::load_data("\\level.json").empty());
 #endif
         // Out of the folder and back in is the folder, in both.
-        CHECK(text_of(rmp::assets::load_data("../rmp-assets-test-spelled/level.json")) ==
-              "top");
+        CHECK(text_of(rmp::assets::load_data("../" + release.path().filename().string() +
+                                             "/level.json")) == "top");
         CHECK(rres::packed_name("res/", "res/a/../b.png") == "b.png");
         CHECK(rres::packed_name("", "a/../b.png") == "b.png");
         CHECK_FALSE(rres::packed_name("", "../b.png").has_value());

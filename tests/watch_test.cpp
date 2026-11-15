@@ -35,12 +35,25 @@
 #include <string>
 #include <string_view>
 #include <system_error>
+#include <random>
 
 #if !RMP_PRODUCTION_BUILD
 
 namespace {
 
 namespace pack = rmp::test::pack;
+
+// A name no other process running these tests has: Mull runs four copies of
+// one binary at once, and two that shared a folder emptied and rewrote each
+// other's files -- a mutant "killed" by its neighbour, the weekly run's floors
+// moving with the load.
+std::string process_tag() {
+    static const std::string TAG = [] {
+        std::random_device device;
+        return std::to_string(device()) + "-" + std::to_string(device());
+    }();
+    return TAG;
+}
 
 // A resources root of the test's own, gone with it, and the watch list
 // emptied on both sides so no test sees another's files.
@@ -49,7 +62,8 @@ public:
     explicit Root(const std::string &name)
         : _previous(rmp::assets::detail::resources_root()) {
         std::error_code error;
-        _path = std::filesystem::temp_directory_path(error) / ("rmp-watch-test-" + name);
+        _path = std::filesystem::temp_directory_path(error) /
+            ("rmp-watch-test-" + process_tag() + "-" + name);
         std::filesystem::remove_all(_path, error);
         std::filesystem::create_directories(_path, error);
         _root = (_path / "").string();
