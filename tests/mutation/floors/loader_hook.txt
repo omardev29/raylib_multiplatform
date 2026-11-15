@@ -14,4 +14,4 @@ kind     cxx
 sources  src/rmp/assets/loader_hook.cpp
 tests    unit_test -ts=assets:?loader?hook
 tests    property_test -tc=which?paths*
-floor    75
+floor    80
