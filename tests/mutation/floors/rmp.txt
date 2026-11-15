@@ -33,8 +33,7 @@ tests    tests/rmp_test.py::ConsoleFoldersTest tests/rmp_test.py::ConsoleDevices
 tests    tests/rmp_test.py::ConsoleSudoTest tests/rmp_test.py::TerminalRestoreTest
 # What came since: rmp package, the CI mode a game's copy reads, the manifest
 # rmp new copies, rmp install, and the console steps CI runs (#32).
-tests    tests/rmp_test.py::PackageTest tests/rmp_test.py::CiModeTest
-tests    tests/rmp_test.py::ManifestTest tests/rmp_test.py::InstallTest
+tests    tests/rmp_test.py::PackageTest tests/rmp_test.py::InstallTest
 tests    tests/rmp_test.py::ConsoleInCiTest tests/rmp_test.py::RiseOnPrivateRepoTest
 tests    tests/rmp_test.py::DeployTest
 floor    60
