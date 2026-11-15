@@ -35,5 +35,6 @@ tests    tests/rmp_test.py::ConsoleSudoTest tests/rmp_test.py::TerminalRestoreTe
 # rmp new copies, rmp install, and the console steps CI runs (#32).
 tests    tests/rmp_test.py::PackageTest tests/rmp_test.py::CiModeTest
 tests    tests/rmp_test.py::ManifestTest tests/rmp_test.py::InstallTest
-tests    tests/rmp_test.py::ConsoleInCiTest
+tests    tests/rmp_test.py::ConsoleInCiTest tests/rmp_test.py::RiseOnPrivateRepoTest
+tests    tests/rmp_test.py::DeployTest
 floor    60

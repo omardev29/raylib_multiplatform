@@ -1632,6 +1632,102 @@ def git_out(ctx, *argv) -> subprocess.CompletedProcess:
     return ctx.run(["git", *argv], check=False, capture=True)
 
 
+# ---------------------------------------------------------------------------
+# [ci] riscv64 = "rise" on a private repository (Omar, 2026-11-15): RISE lends
+# its boards free to open source, and its pages say nothing of a private
+# repository's jobs -- one may wait a day in GitHub's queue before the cross
+# build takes over. Said at `rmp deploy`, never refused: the release still
+# ships, through the fallback, and whether RISE serves it is RISE's to say.
+# ---------------------------------------------------------------------------
+
+def github_repo_of(url: str) -> tuple[str, str] | None:
+    """(owner, repo) of a github.com remote, in any of the spellings git takes,
+    or None for any other host -- a local path, GitLab, a mirror."""
+    got = re.match(r"^(?:https?://(?:[^@/]+@)?github\.com/|ssh://git@github\.com/|"
+                   r"git@github\.com:)([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+?)(?:\.git)?/?$",
+                   url.strip())
+    return (got.group(1), got.group(2)) if got else None
+
+
+def repo_visibility(owner: str, repo: str, gh=None, fetch=None) -> str | None:
+    """"public", "private", or None when it cannot be told. gh first, when it
+    is installed and signed in: it sees a private repository its user owns.
+    Otherwise GitHub's public API, with no token: a public repository answers,
+    a private one is a 404 -- or one that is gone, which the remote says is
+    not the case. No network, a rate limit or anything else: None."""
+    if gh is None:
+        gh = shutil.which("gh")
+    if gh:
+        try:
+            done = subprocess.run([gh, "api", f"repos/{owner}/{repo}", "--jq", ".private"],
+                                  capture_output=True, text=True, timeout=15,
+                                  stdin=subprocess.DEVNULL)
+        except (OSError, subprocess.TimeoutExpired):
+            done = None
+        if done is not None and done.returncode == 0:
+            said = done.stdout.strip()
+            if said in ("true", "false"):
+                return "private" if said == "true" else "public"
+    if fetch is None:
+        fetch = _github_status
+    status, body = fetch(f"https://api.github.com/repos/{owner}/{repo}")
+    if status == 404:
+        return "private"
+    if status == 200:
+        try:
+            return "private" if json.loads(body).get("private") else "public"
+        except (ValueError, AttributeError):
+            return None
+    return None
+
+
+def _github_status(url: str) -> tuple[int | None, str]:
+    """One GET with no token: (status, body), or (None, "") with no answer."""
+    import urllib.error
+    import urllib.request
+    request = urllib.request.Request(url, headers={"Accept": "application/vnd.github+json",
+                                                   "User-Agent": "rmp"})
+    try:
+        with urllib.request.urlopen(request, timeout=10) as answer:
+            return answer.status, answer.read().decode("utf-8", "replace")
+    except urllib.error.HTTPError as refused:
+        return refused.code, ""
+    except (OSError, ValueError):
+        return None, ""
+
+
+def rise_on_private_warning(riscv64: str, visibility: str | None) -> str | None:
+    """What `rmp deploy` says about [ci] riscv64, or None for nothing."""
+    if riscv64 != "rise":
+        return None
+    if visibility == "private":
+        return ('[ci] riscv64 = "rise", and this repository is private. RISE lends its\n'
+                "  RISC-V boards to open source; its job may wait up to a day in GitHub's queue\n"
+                "  before the cross build ships linux-riscv64-glibc instead. For a private game,\n"
+                '  [ci] riscv64 = "cloud-v" (with Cloud-V\'s GitHub App) or "cross".')
+    if visibility is None:
+        return ('[ci] riscv64 = "rise", and whether this repository is public could not be\n'
+                "  told (no gh, no network, or not GitHub). RISE lends its boards to open\n"
+                '  source; a private game takes "cloud-v" or "cross".')
+    return None
+
+
+def deploy_riscv64_note(ctx) -> None:
+    got = ctx.run([ctx.python, "tools/configure.py", "--print-ci"], check=False, capture=True)
+    riscv64 = ""
+    for line in (got.stdout or "").splitlines():
+        if line.startswith("riscv64="):
+            riscv64 = line.split("=", 1)[1].strip()
+    if riscv64 != "rise":
+        return
+    url = git_out(ctx, "remote", "get-url", "origin").stdout or ""
+    where = github_repo_of(url)
+    visibility = repo_visibility(*where) if where else None
+    said = rise_on_private_warning(riscv64, visibility)
+    if said:
+        print(f"  warning: {said}")
+
+
 def cmd_deploy(ctx, args):
     if len(args) != 1:
         raise Usage("rmp deploy VERSION, for example: rmp deploy 1.2.0")
@@ -1674,6 +1770,7 @@ def cmd_deploy(ctx, args):
     ctx.run([ctx.python, "tools/configure.py", "--print-config", *strict],
             env={"GITHUB_REF_TYPE": "tag", "GITHUB_REF_NAME": tag}, capture=True)
     print(f"  ok    {tag} is release-ready")
+    deploy_riscv64_note(ctx)
     ctx.run(["git", "tag", "-a", tag, "-m", f"Release {tag}"])
     ctx.run(["git", "push", "origin", tag])
     print()

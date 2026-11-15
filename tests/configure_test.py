@@ -489,9 +489,11 @@ class ConfigureUpxTest(unittest.TestCase):
         linux-arm64-glibc-drm: `enabled = ["linux"]` did not compress it."""
         for group in ("linux", "windows", "bsd"):
             with self.subTest(group=group):
-                family = [t for t in cfgmod.UPX_TARGETS if cfgmod.TARGETS[t][0] == group]
+                family = [t for t in cfgmod.UPX_TARGETS if cfgmod.TARGETS[t][0] == group
+                          and t not in cfgmod.UPX_BY_NAME_ONLY]
                 self.assertEqual(sorted(cfgmod.UPX_GROUPS[group]), sorted(family))
-        self.assertEqual(sorted(cfgmod.UPX_GROUPS["all"]), sorted(cfgmod.UPX_TARGETS))
+        self.assertEqual(sorted(cfgmod.UPX_GROUPS["all"]),
+                         sorted(set(cfgmod.UPX_TARGETS) - set(cfgmod.UPX_BY_NAME_ONLY)))
         every = set(cfgmod.TARGETS)
         self.assertEqual(set(cfgmod.UPX_TARGETS) | set(cfgmod.UPX_REFUSED), every,
                          "every target is either compressible or refused with a reason")
@@ -1083,7 +1085,7 @@ class UpxDefaultIsWhatCiStartsTest(unittest.TestCase):
     its own architecture. linux-riscv64-glibc's archive is started too, on a
     RISC-V board and under QEMU, but never packed (Omar, 2026-11-15): UPX
     5.2.0's riscv64 stub dies on every kernel before 6.3, and UPX_REFUSED says
-    so."""
+    so -- it is packed only when a game names it (Omar, 2026-11-15)."""
 
     # Started from the archive, but emulated: target -> the emulator.
     EMULATED = {"linux-riscv64-glibc": "qemu-riscv64-static"}
@@ -1117,14 +1119,14 @@ class UpxDefaultIsWhatCiStartsTest(unittest.TestCase):
         native = self.started_from_the_archive(text)
         emulated = self.started_from_the_archive(text, emulated=True)
         # Started and packable: the default, exactly.
-        self.assertEqual((native | emulated) - set(cfgmod.UPX_REFUSED),
+        self.assertEqual((native | emulated) - set(cfgmod.UPX_BY_NAME_ONLY),
                          set(cfgmod.DEFAULTS["upx"]["enabled"]))
         self.assertEqual(emulated, set(self.EMULATED))
 
-    def test_riscv64_is_started_on_a_board_and_under_qemu_and_never_packed(self):
+    def test_riscv64_is_started_on_a_board_and_under_qemu_and_packed_only_by_name(self):
         """Both of its jobs start its archive -- the board's natively, the
-        fallback under the emulator -- and UPX is refused for it, with the
-        reason, in configure.py and in the .toml (Omar, 2026-11-15)."""
+        fallback under the emulator -- and UPX packs it only when a game names
+        it: never by default, never by a group (Omar, 2026-11-15)."""
         text = (WORKFLOW_DIR / "_linux.yml").read_text()
         for target, emulator in self.EMULATED.items():
             with self.subTest(target=target):
@@ -1132,29 +1134,44 @@ class UpxDefaultIsWhatCiStartsTest(unittest.TestCase):
                 self.assertIn(target, self.started_from_the_archive(text, emulated=True))
                 self.assertIn(emulator, text)
                 self.assertNotIn(target, cfgmod.DEFAULTS["upx"]["enabled"])
-                self.assertNotIn(target, cfgmod.UPX_TARGETS)
-                self.assertIn("kernel before 6.3", cfgmod.UPX_REFUSED[target])
-                self.assertIn("SIGTRAP", cfgmod.UPX_REFUSED[target])
+                self.assertIn(target, cfgmod.UPX_TARGETS)
+                self.assertNotIn(target, cfgmod.UPX_REFUSED)
+                self.assertIn("kernel before 6.3", cfgmod.UPX_BY_NAME_ONLY[target])
+                self.assertIn("SIGTRAP", cfgmod.UPX_BY_NAME_ONLY[target])
+                for group, members in cfgmod.UPX_GROUPS.items():
+                    self.assertNotIn(target, members, group)
         section = toml_section("upx")
         para = " ".join(section.replace("#", " ").split())
-        self.assertIn("linux-riscv64-glibc (Omar, 2026-11-15)", para)
+        self.assertIn("LINUX-RISCV64-GLIBC IS PACKED ONLY WHEN NAMED (Omar, 2026-11-15)", para)
         self.assertIn("memfd_create(MFD_EXEC) is EINVAL", para)
         self.assertIn("licence exception covers only the unmodified one", para)
 
-    def test_naming_riscv64_in_upx_is_refused_with_the_reason(self):
-        for where in ("enabled", "disabled"):
-            with self.subTest(where=where):
+    def test_naming_riscv64_packs_it_and_says_why(self):
+        target = "linux-riscv64-glibc"
+        cases = (
+            # (enabled, disabled, packed, warned)
+            ([target], [], True, True),
+            ([target], [target], False, False),
+            (["linux"], [], False, False),
+            (["all"], [], False, False),
+            (["linux", target], [], True, True),
+        )
+        for enabled, disabled, packed, warned in cases:
+            with self.subTest(enabled=enabled, disabled=disabled):
                 cfg = base_config()
-                cfg["upx"][where] = ["linux-riscv64-glibc"]
-                with self.assertRaises(cfgmod.ConfigError) as caught, quiet():
+                cfg["upx"]["enabled"] = enabled
+                cfg["upx"]["disabled"] = disabled
+                before = len(cfgmod._warnings)
+                with quiet():
                     cfgmod.validate(cfg, False)
-                said = str(caught.exception)
-                self.assertIn("'linux-riscv64-glibc' cannot be compressed", said)
-                self.assertIn("before 6.3", said)
-        # The groups never bring it back.
-        for group, members in cfgmod.UPX_GROUPS.items():
-            with self.subTest(group=group):
-                self.assertNotIn("linux-riscv64-glibc", members)
+                said = cfgmod._warnings[before:]
+                self.assertEqual(target in cfgmod.expand_upx(cfg, [target]), packed)
+                self.assertEqual(any(target in w for w in said), warned, said)
+                if warned:
+                    (warning,) = [w for w in said if target in w]
+                    self.assertIn("Linux 6.3 or later", warning)
+                    self.assertIn("SIGTRAP", warning)
+                    self.assertIn('[ci] riscv64 = "rise"', warning)
 
     def test_an_archive_started_under_qemu_is_not_counted_as_native(self):
         """Seen red: the step that tells the two apart, with and without its

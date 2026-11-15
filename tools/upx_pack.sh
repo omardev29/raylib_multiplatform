@@ -7,8 +7,8 @@
 # Doing nothing is the normal outcome and is not a failure: the default
 # compresses the four Linux targets whose packed binary CI starts --
 # linux-x64-glibc, linux-arm64-glibc, linux-x64-musl and linux-x64-glibc-drm --
-# so every other job calls this and exits. linux-riscv64-glibc is refused: the
-# .toml's [upx] says why.
+# so every other job calls this and exits. linux-riscv64-glibc is packed only
+# when a game names it: the .toml's [upx] says why.
 #
 # The binary given is the copy in package/, the one the archive is made from:
 # build/release/<name> stays the file the linker wrote, which is what

@@ -389,7 +389,7 @@ def expand_targets(enabled: list[str], disabled: list[str]) -> list[str]:
 #                compressed stream does not compress again.
 #   web          it is .wasm, and the browser fetches it gzipped anyway.
 UPX_TARGETS: list[str] = [
-    "linux-x64-glibc", "linux-arm64-glibc", "linux-x64-glibc-drm",
+    "linux-x64-glibc", "linux-arm64-glibc", "linux-riscv64-glibc", "linux-x64-glibc-drm",
     "linux-arm64-glibc-drm", "linux-x64-musl",
     "windows-x64", "windows-arm64",
     "freebsd-x64", "freebsd-arm64", "openbsd-x64", "openbsd-arm64", "netbsd-x64",
@@ -401,18 +401,23 @@ UPX_REFUSED = {
     "android": "what ships is a .so inside an APK, which is already a zip — "
                "compressing it makes the APK bigger",
     "web":   "it is .wasm, and the browser fetches it gzipped anyway",
-    # Omar, 2026-11-15. Found on a RISE board (kernel 5.10) and reproduced on
-    # x86-64 with qemu-riscv64 under a seccomp filter that answers
-    # memfd_create(MFD_EXEC) with EINVAL, as every kernel before 6.3 does.
-    # The riscv64 stub's own upxfd_create (src/stub/src/riscv64-linux.elf-fold.S)
-    # returns that error as a file descriptor, and the stub stops on its
-    # ebreak; amd64's and arm64's try again without the flag. A modified stub
-    # is not ours to ship: UPX's licence exception covers only the unmodified
-    # one, and a game is not GPL.
+}
+
+# Packed only when named, never by a group or the default, and said when it is
+# (Omar, 2026-11-15). UPX 5.2.0's riscv64 stub dies with SIGTRAP on every
+# kernel before 6.3 -- found on a RISE board (Linux 5.10), and reproduced on
+# x86-64 with qemu-riscv64 under a seccomp filter that answers
+# memfd_create(MFD_EXEC) with EINVAL, as those kernels do. Its own upxfd_create
+# (src/stub/src/riscv64-linux.elf-fold.S) returns that error as a file
+# descriptor and stops on its ebreak; amd64's and arm64's try again without the
+# flag. A patched stub is not ours to ship: UPX's licence exception covers only
+# the unmodified one, and a game is not GPL. A game whose players run 6.3 or
+# later may still want the 59 %, so naming it is allowed, with a warning.
+UPX_BY_NAME_ONLY = {
     "linux-riscv64-glibc": "UPX 5.2.0's riscv64 stub dies with SIGTRAP on every Linux "
-                           "kernel before 6.3, where memfd_create(MFD_EXEC) is EINVAL "
-                           "and it never tries again without the flag -- the kernels "
-                           "most RISC-V boards ship",
+                           "kernel before 6.3 -- most RISC-V boards' -- because "
+                           "memfd_create(MFD_EXEC) is EINVAL there and it never tries "
+                           "again without the flag",
 }
 
 UPX_GROUPS: dict[str, list[str]] = {
@@ -420,10 +425,13 @@ UPX_GROUPS: dict[str, list[str]] = {
     # at all. Windows is in it, but not in the default — see the .toml. Each
     # family group is derived from TARGETS rather than written out: written
     # out, "linux" left linux-arm64-glibc-drm behind.
-    "all":     list(UPX_TARGETS),
-    "linux":   [t for t in UPX_TARGETS if TARGETS[t][0] == "linux"],
-    "windows": [t for t in UPX_TARGETS if TARGETS[t][0] == "windows"],
-    "bsd":     [t for t in UPX_TARGETS if TARGETS[t][0] == "bsd"],
+    # A target packed by name only is in none of them.
+    "all":     [t for t in UPX_TARGETS if t not in UPX_BY_NAME_ONLY],
+    "linux":   [t for t in UPX_TARGETS
+                if TARGETS[t][0] == "linux" and t not in UPX_BY_NAME_ONLY],
+    "windows": [t for t in UPX_TARGETS
+                if TARGETS[t][0] == "windows" and t not in UPX_BY_NAME_ONLY],
+    "bsd":     [t for t in UPX_TARGETS if TARGETS[t][0] == "bsd" and t not in UPX_BY_NAME_ONLY],
 }
 
 
@@ -903,6 +911,14 @@ def validate_upx(cfg: dict) -> None:
             known = ", ".join(sorted(set(UPX_GROUPS) | set(UPX_TARGETS)))
             raise ConfigError(
                 f"[upx] {where}: unknown target or group {n!r}.\nKnown: {known}")
+
+    # Named, and not taken away again: packed, and said.
+    for n in UPX_BY_NAME_ONLY:
+        if n in cfg["upx"]["enabled"] and n not in cfg["upx"]["disabled"]:
+            warn(f"[upx] enabled names {n}: {UPX_BY_NAME_ONLY[n]}. Its players need "
+                 "Linux 6.3 or later; on an older kernel the game dies before its first "
+                 "frame. With [ci] riscv64 = \"rise\" the board's job fails on its boot "
+                 "and the cross build ships instead.")
 
     # bool first: in Python `True` is an int, and `max_size_mb = true` in the
     # TOML would otherwise sail through as 1 MB and skip every binary you have.

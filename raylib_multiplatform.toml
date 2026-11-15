@@ -201,7 +201,7 @@ rewarded_id     = "ca-app-pub-3940256099942544/5224354917"
 # Groups expand and deduplicate exactly like [targets], and `disabled` is
 # subtracted afterwards, so there is no precedence to reason about.
 #   groups : all | linux | windows | bsd
-#   exact  : linux-x64-glibc linux-arm64-glibc linux-x64-musl
+#   exact  : linux-x64-glibc linux-arm64-glibc linux-riscv64-glibc linux-x64-musl
 #            linux-x64-glibc-drm linux-arm64-glibc-drm windows-x64 windows-arm64
 #            freebsd-x64 freebsd-arm64 openbsd-x64 openbsd-arm64 netbsd-x64
 #
@@ -209,13 +209,17 @@ rewarded_id     = "ca-app-pub-3940256099942544/5224354917"
 # is code-signed and compressing it breaks the signature; Android because what
 # ships is a .so inside an APK, which is already a zip, so compressing it makes
 # the APK BIGGER; web because it is .wasm and the browser fetches it gzipped.
-# And linux-riscv64-glibc (Omar, 2026-11-15): UPX 5.2.0's riscv64 stub dies
-# with SIGTRAP on every kernel before 6.3 -- most RISC-V boards' vendor kernels,
-# RISE's 5.10 among them -- because memfd_create(MFD_EXEC) is EINVAL there and,
-# unlike the amd64 and arm64 stubs, it never tries again without the flag. QEMU
-# runs on the host's newer kernel and never saw it. A patched stub is no way
-# out: UPX's licence exception covers only the unmodified one.
 # Naming any of them is an error with the reason, not a silent no-op.
+#
+# LINUX-RISCV64-GLIBC IS PACKED ONLY WHEN NAMED (Omar, 2026-11-15): no group
+# and no default brings it in, and naming it is a warning. UPX 5.2.0's riscv64
+# stub dies with SIGTRAP on every kernel before 6.3 -- most RISC-V boards'
+# vendor kernels, RISE's 5.10 among them -- because memfd_create(MFD_EXEC) is
+# EINVAL there and, unlike the amd64 and arm64 stubs, it never tries again
+# without the flag. QEMU runs on the host's newer kernel and never saw it. A
+# patched stub is no way out: UPX's licence exception covers only the
+# unmodified one. A game whose players all run Linux 6.3 or later may name it
+# for its 59 % (962 752 bytes to 391 504, measured at c0369ec).
 #
 # WINDOWS IS AVAILABLE AND NOT ON BY DEFAULT, and that is deliberate: an
 # unsigned .exe that has been UPX-packed is a shape Windows Defender associates

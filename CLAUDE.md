@@ -746,17 +746,18 @@ here so that nobody "fixes" one back.
   under Xvfb) and linux-x64-glibc-drm (on vkms). Each of those jobs unzips the
   archive it ships and starts what is in it; `UpxDefaultIsWhatCiStartsTest`
   holds the default to the workflows, both ways.
-- **linux-riscv64-glibc is never packed** (Omar, 2026-11-15, undoing his
-  2026-10-11 decision to pack it). UPX 5.2.0's riscv64 stub dies with SIGTRAP
-  on every kernel before 6.3 -- RISE's boards run 5.10, and so do most RISC-V
-  boards' vendor kernels: `memfd_create(MFD_EXEC)` is EINVAL there, and the
-  riscv64 stub's own `upxfd_create` (`riscv64-linux.elf-fold.S`) returns the
-  error as a descriptor where amd64's and arm64's try again without the flag.
-  QEMU ran it on the host's kernel and never saw it. A patched stub is not
-  ours to ship: UPX's licence exception covers only the unmodified one, and a
-  game is not GPL. `UPX_REFUSED` in `configure.py` refuses it with the reason;
-  it goes back only with a UPX release whose stub retries, seen starting on a
-  RISC-V board.
+- **linux-riscv64-glibc is packed only when a game names it** (Omar,
+  2026-11-15, undoing his 2026-10-11 decision to pack it by default). UPX
+  5.2.0's riscv64 stub dies with SIGTRAP on every kernel before 6.3 -- RISE's
+  boards run 5.10, and so do most RISC-V boards' vendor kernels:
+  `memfd_create(MFD_EXEC)` is EINVAL there, and the riscv64 stub's own
+  `upxfd_create` (`riscv64-linux.elf-fold.S`) returns the error as a
+  descriptor where amd64's and arm64's try again without the flag. QEMU ran it
+  on the host's kernel and never saw it. A patched stub is not ours to ship:
+  UPX's licence exception covers only the unmodified one, and a game is not
+  GPL. So it is in no default and no group (`UPX_BY_NAME_ONLY` in
+  `configure.py`), and a game whose players run 6.3 or later may name it in
+  `[upx] enabled`, which `configure.py` says with a warning.
 - **linux-riscv64-glibc is built on RISC-V, and the cross build is its
   fallback** (Omar, 2026-11-14 and 2026-11-15). `[ci] riscv64` names the
   board: `"rise"` (the framework's) a RISE runner (`ubuntu-24.04-riscv`, real
@@ -772,7 +773,10 @@ here so that nobody "fixes" one back.
   board is a gift, and when it fails, or none is ever given, the `riscv64` job
   -- the cross build under QEMU -- runs, ships, and says on the run's summary
   that it fell back. `rmp new` writes `"cross"`: a game's repository has
-  neither app until its author installs one. A job with no board waits in
+  neither app until its author installs one. `rmp deploy` warns, and still
+  tags, when `"rise"` is set on a repository that is private or whose
+  visibility it cannot tell (gh when it is there, GitHub's public API when
+  not): RISE lends its boards to open source. A job with no board waits in
   GitHub's queue, up to 24 hours, before the fallback runs.
 - **Debug is sanitized, Release is hardened, and both are measured.** Every
   framework Debug build -- the library, the examples, every test binary -- runs

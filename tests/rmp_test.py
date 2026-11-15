@@ -1567,6 +1567,8 @@ class GitRepo:
             "if '--print-name' in sys.argv: print('demo')\n"
             "if '--print-ci' in sys.argv: "
             "print('on_push=' + os.environ.get('FAKE_ON_PUSH', 'true'))\n"
+            "if '--print-ci' in sys.argv and os.environ.get('FAKE_RISCV64'): "
+            "print('riscv64=' + os.environ['FAKE_RISCV64'])\n"
             "sys.exit(int(os.environ.get('FAKE_CONFIGURE_EXIT', '0')))\n")
         (self.root / ".gitignore").write_text("tools/calls.json\n")
         self.git("add", "-A")
@@ -1581,6 +1583,101 @@ class GitRepo:
     def rmp(self, *argv, env=None):
         return subprocess.run([sys.executable, str(RMP_PY), *argv], cwd=self.root,
                               env=dict(self.env, **(env or {})), capture_output=True, text=True)
+
+
+class RiseOnPrivateRepoTest(unittest.TestCase):
+    """[ci] riscv64 = "rise" on a private repository is said at `rmp deploy`,
+    never refused (Omar, 2026-11-15): RISE lends its boards to open source, and
+    a private game's job may wait a day before the cross build ships."""
+
+    def test_a_github_remote_is_read_in_every_spelling_git_takes(self):
+        for url, want in (
+            ("https://github.com/omar/game.git", ("omar", "game")),
+            ("https://github.com/omar/game", ("omar", "game")),
+            ("https://github.com/omar/game/", ("omar", "game")),
+            ("http://github.com/omar/game.git", ("omar", "game")),
+            ("https://token@github.com/omar/game.git", ("omar", "game")),
+            ("git@github.com:omar/game.git", ("omar", "game")),
+            ("ssh://git@github.com/omar/my.game.git", ("omar", "my.game")),
+            ("  https://github.com/omar/game.git\n", ("omar", "game")),
+        ):
+            with self.subTest(url=url):
+                self.assertEqual(rmp.github_repo_of(url), want)
+        for url in ("", "/tmp/origin.git", "file:///tmp/o.git", "https://gitlab.com/omar/game",
+                    "https://github.com/omar", "https://github.com.evil/omar/game",
+                    "git@gitlab.com:omar/game.git", "https://github.com/omar/game/tree/main"):
+            with self.subTest(url=url):
+                self.assertIsNone(rmp.github_repo_of(url))
+
+    def fake_gh(self, tmp: Path, out: str, code: int = 0) -> str:
+        gh = tmp / "gh"
+        gh.write_text(f"#!/bin/sh\nprintf '%s\\n' '{out}'\nexit {code}\n")
+        gh.chmod(0o755)
+        return str(gh)
+
+    def test_gh_says_first_when_it_can(self):
+        never = lambda url: self.fail("asked the network although gh answered")
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertEqual(rmp.repo_visibility("o", "r", gh=self.fake_gh(Path(tmp), "true"),
+                                                 fetch=never), "private")
+            self.assertEqual(rmp.repo_visibility("o", "r", gh=self.fake_gh(Path(tmp), "false"),
+                                                 fetch=never), "public")
+
+    def test_a_gh_that_cannot_answer_falls_back_to_the_public_api(self):
+        asked = []
+        def fetch(url):
+            asked.append(url)
+            return 200, '{"private": false}'
+        with tempfile.TemporaryDirectory() as tmp:
+            for gh in (self.fake_gh(Path(tmp), "", 1), self.fake_gh(Path(tmp), "maybe"),
+                       str(Path(tmp) / "no-such-gh"), ""):
+                with self.subTest(gh=gh):
+                    self.assertEqual(rmp.repo_visibility("o", "r", gh=gh, fetch=fetch), "public")
+        self.assertEqual(asked[-1], "https://api.github.com/repos/o/r")
+
+    def test_the_public_api_answers_or_nothing_is_said(self):
+        for answer, want in (
+            ((200, '{"private": false}'), "public"),
+            ((200, '{"private": true}'), "private"),
+            ((404, ""), "private"),
+            ((403, ""), None),   # a rate limit says nothing about the repository
+            ((500, ""), None),
+            ((None, ""), None),  # no network
+            ((200, "not json"), None),
+            ((200, "[]"), None),
+        ):
+            with self.subTest(answer=answer):
+                self.assertEqual(rmp.repo_visibility("o", "r", gh="", fetch=lambda u: answer),
+                                 want)
+
+    def test_only_rise_is_said_and_only_when_it_may_wait(self):
+        for riscv64 in ("cross", "cloud-v", ""):
+            for visibility in ("private", "public", None):
+                with self.subTest(riscv64=riscv64, visibility=visibility):
+                    self.assertIsNone(rmp.rise_on_private_warning(riscv64, visibility))
+        self.assertIsNone(rmp.rise_on_private_warning("rise", "public"))
+        private = rmp.rise_on_private_warning("rise", "private")
+        self.assertIn("this repository is private", private)
+        self.assertIn('"cloud-v"', private)
+        self.assertIn("up to a day", private)
+        unknown = rmp.rise_on_private_warning("rise", None)
+        self.assertIn("could not be", unknown)
+        self.assertIn('"cloud-v"', unknown)
+
+    def test_deploy_says_it_and_still_ships(self):
+        if shutil.which("git") is None:
+            self.skipTest("git not installed")
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = GitRepo(Path(tmp))
+            # A local origin: not GitHub, so nothing can be told and it is said.
+            got = repo.rmp("deploy", "1.0.0", env={"FAKE_RISCV64": "rise"})
+            self.assertEqual(got.returncode, 0, got.stdout + got.stderr)
+            self.assertIn('warning: [ci] riscv64 = "rise", and whether this repository is '
+                          "public could not be", got.stdout)
+            self.assertIn("v1.0.0", repo.git("tag").stdout)
+            got = repo.rmp("deploy", "1.0.1", env={"FAKE_RISCV64": "cross"})
+            self.assertEqual(got.returncode, 0, got.stdout + got.stderr)
+            self.assertNotIn("riscv64", got.stdout)
 
 
 class DeployTest(unittest.TestCase):
