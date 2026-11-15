@@ -31,7 +31,7 @@ equivalent cxx_replace_scalar_call:src/rmp/save/save.cpp:376:35 snprintf's size 
 equivalent cxx_lt_to_le:src/rmp/save/save.cpp:388:43 when the file is as long as the magic, both branches give that length
 equivalent cxx_le_to_lt:src/rmp/save/save.cpp:404:33 the fields differ only for a header that ends in a space, which the comparison with the canonical header refuses either way
 equivalent cxx_init_const:src/rmp/save/save.cpp:409:9 whole_number() writes it before it is read, and when it cannot, decode() has already returned
-equivalent cxx_init_const:src/rmp/save/save.cpp:409:9 whole_number() writes it before it is read, and when it cannot, decode() has already returned
+equivalent cxx_init_const:src/rmp/save/save.cpp:410:9 whole_number() writes it before it is read, and when it cannot, decode() has already returned
 equivalent cxx_init_const:src/rmp/save/save.cpp:411:17 whole_number() writes it before it is read, and when it cannot, decode() has already returned
 equivalent cxx_init_const:src/rmp/save/save.cpp:412:19 whole_number() writes it before it is read, and when it cannot, decode() has already returned
 equivalent cxx_replace_scalar_call:src/rmp/save/save.cpp:426:35 snprintf's size as 42, past the 9-byte buffer, and "%08x" is 8 characters: the same text
