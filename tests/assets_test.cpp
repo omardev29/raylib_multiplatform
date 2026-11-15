@@ -1419,14 +1419,19 @@ TEST_SUITE("assets: before the window") {
             CHECK(unnamed->count == before->count);
         }
 
+        // Each load that needs the window counts one, however
+        // many came before it in this run; the first name is the earliest.
+        const int start = unnamed ? unnamed->count : 0;
         (void)rmp::assets::load_texture("not_there_before_window.png");
         const EarlyLoads first = loaded_before_window().value_or(EarlyLoads{});
         CHECK_FALSE(first.first.empty());
-        CHECK(first.count >= 1);
+        CHECK(first.count == start + 1);
+        if (start == 0) CHECK(first.first == "not_there_before_window.png");
         (void)rmp::assets::load_font("not_there_before_window.ttf", 12);
-        const EarlyLoads more = loaded_before_window().value_or(EarlyLoads{});
-        CHECK(more.first == first.first);
-        CHECK(more.count == first.count + 1);
+        const EarlyLoads font = loaded_before_window().value_or(EarlyLoads{});
+        CHECK(font.first == first.first);
+        CHECK(font.count == first.count + 1);
+        const EarlyLoads &more = font;
 
         rmp::assets::detail::window_opened();
         const auto named = std::ranges::count_if(said, [&](const std::string &line) {
