@@ -57,12 +57,17 @@ report() { python3 tools/mutation_report.py "$@"; }
 # modules have no floor until it is found.
 MUTANT_MEMORY_KB=${RMP_MUTANT_MEMORY_KB:-3145728}  # 3 GiB
 # And no core dumps: the console tests make their canary die by SIGSEGV, abort
-# and the rest on purpose, and every mutant crashes a few programs more; where
-# the kernel hands each core to a helper (a GitHub runner's apport), four
-# workers' dumps queued up, the programs waited in D state for theirs, and a
-# third of app's runs went past their timeout -- mutants that change nothing
-# among them. A core is nothing a mutant's verdict reads.
-bounded() { (ulimit -v "$MUTANT_MEMORY_KB" && ulimit -c 0 && "$@"); }
+# and the rest on purpose, and a killed mutant crashes a program more. A
+# GitHub runner pipes every core to systemd-coredump, with the limit written
+# into its pattern, and the kernel ignores RLIMIT_CORE for a pipe -- but for
+# exactly 1 byte, its guard against a helper that dumps itself (fs/coredump.c),
+# which bash's `ulimit -c` cannot say (it counts 1024-byte blocks). With 0,
+# four workers' dumps still queued, the programs waited in D state for theirs,
+# and a third of app's runs went past their timeout, mutants that change
+# nothing among them (probe runs 43879298367 and 43884033891). A core is
+# nothing a mutant's verdict reads; prlimit sets 1 byte, and every child
+# inherits it.
+bounded() { (ulimit -v "$MUTANT_MEMORY_KB" && exec prlimit --core=1:1 -- "$@"); }
 
 # What started after the run did and has lived for more than 30 s, every
 # 30 s, with the disk used: the evidence a hung mutant or an orphan leaves,
@@ -71,7 +76,8 @@ watch_processes() {
   local out="$1" began=$SECONDS
   {
     echo "core_pattern: $(cat /proc/sys/kernel/core_pattern 2> /dev/null)"
-    echo "core limit here: $(ulimit -c), in a mutant's run: $(bounded sh -c 'ulimit -c')"
+    echo "core limit here: $(ulimit -c) blocks; in a mutant's run:" \
+      "$(bounded sh -c 'grep "core file" /proc/self/limits')"
   } > "$out"
   while sleep 30; do
     {
