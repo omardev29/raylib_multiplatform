@@ -258,8 +258,7 @@ class Machine:
     def run(self, argv, *args, **kwargs):
         argv = [str(a) for a in argv]
         program = Path(argv[0]).name
-        game = program in ("demo", "game", "my_game") or program.startswith("example_") \
-            or argv[:2] == ["sudo", "--"]
+        game = is_game(argv)
         chosen = self.answers(argv) if callable(self.answers) else self.answers.get(program)
         if chosen is not None:
             code, out = self.data.draw(chosen, label=" ".join(argv))
@@ -280,6 +279,17 @@ def terminal():
     out = io.TextIOWrapper(io.BytesIO(), encoding="utf-8", errors="strict")
     err = io.TextIOWrapper(io.BytesIO(), encoding="utf-8", errors="backslashreplace")
     return out, err
+
+
+def is_game(argv: list[str]) -> bool:
+    """Whether a command line rmp runs starts the game: whatever rmp starts
+    from a build folder, whatever its name. `configure.py --print-name` is
+    drawn too, and a game it named "0" was answered like a tool -- a 2 that
+    rmp rightly passed on, which this file then read as a usage error with
+    nothing said (the nightly Hypothesis run of 2026-11-15)."""
+    program = Path(argv[0]).name
+    return program in ("demo", "game", "my_game") or program.startswith("example_") \
+        or argv[:2] == ["sudo", "--"] or "build" in Path(argv[0]).parts[:-1]
 
 
 def run_main(machine: Machine, argv: list[str]):
@@ -317,6 +327,16 @@ def holds_its_exit_promise(case, argv, machine, code, out, err):
                   f"{argv!r}\nstdout:\n{out}\nstderr:\n{err}")
     if code == 2:
         case.assertTrue(err.strip(), f"{argv!r}: a usage error that says nothing")
+
+
+class IsGameTest(unittest.TestCase):
+    def test_a_game_is_known_by_its_folder_not_its_name(self):
+        self.assertTrue(is_game(["/tmp/x/framework/build/debug/0"]))
+        self.assertTrue(is_game(["build/release/run"]))
+        self.assertTrue(is_game(["/tmp/x/build/debug/demo"]))
+        self.assertTrue(is_game(["sudo", "--", "/tmp/x/build/debug-drm/0"]))
+        self.assertFalse(is_game(["cmake", "--build", "--preset", "debug", "--target", "0"]))
+        self.assertFalse(is_game(["/usr/bin/python3", "tools/configure.py", "--print-name"]))
 
 
 class MainIsTotalTest(unittest.TestCase):
