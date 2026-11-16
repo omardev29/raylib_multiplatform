@@ -14,3 +14,22 @@ floor    85
 equivalent cxx_gt_to_ge:src/rmp/app/clock.cpp:118:24 a reading equal to the ceiling is returned as the ceiling either way
 equivalent cxx_gt_to_ge:src/rmp/app/clock.cpp:153:28 a fixed step of 0 is stored as 0 either way
 equivalent cxx_lt_to_le:src/rmp/app/clock.cpp:227:22 drawn stops at 3 instead of 2, and is only ever asked whether it is below 2
+# A bool or a number stored as a constant, mutated into another that reads the
+# same in the binary Mull runs (Omar's rules-approved, 2026-11-16). Mull's
+# cxx_assign_const writes 42 where the source writes false, and clang stores a
+# bool as `store i8 0` and reads it as `trunc i8 to i1` (seen in the IR of
+# clock.cpp): 42 is 0b101010, read as false -- the mutant is the program it
+# mutates, and no test can tell them apart (planted by hand as `= 42` in C++,
+# which is true, the same lines fail three of clock_test's cases). The weekly
+# run that "killed" them was the one whose folders four workers shared.
+equivalent cxx_assign_const:src/rmp/app/clock.cpp:131:22 zero_once = false stored as i8 42, read as false
+equivalent cxx_assign_const:src/rmp/app/clock.cpp:146:20 stepped = false stored as i8 42, read as false
+equivalent cxx_assign_const:src/rmp/app/clock.cpp:206:23 paused = false stored as i8 42, read as false
+equivalent cxx_assign_const:src/rmp/app/clock.cpp:207:21 held = false stored as i8 42, read as false
+equivalent cxx_assign_const:src/rmp/app/clock.cpp:231:28 RMP_WINDOW_PAUSE_UNFOCUSED != 0 is a constant false, stored as i8 42 and read as false
+equivalent cxx_assign_const:src/rmp/app/clock.cpp:232:19 paused = false stored as i8 42, read as false
+equivalent cxx_assign_const:src/rmp/app/clock.cpp:234:17 held = false stored as i8 42, read as false
+equivalent cxx_assign_const:src/rmp/app/clock.cpp:235:22 zero_once = false stored as i8 42, read as false
+# And two numbers nothing reads before they are written again.
+equivalent cxx_assign_const:src/rmp/app/clock.cpp:147:17 last is read only while stepped is true, and forget_steps_for_tests() makes it false; the next step writes last first
+equivalent cxx_assign_const:src/rmp/app/clock.cpp:236:18 drawn is only asked whether it is below 2, and 42 is not either; frame_skipped() writes 0 before it is asked again

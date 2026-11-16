@@ -29,3 +29,8 @@ equivalent cxx_remove_void_call:src/rmp/save/value.cpp:298:5 the variant that su
 # to that same int, so returning it before the cast and after are one answer.
 equivalent cxx_ge_to_gt:src/rmp/save/value.cpp:145:17 a number equal to INT_MAX casts to INT_MAX, which is what the clamp returns
 equivalent cxx_le_to_lt:src/rmp/save/value.cpp:146:17 a number equal to INT_MIN casts to INT_MIN, which is what the clamp returns
+# Speed, not answers (Omar's rules-approved, 2026-11-16): a hash of 42 for
+# every key puts them all in one slot, and linear probing still finds each;
+# a rehash at a table exactly full enough builds the same index again.
+equivalent cxx_replace_scalar_call:src/rmp/save/value.cpp:77:52 every key hashed to 42 is found by linear probing all the same, only slower
+equivalent cxx_lt_to_le:src/rmp/save/value.cpp:120:23 a rehash when the table already has slots_for() slots builds the same index
