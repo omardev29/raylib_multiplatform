@@ -50,11 +50,9 @@ report() { python3 tools/mutation_report.py "$@"; }
 # would otherwise take the machine with it; under the limit the mutant's
 # program dies, which is a mutant detected. Per process: mull-runner's workers
 # and mutmut's children are each held to it, and the builds are not sanitized
-# (ASan reserves terabytes of address space). It is NOT what loses GitHub's
-# runner in the core and console shards of the weekly run ("The hosted runner
-# lost communication with the server" in 38173980700, and again with this
-# limit in 38182204715, no log and no score): that is still open, and those two
-# modules have no floor until it is found.
+# (ASan reserves terabytes of address space). It was NOT what lost GitHub's
+# runner in the core and console shards of the weekly run: the cores below
+# were.
 MUTANT_MEMORY_KB=${RMP_MUTANT_MEMORY_KB:-3145728}  # 3 GiB
 # And no core dumps: the console tests make their canary die by SIGSEGV, abort
 # and the rest on purpose, and a killed mutant crashes a program more. A
