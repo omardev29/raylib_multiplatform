@@ -1046,6 +1046,31 @@ TEST_CASE_FIXTURE(
                               { b.x + 200, b.y + b.height + 1 }));
 }
 
+TEST_CASE_FIXTURE(Fixture,
+                  "a disc a hair into a box's corner is pushed out the shortest way") {
+    // The narrow-phase property's counterexample (nightly, seed
+    // 3789247853875866022): a disc of 12.75 whose edge is 0.0025 into the
+    // corner of a box of 26 x 8. It is in, and it comes out along the line
+    // from the corner to its centre, by what it was in.
+    World world;
+    auto &wall = world.spawn({ .position = { 0, 0 }, .shape = rmp::rect({ 26, 8 }) });
+    wall.solid = true;
+    wall.immovable = true;
+    auto &disc =
+        world.spawn({ .position = { -18.5f, -15.5f }, .shape = rmp::circle(12.75f) });
+    disc.solid = true;
+    rmp::objects::detail::collide(world);
+    const double dx = -5.5;
+    const double dy = -11.5;
+    const double d = std::hypot(dx, dy);
+    const double in = 12.75 - d; // 0.0025
+    REQUIRE(in > 0);
+    CHECK(disc.position.x == doctest::Approx(-18.5 + (dx / d * in)).epsilon(1e-6));
+    CHECK(disc.position.y == doctest::Approx(-15.5 + (dy / d * in)).epsilon(1e-6));
+    CHECK(wall.position.x == 0);
+    CHECK(wall.position.y == 0);
+}
+
 TEST_CASE_FIXTURE(Fixture, "a ray of zero length is not a crash") {
     World world;
     world.spawn({ .position = { 0, 0 }, .shape = rmp::rect({ 10, 10 }) });
