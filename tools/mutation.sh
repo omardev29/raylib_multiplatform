@@ -56,14 +56,23 @@ report() { python3 tools/mutation_report.py "$@"; }
 # limit in 38182204715, no log and no score): that is still open, and those two
 # modules have no floor until it is found.
 MUTANT_MEMORY_KB=${RMP_MUTANT_MEMORY_KB:-3145728}  # 3 GiB
-bounded() { (ulimit -v "$MUTANT_MEMORY_KB" && "$@"); }
+# And no core dumps: the console tests make their canary die by SIGSEGV, abort
+# and the rest on purpose, and every mutant crashes a few programs more; where
+# the kernel hands each core to a helper (a GitHub runner's apport), four
+# workers' dumps queued up, the programs waited in D state for theirs, and a
+# third of app's runs went past their timeout -- mutants that change nothing
+# among them. A core is nothing a mutant's verdict reads.
+bounded() { (ulimit -v "$MUTANT_MEMORY_KB" && ulimit -c 0 && "$@"); }
 
 # What started after the run did and has lived for more than 30 s, every
 # 30 s, with the disk used: the evidence a hung mutant or an orphan leaves,
 # which a mull-runner timeout does not say. Runs until it is killed.
 watch_processes() {
   local out="$1" began=$SECONDS
-  : > "$out"
+  {
+    echo "core_pattern: $(cat /proc/sys/kernel/core_pattern 2> /dev/null)"
+    echo "core limit here: $(ulimit -c), in a mutant's run: $(bounded sh -c 'ulimit -c')"
+  } > "$out"
   while sleep 30; do
     {
       echo "== $(date -u +%H:%M:%S), $((SECONDS - began)) s in"
