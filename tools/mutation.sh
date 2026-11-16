@@ -58,6 +58,24 @@ report() { python3 tools/mutation_report.py "$@"; }
 MUTANT_MEMORY_KB=${RMP_MUTANT_MEMORY_KB:-3145728}  # 3 GiB
 bounded() { (ulimit -v "$MUTANT_MEMORY_KB" && "$@"); }
 
+# What started after the run did and has lived for more than 30 s, every
+# 30 s, with the disk used: the evidence a hung mutant or an orphan leaves,
+# which a mull-runner timeout does not say. Runs until it is killed.
+watch_processes() {
+  local out="$1" began=$SECONDS
+  : > "$out"
+  while sleep 30; do
+    {
+      echo "== $(date -u +%H:%M:%S), $((SECONDS - began)) s in"
+      ps -eo pid,ppid,etimes,pcpu,stat,args --sort=-etimes 2> /dev/null \
+        | awk -v age=$((SECONDS - began)) \
+            'NR == 1 || ($3 > 30 && $3 <= age && $0 !~ /mull-runner|sleep 30|ps -eo|awk -v/)' \
+        | cut -c1-200 | head -40
+      df -h . 2> /dev/null | tail -1
+    } >> "$out"
+  done
+}
+
 usage() {
   echo "usage: bash tools/mutation.sh modules | run MODULE | check MODULE | update MODULE | all"
   exit 2
@@ -167,10 +185,17 @@ run_cxx() {
     # default is 3 s, and property_test takes 5 at Mull's -O0: "Original test
     # failed (warmup run)"); each mutant's own limit stays the larger of ten
     # warm-ups and --minimum-timeout.
+    # Every 30 s, the processes that have lived past 30 s and the disk used,
+    # into the report folder the weekly run uploads: a mutant that hangs, or
+    # an orphan that eats the runner, shows there (CLAUDE.md, "Open
+    # problems"). It reads and writes nothing else, and ends with the run.
+    watch_processes "$dir/report/$module-$i.ps.log" &
+    local watcher=$!
     bounded "$MULL_RUNNER" --reporters Elements --report-dir "$dir/report" --report-name "$module-$i" \
       --allow-surviving --workers "${CMAKE_BUILD_PARALLEL_LEVEL:-4}" --timeout 120000 --minimum-timeout 10000 \
       "$dir/$program" "$@" < /dev/null > "$dir/report/$module-$i.log" 2>&1 \
-      || { tail -30 "$dir/report/$module-$i.log"; echo "FAIL: mull-runner did not finish"; exit 1; }
+      || { kill "$watcher" 2> /dev/null; tail -30 "$dir/report/$module-$i.log"; echo "FAIL: mull-runner did not finish"; exit 1; }
+    kill "$watcher" 2> /dev/null || true
     grep -E 'Surviving mutants|Mutation score|Total execution' "$dir/report/$module-$i.log" \
       | sed 's/^/  /' || true
     [ -s "$dir/report/$module-$i.json" ] || { echo "FAIL: mull-runner wrote no report"; exit 1; }
