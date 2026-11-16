@@ -12,4 +12,8 @@ tests    unit_test -ts=resources*
 # A resource that remembers its file: changed() and reload() (hot reload, #31).
 tests    unit_test -sf=*watch_test.cpp
 tests    property_test -tc=the?resource?table*
-floor    80
+# Measured 2026-11-16 (Mull 18, deterministic: every test folder its own):
+# 45 of 59, 76.27% -- with watch_test's "what replace_payload brings is the
+# file as it is now", which kills the four mutants of its watch-0 guard. The
+# 80 this branch had came from a run whose folders four workers shared.
+floor    75

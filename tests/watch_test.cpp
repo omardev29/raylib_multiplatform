@@ -356,6 +356,35 @@ TEST_SUITE("assets: hot reload, textures") {
             rmp::detail::replace_payload(*slot, std::make_shared<::Image>(first)));
         CHECK(a.raw().width == 0);
     }
+
+    TEST_CASE("what replace_payload brings is the file as it is now: not changed") {
+        // The first file watched is watch 0, and a reload of it must take the
+        // generation it read, or the slot says "changed" again for ever: a
+        // `watch > 0` there (Mull's mutant) left watch 0 out.
+        using rmp::detail::ResourceKind;
+        const Root root("replaced");
+        rmp::detail::release_all();
+        root.put("hero.png", "first");
+        ::Image second{};
+        second.width = 2;
+        // NOLINTNEXTLINE(custom-rmp-raw-pointer): the table's handle, as replace_payload() takes it
+        auto *slot =
+            rmp::detail::adopt_named(ResourceKind::IMAGE, "hero.png", 0, ::Image{});
+        REQUIRE(slot != nullptr);
+        const int watch = rmp::assets::detail::watch_file("hero.png");
+        REQUIRE(watch == 0);
+        rmp::detail::watch_slot(*slot, watch);
+        const rmp::Image hero{ slot };
+        rmp::assets::detail::poll_watched_now();
+        CHECK_FALSE(rmp::detail::slot_changed(*slot));
+        root.put("hero.png", "second, longer");
+        rmp::assets::detail::poll_watched_now();
+        CHECK(rmp::detail::slot_changed(*slot));
+        CHECK(rmp::detail::replace_payload(*slot, std::make_shared<::Image>(second)));
+        CHECK(hero.raw().width == 2);
+        CHECK_FALSE(rmp::detail::slot_changed(*slot));
+        rmp::detail::release_all();
+    }
 }
 
 #endif // !RMP_PRODUCTION_BUILD
