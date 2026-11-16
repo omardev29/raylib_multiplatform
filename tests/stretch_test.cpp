@@ -294,6 +294,22 @@ TEST_SUITE("app: stretch: the letterbox's clip") {
         CHECK(std::abs(top - (2400 - bottom)) <= 1);
     }
 
+    TEST_CASE("an edge is the area's own, not a float sum's rounding of it") {
+        // The nightly properties' 12976 by 7300 (a scale of 16.22): the area's
+        // bottom is 7299.49976, and its top plus its height added in float
+        // rounds to 7299.5 -- which lround made 7300, a pixel of bar left to
+        // the world. Each edge is rounded from the sum in double.
+        const Vector2 screen{ 12976, 7300 };
+        const Rectangle area = world_viewport(Stretch::LETTERBOX, screen).area;
+        const double bottom = static_cast<double>(area.y) + area.height;
+        REQUIRE(bottom < 7299.5);
+        REQUIRE(area.y + area.height == 7299.5f);
+        const std::optional<rmp::scenes::detail::WorldClip> clip =
+            world_clip(Stretch::LETTERBOX, screen);
+        REQUIRE(clip.has_value());
+        CHECK(clip->y + clip->height == 7299);
+    }
+
     TEST_CASE("the extremes: a 4096 square, a bar under a pixel, one pixel") {
         // A square monitor: the design across its width, bars above and below
         // of exactly (4096 - 4096 / W * H) / 2 pixels each.
