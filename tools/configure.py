@@ -2311,19 +2311,29 @@ def gen_dev_linker(cfg: dict) -> None:
     write(REPO / "cmake" / "generated" / "dev_linker.cmake", "\n".join(lines) + "\n")
 
 
+BIDI_CONTROLS = frozenset("\u202a\u202b\u202c\u202d\u202e\u2066\u2067\u2068\u2069"
+                          "\u200e\u200f\u061c")
+
+
 def _c_string(value: str) -> str:
     """A C string literal holding exactly `value`, as UTF-8. A control
     character is three octal digits, always: raw, a newline ended the literal
     in the middle of its line, and `\\0` or `\\x` would run into a digit
     that follows them. A `?` after a `?` is `\\?`: `??/` is a trigraph -- a
     backslash, in a C compiled with them, and gcc's -Wtrigraphs (-Wall) under
-    -Werror an error where they are off. `[window] title = "??/"` was both."""
+    -Werror an error where they are off. `[window] title = "??/"` was both.
+    A bidirectional control (U+202A-U+202E, U+2066-U+2069, and the marks
+    U+200E, U+200F and U+061C) is its UTF-8 bytes in octal: raw, one unpaired
+    is gcc's -Wbidi-chars, an error under -Werror (the nightly properties'
+    `title = "\\u202a"`). Every other letter is written as it is, readable."""
     out = []
     for i, c in enumerate(value):
         if c in '"\\' or (c == "?" and i > 0 and value[i - 1] == "?"):
             out.append("\\" + c)
         elif ord(c) < 0x20 or ord(c) == 0x7F:
             out.append(f"\\{ord(c):03o}")
+        elif c in BIDI_CONTROLS:
+            out.append("".join(f"\\{b:03o}" for b in c.encode("utf-8")))
         else:
             out.append(c)
     return '"' + "".join(out) + '"'

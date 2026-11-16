@@ -6661,6 +6661,9 @@ class ConfigureNotANumberTest(unittest.TestCase):
         self.assertEqual(cfgmod._c_string("\x00" + "7"), '"\\0007"')
         self.assertEqual(cfgmod._c_string("tab\there\x7f"), '"tab\\011here\\177"')
         self.assertEqual(cfgmod._c_string('say "hi" \\ é'), '"say \\"hi\\" \\\\ é"')
+        # A bidirectional control is its bytes in octal; a letter stays itself.
+        self.assertEqual(cfgmod._c_string("\u202aé"), '"\\342\\200\\252é"')
+        self.assertEqual(cfgmod._c_string("a\u2069\u200f"), '"a\\342\\201\\251\\342\\200\\217"')
         # [ui] font, a string nothing refuses a control character in: the
         # password does now (ConfigureRresPasswordTest).
         cfg = base_config(ui=dict(copy.deepcopy(cfgmod.DEFAULTS["ui"]), font="line one\nline two"))
