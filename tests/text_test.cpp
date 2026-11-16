@@ -264,6 +264,19 @@ TEST_SUITE("text: the pieces") {
         }
     }
 
+    TEST_CASE("TSV: a byte order mark that taking one away makes is dropped too") {
+        // "\xEF" + BOM + "\xBB\xBF": with the middle one gone, the bytes either
+        // side are a mark of their own, which the search, going on from where
+        // it erased, never looked at -- and a cell kept it.
+        const std::string nested = "a\xEF\xEF\xBB\xBF\xBB\xBF"
+                                   "b";
+        const auto rows = d::parse_tsv(nested + "\tx\n");
+        REQUIRE(rows.size() == 1);
+        CHECK(rows[0] == std::vector<std::string>{ "ab", "x" });
+        CHECK(d::escape_cell(nested) == "ab");
+        CHECK(d::escape_cell("\xEF\xBB\xEF\xBB\xBF\xBF") == "");
+    }
+
     TEST_CASE("plural rules per language") {
         CHECK(d::plural_count("en") == 2);
         CHECK(d::plural_count("ja") == 1);

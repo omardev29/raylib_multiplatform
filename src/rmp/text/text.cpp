@@ -296,8 +296,10 @@ namespace {
 constexpr std::string_view BOM = "\xEF\xBB\xBF";
 
 void drop_bom(std::string &text) {
+    // Looked for again from two bytes back: the bytes either side of one taken
+    // away can make another ("\xEF" + BOM + "\xBB\xBF"), and none may be left.
     for (std::size_t at = text.find(BOM); at != std::string::npos;
-         at = text.find(BOM, at))
+         at = text.find(BOM, at < 2 ? 0 : at - 2))
         text.erase(at, BOM.size());
 }
 } // namespace
