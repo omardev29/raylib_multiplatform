@@ -743,11 +743,41 @@ here so that nobody "fixes" one back.
   jobs print the lines and say so, and the day it commits one it is held to it.
 - **`[upx] enabled`'s default is exactly the targets whose packed binary CI
   starts**: linux-x64-glibc, linux-arm64-glibc, linux-x64-musl (on Alpine,
-  under Xvfb), linux-x64-glibc-drm (on vkms) and linux-riscv64-glibc (under
-  QEMU in the build image -- an emulator, not a RISC-V machine, and in the
-  default by Omar's decision of 2026-10-11). Each of those jobs unzips the
+  under Xvfb) and linux-x64-glibc-drm (on vkms). Each of those jobs unzips the
   archive it ships and starts what is in it; `UpxDefaultIsWhatCiStartsTest`
   holds the default to the workflows, both ways.
+- **linux-riscv64-glibc is packed only when a game names it** (Omar,
+  2026-11-15, undoing his 2026-10-11 decision to pack it by default). UPX
+  5.2.0's riscv64 stub dies with SIGTRAP on every kernel before 6.3 -- RISE's
+  boards run 5.10, and so do most RISC-V boards' vendor kernels:
+  `memfd_create(MFD_EXEC)` is EINVAL there, and the riscv64 stub's own
+  `upxfd_create` (`riscv64-linux.elf-fold.S`) returns the error as a
+  descriptor where amd64's and arm64's try again without the flag. QEMU ran it
+  on the host's kernel and never saw it. A patched stub is not ours to ship:
+  UPX's licence exception covers only the unmodified one, and a game is not
+  GPL. So it is in no default and no group (`UPX_BY_NAME_ONLY` in
+  `configure.py`), and a game whose players run 6.3 or later may name it in
+  `[upx] enabled`, which `configure.py` says with a warning.
+- **linux-riscv64-glibc is built on RISC-V, and the cross build is its
+  fallback** (Omar, 2026-11-14 and 2026-11-15). `[ci] riscv64` names the
+  board: `"rise"` (the framework's) a RISE runner (`ubuntu-24.04-riscv`, real
+  hardware the RISE project lends to open source through its GitHub App),
+  `"cloud-v"` a Cloud-V Milk-V Pioneer (`[self-hosted, milkv-pioneer]`,
+  through Cloud-V's GitHub App) -- the native way for a private repository, a
+  game's -- and `"cross"` no board. Both boards run the one `riscv64-native`
+  job inside `ghcr.io/omardev29/raylib-build-riscv64` (`riscv64/` in the image
+  repository, built and verified on RISE; Ubuntu 24.04 riscv64 at the build
+  image's apt snapshot, so the binary is the cross build's: one size line, one
+  glibc floor); a board without Docker fails its first step. It is the one job
+  allowed `continue-on-error` (`NoJobLevelContinueOnErrorTest.FALLBACKS`): a
+  board is a gift, and when it fails, or none is ever given, the `riscv64` job
+  -- the cross build under QEMU -- runs, ships, and says on the run's summary
+  that it fell back. `rmp new` writes `"cross"`: a game's repository has
+  neither app until its author installs one. `rmp deploy` warns, and still
+  tags, when `"rise"` is set on a repository that is private or whose
+  visibility it cannot tell (gh when it is there, GitHub's public API when
+  not): RISE lends its boards to open source. A job with no board waits in
+  GitHub's queue, up to 24 hours, before the fallback runs.
 - **Debug is sanitized, Release is hardened, and both are measured.** Every
   framework Debug build -- the library, the examples, every test binary -- runs
   under ASan and UBSan (LeakSanitizer too, on Linux) because the framework's
@@ -896,49 +926,15 @@ out, and how to go about it. **When one is solved, its entry is deleted from
 this file in the same pull request** -- a caveat below is only kept when the
 lesson outlives the fix.
 
-- **The `console` and `core` mutation shards lose GitHub's runner.** Every
-  weekly `deep.yml` run (`38173980700`, `38182204715`), both shards work for
-  about 50 minutes and then the job dies with "The hosted runner lost
-  communication with the server ... terminates the runner process, starves it
-  for CPU/Memory" (`console`) or "The runner has received a shutdown signal"
-  (`core`). The step's log is never uploaded and the steps after `Mutate`
-  never run, so nothing says which mutant was running. Both modules are
-  `floor -` until this is found; the other 28 have floors.
-  - **What the shards run.** `console` mutates `src/rmp/app/console.cpp` and runs
-    `tests/console_test.cpp`, which installs signal handlers in-process and
-    starts `console_canary` -- linked with the same mutated file -- through
-    `popen` and `sh` on a pseudo-terminal, dying every way (segfault, abort,
-    kill, stack overflow, sanitizer reports). `core` mutates `report.cpp`,
-    `global.cpp` and `ads.cpp` against the whole `unit_test`, the console
-    tests included.
-  - **Ruled out: memory per process.** `tools/mutation.sh` holds every program
-    a mutant runs in to 3 GiB of address space (`bounded`, seen working), and
-    the second run died the same way.
-  - **The likeliest cause, not verified: orphans that eat the CPU.** On a
-    timeout mull-runner kills the program it started, not its descendants; the
-    canary is a grandchild. A mutant of the fatal-signal handler -- inverting
-    `faults_again()`, say -- makes it return from a SIGSEGV, the kernel
-    re-runs the faulting instruction, and the canary spins at 100 % for ever;
-    a few dozen of them on a 4-core runner starve the runner's own process.
-    For `core` it may also be the disk: a mutant that turns off "report once"
-    makes a loop of reports millions of log lines, which Mull keeps per mutant.
-  - **How to find it, without losing a machine.** Run the shard in a container
-    with hard limits (`--cpus`, `--pids-limit`, `--memory`, a size-limited
-    volume for `build/`), `--workers 1`, and a watcher that lists every 30 s
-    the processes older than the mutant timeout and the disk used. Orphans
-    show at once; so does a disk filling. Not on a developer's own machine
-    without those limits: what takes a 16 GB runner down takes a laptop down.
-  - **When it is solved:** fix the cause (if it is orphans, start each canary
-    in a process group of its own and kill the group when its test ends or
-    times out), let a weekly run measure both modules and set their floors,
-    drop the sentence about it from `tools/mutation.sh`'s comment and the
-    paragraph on rmp-docs' `framework/security.html` ("The console and the
-    core without a mutation score"), and **delete this entry**.
+Nothing is open today: the last entry, the `console` and `core` mutation
+shards losing GitHub's runner, was the cores the runner pipes to
+systemd-coredump, which a core limit of 0 does not stop and 1 byte does
+(`bounded()` in `tools/mutation.sh`).
 
 ## Caveats that have already cost time
 
-- **riscv64 runs under QEMU, in the build image.** There is no riscv64 runner,
-  so the `riscv64` job starts the archive it ships with the image's
+- **riscv64's fallback runs under QEMU, in the build image.** When no board
+  answers, the `riscv64` job starts the archive it ships with the image's
   `qemu-riscv64-static -L /`: the sysroot is the image's riscv64 multiarch
   packages (glibc, the X libraries GLFW opens, libglvnd, Mesa), the X server is
   the image's amd64 Xvfb (X is a socket), and the GL is riscv64 Mesa's llvmpipe

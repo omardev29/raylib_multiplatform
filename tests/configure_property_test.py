@@ -903,6 +903,8 @@ class ToolsReadBackTest(unittest.TestCase):
     @example(cfg=config_with(("ui", "scale"), 1e-50))
     # The nightly profile's: gcc "trigraph ??/ ignored [-Werror=trigraphs]".
     @example(cfg=config_with(("window", "title"), "??/"))
+    # And its "unpaired UTF-8 bidirectional control character" [-Werror=bidi-chars].
+    @example(cfg=config_with(("window", "title"), "\u202a"))
     @given(changed_configs())
     def test_the_compiler_reads_config_h_as_written(self, cfg):
         if self.cxx is None:

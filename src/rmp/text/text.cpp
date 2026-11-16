@@ -292,6 +292,18 @@ std::string translated(std::string_view key, std::string_view context,
 
 } // namespace
 
+namespace {
+constexpr std::string_view BOM = "\xEF\xBB\xBF";
+
+void drop_bom(std::string &text) {
+    // Looked for again from two bytes back: the bytes either side of one taken
+    // away can make another ("\xEF" + BOM + "\xBB\xBF"), and none may be left.
+    for (std::size_t at = text.find(BOM); at != std::string::npos;
+         at = text.find(BOM, at < 2 ? 0 : at - 2))
+        text.erase(at, BOM.size());
+}
+} // namespace
+
 std::vector<std::vector<std::string>> parse_tsv(std::string_view text) {
     std::vector<std::vector<std::string>> rows;
     // A UTF-8 byte order mark, which a spreadsheet may write first.
@@ -300,9 +312,18 @@ std::vector<std::vector<std::string>> parse_tsv(std::string_view text) {
     while (start < text.size()) {
         std::size_t end = text.find('\n', start);
         if (end == std::string_view::npos) end = text.size();
-        std::string_view line = text.substr(start, end - start);
+        // No carriage return survives into a cell: a CRLF file's, or one a
+        // spreadsheet left inside a line. escape_cell() writes none either, so
+        // a cell read here is a cell written back (#38).
+        std::string line;
+        for (const char c : text.substr(start, end - start)) {
+            if (c != '\r') line += c;
+        }
+        // Nor a U+FEFF: a byte order mark is no text, and the one at the start
+        // of a file is taken away above -- a cell that began with one read
+        // back without it once it was the first of a file (fuzz lang_tsv).
+        drop_bom(line);
         start = end + 1;
-        if (line.ends_with('\r')) line.remove_suffix(1);
         if (line.empty() || line.front() == '#') continue;
         std::vector<std::string> cells(1);
         for (std::size_t i = 0; i < line.size(); ++i) {
@@ -331,9 +352,11 @@ std::vector<std::vector<std::string>> parse_tsv(std::string_view text) {
 }
 
 std::string escape_cell(std::string_view cell) {
+    std::string kept(cell);
+    drop_bom(kept); // read back without it anyway: written without it
     std::string out;
-    out.reserve(cell.size());
-    for (const char c : cell) {
+    out.reserve(kept.size());
+    for (const char c : kept) {
         if (c == '\t') {
             out += "\\t";
         } else if (c == '\n') {

@@ -6,5 +6,9 @@
 kind     cxx
 sources  src/rmp/audio/audio.cpp
 tests    unit_test -sf=*audio_test.cpp
+# The device suite: the real mixer, at master volume 0, on miniaudio's null
+# backend where there is no card -- what plays, pauses, resumes and closes,
+# which the two above never reach (#40: 101 of 158 survived without it).
+tests    unit_test -sf=*audio_device_test.cpp
 tests    property_test -sf=*audio_prop.cpp
-floor    40
+floor    60

@@ -10,6 +10,8 @@
 # layer that gid_at's size check or solid_in's clamp already refuses).
 kind     cxx
 sources  src/rmp/tilemap/tilemap.cpp
-tests    unit_test -sf=*tilemap_test.cpp,*map_collision_test.cpp,*ldtk_test.cpp
+# tilemap_cull_test: drawing what the camera shows and the solid table
+# (Plan 3, #34); behaviors_more_test: objects spawned from a map by type.
+tests    unit_test -sf=*tilemap_test.cpp,*map_collision_test.cpp,*ldtk_test.cpp,*tilemap_cull_test.cpp,*behaviors_more_test.cpp
 tests    property_test -ts=*tilemap,*ldtk
 floor    80

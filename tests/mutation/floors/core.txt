@@ -3,4 +3,9 @@ kind     cxx
 sources  src/rmp/app/global.cpp src/rmp/app/report.cpp src/rmp/ads/ads.cpp
 tests    unit_test -tse=*device*
 tests    property_test -sf=*core_prop.cpp
-floor    -
+# Measured by the weekly run 43890582535 (9f6652d), the first that finished
+# this shard: 22 of 35, 62.86 %. Every earlier one lost GitHub's runner here -- the
+# canaries' and the crashed mutants' cores, piped to the runner's
+# systemd-coredump, which a core limit of 0 does not stop and 1 byte does
+# (tools/mutation.sh, bounded()).
+floor    60

@@ -24,6 +24,7 @@
 #include "pack_writer.h"
 
 #include <rmp/assets.h>
+#include <rmp/object.h> // rmp::Callback
 #include <rmp/config.h>
 #include <rmp/save.h>
 
@@ -35,12 +36,25 @@
 #include <string>
 #include <string_view>
 #include <system_error>
+#include <random>
 
 #if !RMP_PRODUCTION_BUILD
 
 namespace {
 
 namespace pack = rmp::test::pack;
+
+// A name no other process running these tests has: Mull runs four copies of
+// one binary at once, and two that shared a folder emptied and rewrote each
+// other's files -- a mutant "killed" by its neighbour, the weekly run's floors
+// moving with the load.
+std::string process_tag() {
+    static const std::string TAG = [] {
+        std::random_device device;
+        return std::to_string(device()) + "-" + std::to_string(device());
+    }();
+    return TAG;
+}
 
 // A resources root of the test's own, gone with it, and the watch list
 // emptied on both sides so no test sees another's files.
@@ -49,7 +63,8 @@ public:
     explicit Root(const std::string &name)
         : _previous(rmp::assets::detail::resources_root()) {
         std::error_code error;
-        _path = std::filesystem::temp_directory_path(error) / ("rmp-watch-test-" + name);
+        _path = std::filesystem::temp_directory_path(error) /
+            ("rmp-watch-test-" + process_tag() + "-" + name);
         std::filesystem::remove_all(_path, error);
         std::filesystem::create_directories(_path, error);
         _root = (_path / "").string();
@@ -223,13 +238,31 @@ TEST_SUITE("assets: hot reload, values") {
     }
 
     TEST_CASE("the files are looked at four times a second, not on every question") {
+        // On a clock of the test's own: a loaded machine -- four copies of
+        // this binary at once under Mull -- let a quarter of a second pass
+        // between two questions, and the "not yet" below failed by itself.
+        struct Clock {
+            Clock() {
+                rmp::assets::detail::set_watch_clock_for_tests(
+                    [this](double &seconds) { seconds = now; });
+            }
+            ~Clock() { rmp::assets::detail::set_watch_clock_for_tests({}); }
+            Clock(const Clock &) = delete;
+            Clock &operator=(const Clock &) = delete;
+            Clock(Clock &&) = delete;
+            Clock &operator=(Clock &&) = delete;
+            double now = 100.0;
+        } clock;
         const Root root("poll");
         root.put("p.json", "1");
         const rmp::Value value = rmp::assets::load_value("p.json");
-        CHECK_FALSE(changed_now(value)); // looked at just now
+        CHECK_FALSE(changed_now(value)); // looked at just now, at 100 s
         root.put("p.json", "123");
-        CHECK_FALSE(value.changed()); // not looked at again yet
-        rmp::assets::detail::poll_watched_now();
+        clock.now = 100.1;
+        CHECK_FALSE(value.changed()); // a tenth of a second later: not looked at
+        clock.now = 100.24;
+        CHECK_FALSE(value.changed());
+        clock.now = 100.26; // past a quarter of a second: looked at again
         CHECK(value.changed());
     }
 
@@ -322,6 +355,35 @@ TEST_SUITE("assets: hot reload, textures") {
         CHECK_FALSE(
             rmp::detail::replace_payload(*slot, std::make_shared<::Image>(first)));
         CHECK(a.raw().width == 0);
+    }
+
+    TEST_CASE("what replace_payload brings is the file as it is now: not changed") {
+        // The first file watched is watch 0, and a reload of it must take the
+        // generation it read, or the slot says "changed" again for ever: a
+        // `watch > 0` there (Mull's mutant) left watch 0 out.
+        using rmp::detail::ResourceKind;
+        const Root root("replaced");
+        rmp::detail::release_all();
+        root.put("hero.png", "first");
+        ::Image second{};
+        second.width = 2;
+        // NOLINTNEXTLINE(custom-rmp-raw-pointer): the table's handle, as replace_payload() takes it
+        auto *slot =
+            rmp::detail::adopt_named(ResourceKind::IMAGE, "hero.png", 0, ::Image{});
+        REQUIRE(slot != nullptr);
+        const int watch = rmp::assets::detail::watch_file("hero.png");
+        REQUIRE(watch == 0);
+        rmp::detail::watch_slot(*slot, watch);
+        const rmp::Image hero{ slot };
+        rmp::assets::detail::poll_watched_now();
+        CHECK_FALSE(rmp::detail::slot_changed(*slot));
+        root.put("hero.png", "second, longer");
+        rmp::assets::detail::poll_watched_now();
+        CHECK(rmp::detail::slot_changed(*slot));
+        CHECK(rmp::detail::replace_payload(*slot, std::make_shared<::Image>(second)));
+        CHECK(hero.raw().width == 2);
+        CHECK_FALSE(rmp::detail::slot_changed(*slot));
+        rmp::detail::release_all();
     }
 }
 

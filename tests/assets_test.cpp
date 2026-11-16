@@ -61,6 +61,7 @@
 #include <system_error>
 #include <type_traits>
 #include <vector>
+#include <random>
 
 namespace {
 
@@ -81,12 +82,25 @@ struct AtRoot {
     AtRoot &operator=(AtRoot &&) = delete;
 };
 
+// A name no other process running these tests has: Mull runs four copies of
+// one binary at once, and two that shared a folder emptied and rewrote each
+// other's files -- a mutant "killed" by its neighbour, the weekly run's floors
+// moving with the load.
+std::string process_tag() {
+    static const std::string TAG = [] {
+        std::random_device device;
+        return std::to_string(device()) + "-" + std::to_string(device());
+    }();
+    return TAG;
+}
+
 // A folder of the test's own, gone with it.
 class Scratch {
 public:
     explicit Scratch(const std::string &name) {
         std::error_code error;
-        _path = std::filesystem::temp_directory_path(error) / ("rmp-assets-test-" + name);
+        _path = std::filesystem::temp_directory_path(error) /
+            ("rmp-assets-test-" + process_tag() + "-" + name);
         std::filesystem::remove_all(_path, error);
         std::filesystem::create_directories(_path, error);
     }
@@ -474,8 +488,8 @@ TEST_SUITE("assets: pack") {
         CHECK(rmp::assets::load_data("\\level.json").empty());
 #endif
         // Out of the folder and back in is the folder, in both.
-        CHECK(text_of(rmp::assets::load_data("../rmp-assets-test-spelled/level.json")) ==
-              "top");
+        CHECK(text_of(rmp::assets::load_data("../" + release.path().filename().string() +
+                                             "/level.json")) == "top");
         CHECK(rres::packed_name("res/", "res/a/../b.png") == "b.png");
         CHECK(rres::packed_name("", "a/../b.png") == "b.png");
         CHECK_FALSE(rres::packed_name("", "../b.png").has_value());
@@ -1406,14 +1420,32 @@ TEST_SUITE("assets: before the window") {
         rmp::detail::set_report_sink(
             [&](std::string_view line) { said.emplace_back(line); });
 
+        // A load with no name loads nothing, and is no load before the window:
+        // it changes neither the first name nor the count (seen red: a run in
+        // another order had '' as its first name).
+        const auto before = loaded_before_window();
+        (void)rmp::assets::load_texture("");
+        (void)rmp::assets::load_font("", 12);
+        const auto unnamed = loaded_before_window();
+        CHECK(unnamed.has_value() == before.has_value());
+        if (before && unnamed) {
+            CHECK(unnamed->first == before->first);
+            CHECK(unnamed->count == before->count);
+        }
+
+        // Each load that needs the window counts one, however
+        // many came before it in this run; the first name is the earliest.
+        const int start = unnamed ? unnamed->count : 0;
         (void)rmp::assets::load_texture("not_there_before_window.png");
         const EarlyLoads first = loaded_before_window().value_or(EarlyLoads{});
         CHECK_FALSE(first.first.empty());
-        CHECK(first.count >= 1);
+        CHECK(first.count == start + 1);
+        if (start == 0) CHECK(first.first == "not_there_before_window.png");
         (void)rmp::assets::load_font("not_there_before_window.ttf", 12);
-        const EarlyLoads more = loaded_before_window().value_or(EarlyLoads{});
-        CHECK(more.first == first.first);
-        CHECK(more.count == first.count + 1);
+        const EarlyLoads font = loaded_before_window().value_or(EarlyLoads{});
+        CHECK(font.first == first.first);
+        CHECK(font.count == first.count + 1);
+        const EarlyLoads &more = font;
 
         rmp::assets::detail::window_opened();
         const auto named = std::ranges::count_if(said, [&](const std::string &line) {
@@ -1452,5 +1484,25 @@ TEST_SUITE("assets: a map's files next to it") {
         CHECK(next_to("maps/town.ldtk", "C:\\art\\flat.png") == "flat.png");
         CHECK(next_to("town.ldtk", "/abs/flat.png") == "flat.png");
         CHECK(next_to("maps/town.ldtk", "").empty());
+    }
+}
+
+TEST_SUITE("assets: the glyphs a font is baked with") {
+    TEST_CASE(
+        "the default is ASCII, Latin-1, Latin Extended-A and the typography, exactly") {
+        // A font loaded with no codepoints of its own is baked with these:
+        // raylib's own default is the 95 of ASCII, and drew an n with a tilde as
+        // '?'. Every edge is asked, so a range one short or one long is seen.
+        const std::span<const int> all = rmp::assets::detail::default_codepoints();
+        std::vector<int> want;
+        for (int c = 32; c <= 126; ++c) want.push_back(c);
+        for (int c = 160; c <= 383; ++c) want.push_back(c);
+        for (const int c : { 0x2013, 0x2014, 0x2018, 0x2019, 0x201A, 0x201C, 0x201D,
+                             0x201E, 0x2022, 0x2026, 0x20AC, 0x2122 })
+            want.push_back(c);
+        CHECK(std::vector<int>(all.begin(), all.end()) == want);
+        for (const int absent : { 31, 127, 159, 384 }) {
+            CHECK_MESSAGE(std::ranges::find(all, absent) == all.end(), absent);
+        }
     }
 }

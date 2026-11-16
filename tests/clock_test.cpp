@@ -24,6 +24,7 @@
 #include <cmath>
 #include <cstdint>
 #include <memory>
+#include <vector>
 #include <string>
 #include <limits>
 #include <optional>
@@ -246,6 +247,9 @@ struct Paced {
         rmp::audio::detail::reset_for_tests();
         rmp::app::detail::reset_pace_for_tests();
         rmp::app::detail::set_fixed_delta(0);
+        // raylib's window again: the provider outlived every Paced test, and
+        // the "no provider" case below read this fake instead of raylib.
+        rmp::app::detail::set_window_state_provider({});
     }
     Paced(const Paced &) = delete;
     Paced &operator=(const Paced &) = delete;
@@ -255,6 +259,31 @@ struct Paced {
         rmp::app::detail::begin_pace();
         return rmp::app::detail::step_delta();
     }
+};
+
+// The real clock, faked: a time that only moves when the test says, a window
+// that is open, and every wait recorded. Put back to raylib's after.
+struct Clocked {
+    Clocked() {
+        rmp::app::detail::reset_pace_for_tests();
+        rmp::app::detail::set_fixed_delta(0);
+        reading.window = true;
+        rmp::app::detail::set_clock_provider(
+            [this](rmp::app::detail::ClockReading &r) { r = reading; },
+            [this](double seconds) { waits.push_back(seconds); });
+    }
+    ~Clocked() {
+        rmp::app::detail::set_clock_provider({}, {});
+        rmp::app::detail::reset_pace_for_tests();
+        rmp::app::detail::set_fixed_delta(0);
+    }
+    Clocked(const Clocked &) = delete;
+    Clocked &operator=(const Clocked &) = delete;
+    Clocked(Clocked &&) = delete;
+    Clocked &operator=(Clocked &&) = delete;
+
+    rmp::app::detail::ClockReading reading;
+    std::vector<double> waits;
 };
 
 } // namespace
@@ -365,6 +394,80 @@ TEST_SUITE("app: the window's pace") {
         rmp::app::detail::frame_drawn();
         rmp::app::detail::frame_drawn();
         rmp::app::detail::reset_pace_for_tests();
+    }
+
+    TEST_CASE("on the real clock a skipped frame waits what it is told, and only there") {
+        Clocked c;
+        rmp::app::detail::frame_skipped(0.25);
+        CHECK(c.waits == std::vector<double>{ 0.25 });
+        rmp::app::detail::frame_skipped(0.0); // nothing to wait for
+        rmp::app::detail::frame_skipped(-1.0);
+        CHECK(c.waits.size() == 1);
+        rmp::app::detail::set_fixed_delta(STEP); // a fixed step waits for nothing
+        rmp::app::detail::frame_skipped(0.25);
+        CHECK(c.waits.size() == 1);
+        rmp::app::detail::set_fixed_delta(0);
+        c.reading.window = false; // and nor does a run with no window
+        rmp::app::detail::frame_skipped(0.25);
+        CHECK(c.waits.size() == 1);
+    }
+
+    TEST_CASE("after a skipped frame the step is timed from the last one, until two "
+              "frames are drawn") {
+        Clocked c;
+        c.reading.now = 10.0;
+        (void)rmp::app::detail::step_delta(); // the mark: 10 s
+        rmp::app::detail::frame_skipped(0.0);
+        c.reading.now = 10.05;
+        CHECK(rmp::app::detail::step_delta() == doctest::Approx(0.05f));
+        rmp::app::detail::frame_drawn(); // one drawn: still the clock's
+        c.reading.now = 10.08;
+        CHECK(rmp::app::detail::step_delta() == doctest::Approx(0.03f));
+        rmp::app::detail::frame_drawn(); // two: raylib's frame time again (0, headless)
+        c.reading.now = 11.0;
+        CHECK(rmp::app::detail::step_delta() == 0.0f);
+    }
+
+    TEST_CASE("a skipped frame before any step is raylib's frame, not the clock's") {
+        // The mark is the last step's time, and before the first step there is
+        // none: the clock's reading is not a step, however far it has gone.
+        Clocked c;
+        rmp::app::detail::frame_skipped(0.0);
+        c.reading.now = 50.0;
+        CHECK(rmp::app::detail::step_delta() == 0.0f); // raylib's, headless
+        rmp::app::detail::frame_skipped(0.0); // now there is a mark: 50 s
+        c.reading.now = 50.02;
+        CHECK(rmp::app::detail::step_delta() == doctest::Approx(0.02f));
+    }
+
+    TEST_CASE("every step counts one frame") {
+        const Clocked c; // the fake clock, for the test's length
+        rmp::app::detail::set_fixed_delta(STEP);
+        (void)rmp::app::detail::step_delta();
+        const std::uint64_t first = rmp::app::detail::frame_number();
+        CHECK(first > 0);
+        for (std::uint64_t i = 1; i <= 3; ++i) {
+            (void)rmp::app::detail::step_delta();
+            CHECK(rmp::app::detail::frame_number() == first + i);
+        }
+    }
+
+    TEST_CASE(
+        "reset_pace_for_tests() leaves no pause, no hold and no first zero behind") {
+        const Clocked c; // the fake clock, for the test's length
+        rmp::app::detail::set_pause_unfocused(!rmp::app::detail::pause_unfocused());
+        rmp::app::detail::set_window_state_provider(
+            [](rmp::app::detail::WindowState &w) { w.focused = false; });
+        rmp::app::detail::set_pause_unfocused(true);
+        rmp::app::detail::begin_pace(); // paused: held
+        rmp::app::detail::reset_pace_for_tests();
+        CHECK(rmp::app::detail::pause_unfocused() == (RMP_WINDOW_PAUSE_UNFOCUSED != 0));
+        rmp::app::detail::set_window_state_provider({});
+        rmp::app::detail::set_fixed_delta(STEP);
+        rmp::app::detail::begin_pace(); // focused: no edge out of a pause
+        CHECK(rmp::app::detail::step_delta() == STEP);
+        CHECK(rmp::app::detail::step_delta() == STEP);
+        rmp::app::detail::set_fixed_delta(0);
     }
 
     TEST_CASE(

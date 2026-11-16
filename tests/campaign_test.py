@@ -860,13 +860,29 @@ class MutationScriptTest(unittest.TestCase):
         start under `bounded`, an address-space limit per process -- and the
         limit is real: a program past it dies."""
         text = (TOOLS / "mutation.sh").read_text()
-        self.assertRegex(text, r'(?m)^bounded\(\) \{ \(ulimit -v "\$MUTANT_MEMORY_KB" && "\$@"\); \}$')
+        self.assertRegex(
+            text,
+            r'(?m)^bounded\(\) \{ \(ulimit -v "\$MUTANT_MEMORY_KB" && exec prlimit --core=1:1 -- "\$@"\); \}$')
         self.assertIn('bounded "$MULL_RUNNER"', text)
         self.assertIn("bounded mutmut run", text)
         got = subprocess.run(["bash", "-c", 'ulimit -v 262144 && python3 -c "bytearray(1 << 30)"'],
                              capture_output=True, text=True)
         self.assertNotEqual(got.returncode, 0)
         self.assertIn("MemoryError", got.stderr)
+
+    def test_a_mutant_dumps_no_core(self):
+        """The console tests crash their canary on purpose and mutants crash
+        more; a GitHub runner pipes each core to systemd-coredump, which
+        ignores a core limit of 0, four workers' dumps queued, and a third of
+        app's runs timed out waiting in D state (probe runs 43879298367 and
+        43884033891). The kernel drops a piped dump at a limit of exactly 1
+        byte: every program `bounded` starts, and its children, have that."""
+        got = subprocess.run(["bash", "-c", 'source <(sed -n "/^MUTANT_MEMORY_KB=/p;/^bounded()/p" '
+                              f'"{TOOLS / "mutation.sh"}") && ulimit -c unlimited 2> /dev/null; '
+                              'bounded sh -c \'sh -c "grep \\"core file\\" /proc/self/limits"\''],
+                             capture_output=True, text=True)
+        self.assertEqual(got.returncode, 0, got.stderr)
+        self.assertEqual(got.stdout.split()[-3:], ["1", "1", "bytes"], got.stdout)
 
     def test_the_warm_up_run_has_time_for_property_test(self):
         """mull-runner's warm-up run -- the program unmutated -- times out at

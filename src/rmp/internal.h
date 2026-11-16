@@ -128,6 +128,17 @@ struct Pace {
 void set_window_state_provider(rmp::Callback<WindowState &> provider);
 WindowState window_state();
 
+// The clock's reads of raylib -- the time, and whether a window is open --
+// and its one wait, from raylib or from a test's callbacks: headless, raylib's
+// time stands at 0 with no window, so a skipped frame's wait and the step timed
+// from the last one could not be seen. Empty ones go back to raylib.
+struct ClockReading {
+    double now = 0; // GetTime()
+    bool window = false; // IsWindowReady()
+};
+void set_clock_provider(rmp::Callback<ClockReading &> reading,
+                        rmp::Callback<double> wait);
+
 // [window] pause_unfocused, which a test can change.
 void set_pause_unfocused(bool pause);
 bool pause_unfocused();
@@ -193,6 +204,10 @@ unsigned watch_generation(int index);
 std::optional<std::string> read_watched(int index);
 void forget_watched(); // for the tests: watch nothing again
 void poll_watched_now(); // for the tests: the next query looks at the files
+// For the tests: the polls paced by this clock, in seconds, instead of the
+// steady clock -- a loaded machine waits a quarter of a second between two
+// questions as easily as not. Empty: the steady clock again.
+void set_watch_clock_for_tests(rmp::Callback<double &> seconds);
 
 // One entry, by its name in the central directory. Returns bytes owned by the
 // caller (malloc'd, so UnloadFileData/RL_FREE frees them), or nullptr if the

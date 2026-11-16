@@ -337,11 +337,15 @@ std::optional<WorldClip> world_clip(const rmp::app::Stretch mode, const Vector2 
     // Each edge rounded on its own, so the clip is the area to the nearest
     // pixel on every side: no half pixel of the world on a bar, none cut off
     // the game. lround and not a cast: truncating moves both edges the same
-    // way, and one bar ends up a pixel wider than the other.
+    // way, and one bar ends up a pixel wider than the other. The far edges
+    // are summed in double: in float the sum is itself rounded, and on a
+    // 12976 by 7300 screen 7299.49976 became 7299.5, which lround took up.
     const auto left = static_cast<int>(std::lround(area.x));
     const auto top = static_cast<int>(std::lround(area.y));
-    const auto right = static_cast<int>(std::lround(area.x + area.width));
-    const auto bottom = static_cast<int>(std::lround(area.y + area.height));
+    const auto right =
+        static_cast<int>(std::lround(static_cast<double>(area.x) + area.width));
+    const auto bottom =
+        static_cast<int>(std::lround(static_cast<double>(area.y) + area.height));
     // No bar wide enough to be a pixel: the world covers the window, and the
     // draw stays exactly what it is without a stretch.
     if (left <= 0 && top <= 0 && static_cast<float>(right) >= screen.x &&

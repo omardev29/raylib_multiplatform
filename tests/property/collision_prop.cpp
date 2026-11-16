@@ -325,7 +325,15 @@ TEST_SUITE("property: collision") {
                     const double dy = ay - ny;
                     const double d = std::hypot(dx, dy);
                     if (d > 0.01) {
-                        if (d >= r - 0.01) return;
+                        // Within a hundredth of the contact either way, the
+                        // engine's float may see the overlap this leaves out:
+                        // no clear answer, as for two discs. (Nightly: a disc
+                        // of 12.75 a quarter of a hundredth into a box was
+                        // pushed out, and this said it was not touching.)
+                        if (d >= r - 0.01) {
+                            if (d < r + 0.01) clear_cut = false;
+                            return;
+                        }
                         touching = true;
                         push_x = sign * dx / d * (r - d);
                         push_y = sign * dy / d * (r - d);

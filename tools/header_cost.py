@@ -104,7 +104,10 @@ def parse_budget(text: str) -> dict[str, int]:
     are ignored, and anything else is a BudgetError naming its line -- a
     note after the number included, which is how a hand edit annotates it."""
     budget: dict[str, int] = {}
-    for number, raw in enumerate(text.splitlines(), 1):
+    # Lines as an editor counts them: at LF, a CR before it dropped by
+    # strip(). splitlines() also broke at a form feed, U+0085, U+2028 and
+    # others, so a comment holding one ("# \f0 0") went on as a budget line.
+    for number, raw in enumerate(text.split("\n"), 1):
         line = raw.strip()
         if not line or line.startswith("#"):
             continue

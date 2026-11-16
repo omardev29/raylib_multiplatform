@@ -19,6 +19,8 @@
 
 #include "../internal.h"
 
+#include <rmp/object.h> // rmp::Callback
+
 #include <chrono>
 #include <cstdint>
 #include <cstdio>
@@ -28,6 +30,7 @@
 #include <string>
 #include <string_view>
 #include <system_error>
+#include <utility>
 #include <vector>
 
 namespace rmp::assets::detail {
@@ -102,9 +105,29 @@ bool stat_of(const Watched &w, std::filesystem::file_time_type &time,
     return !ec;
 }
 
+// The clock the polls are paced by: the steady clock, or a test's seconds
+// (set_watch_clock_for_tests()). Behind a function, so it is built on first
+// use: rmp::Callback is not a literal type.
+rmp::Callback<double &> &test_clock() {
+    static rmp::Callback<double &> seconds;
+    return seconds;
+}
+
+std::chrono::steady_clock::rep clock_now() {
+    using std::chrono::steady_clock;
+    if (test_clock()) {
+        double seconds = 0;
+        test_clock()(seconds);
+        return std::chrono::duration_cast<steady_clock::duration>(
+                   std::chrono::duration<double>(seconds))
+            .count();
+    }
+    return steady_clock::now().time_since_epoch().count();
+}
+
 void poll() {
     using std::chrono::steady_clock;
-    const steady_clock::rep now = steady_clock::now().time_since_epoch().count();
+    const steady_clock::rep now = clock_now();
     const double since =
         std::chrono::duration<double>(steady_clock::duration(now - watch.last)).count();
     if (watch.polled && since < POLL_SECONDS) return;
@@ -163,6 +186,10 @@ std::optional<std::string> read_watched(int index) {
 }
 
 void poll_watched_now() { watch.polled = false; }
+
+void set_watch_clock_for_tests(rmp::Callback<double &> seconds) {
+    test_clock() = std::move(seconds);
+}
 
 void forget_watched() {
     watch.files.clear();

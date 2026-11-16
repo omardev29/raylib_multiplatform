@@ -211,6 +211,16 @@ rewarded_id     = "ca-app-pub-3940256099942544/5224354917"
 # the APK BIGGER; web because it is .wasm and the browser fetches it gzipped.
 # Naming any of them is an error with the reason, not a silent no-op.
 #
+# LINUX-RISCV64-GLIBC IS PACKED ONLY WHEN NAMED (Omar, 2026-11-15): no group
+# and no default brings it in, and naming it is a warning. UPX 5.2.0's riscv64
+# stub dies with SIGTRAP on every kernel before 6.3 -- most RISC-V boards'
+# vendor kernels, RISE's 5.10 among them -- because memfd_create(MFD_EXEC) is
+# EINVAL there and, unlike the amd64 and arm64 stubs, it never tries again
+# without the flag. QEMU runs on the host's newer kernel and never saw it. A
+# patched stub is no way out: UPX's licence exception covers only the
+# unmodified one. A game whose players all run Linux 6.3 or later may name it
+# for its 59 % (962 752 bytes to 391 504, measured at c0369ec).
+#
 # WINDOWS IS AVAILABLE AND NOT ON BY DEFAULT, and that is deliberate: an
 # unsigned .exe that has been UPX-packed is a shape Windows Defender associates
 # with malware, and it gets quarantined on some machines and not others. If you
@@ -223,22 +233,17 @@ rewarded_id     = "ca-app-pub-3940256099942544/5224354917"
 # install it from ports.
 #
 # THE DEFAULT IS EXACTLY THE TARGETS WHOSE PACKED BINARY CI STARTS. Each of
-# these five jobs unzips the archive it ships — UPX-packed — starts what is in
+# these four jobs unzips the archive it ships — UPX-packed — starts what is in
 # it, and checks it puts pixels on the screen: linux-x64-glibc on every push,
 # under a virtual X server; linux-arm64-glibc on a full run, on an ARM64
-# runner; linux-x64-musl on a full run, on Alpine under Xvfb;
-# linux-x64-glibc-drm on a full run, on a vkms display; and linux-riscv64-glibc
-# on a full run, under QEMU in the build image, there being no RISC-V runner
-# (962 752 bytes to 391 504, measured at c0369ec). So if UPX ever produced a
-# stub that does not launch, CI finds out. An emulator is not a RISC-V machine
-# -- it does not model the instruction cache -- and riscv64 is in the default
-# all the same, by Omar's decision of 2026-10-11: UPX's stub maps what it
-# unpacks with a fresh executable mmap, never writing and running in place.
+# runner; linux-x64-musl on a full run, on Alpine under Xvfb; and
+# linux-x64-glibc-drm on a full run, on a vkms display. So if UPX ever produced
+# a stub that does not launch, CI finds out. linux-riscv64-glibc's archive is
+# started too, on a RISC-V board and under QEMU, unpacked: see above.
 # linux-arm64-glibc-drm is never executed -- built and checked statically --
 # so turning UPX on there would ship a packed binary whose launch nobody has
 # observed.
-enabled  = ["linux-x64-glibc", "linux-arm64-glibc", "linux-x64-musl", "linux-x64-glibc-drm",
-            "linux-riscv64-glibc"]
+enabled  = ["linux-x64-glibc", "linux-arm64-glibc", "linux-x64-musl", "linux-x64-glibc-drm"]
 disabled = []
 
 # Skip compression when the binary is bigger than this, in megabytes.
@@ -661,6 +666,19 @@ rres_password = "raylib-template"
 # next build. Commit ci.yml with the .toml. A ci.yml that says otherwise is
 # refused here, at this line, and by CI's first step.
 on_push = true
+
+# Where linux-riscv64-glibc is built and started, when the full matrix or a
+# release builds it:
+#   "rise"     natively, on a RISE RISC-V runner (real hardware, free for open
+#              source: https://riscv-runners.riseproject.dev/).
+#   "cloud-v"  natively, on a Cloud-V board (https://cloud-v.co/github-riscv-runner):
+#              the native choice for a private repository, which RISE's
+#              open-source offer does not cover.
+#   "cross"    cross-compiled on GitHub's amd64 runners and started under QEMU.
+# "rise" and "cloud-v" need the provider's GitHub App installed on this
+# repository; without it the job waits in GitHub's queue for a board that never
+# comes. When the board fails, the cross build runs instead and ships.
+riscv64 = "rise"
 
 [deploy]
 # Ship a LICENSES.txt next to the binary, with the full notice of everything

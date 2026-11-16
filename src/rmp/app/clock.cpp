@@ -59,11 +59,36 @@ struct {
     Pace now{};
 } pacing;
 
+// The clock's raylib, or a test's (set_clock_provider()).
+struct {
+    rmp::Callback<ClockReading &> reading;
+    rmp::Callback<double> wait;
+} clock_host;
+
+ClockReading read_clock() {
+    ClockReading r;
+    if (clock_host.reading) {
+        clock_host.reading(r);
+        return r;
+    }
+    r.now = GetTime();
+    r.window = IsWindowReady();
+    return r;
+}
+
+void wait_for(const double seconds) {
+    if (clock_host.wait) {
+        clock_host.wait(seconds);
+        return;
+    }
+    WaitTime(seconds);
+}
+
 // How long the frame took: what raylib timed, or the step a test fixed.
 float raw_delta() {
     if (timing.fixed > 0) return timing.fixed;
     if (timing.drawn < 2 && timing.mark > 0)
-        return static_cast<float>(GetTime() - timing.mark);
+        return static_cast<float>(read_clock().now - timing.mark);
     return GetFrameTime();
 }
 
@@ -101,7 +126,7 @@ float clamp_delta(const float raw, const float max) {
 
 float step_delta() {
     const float raw = raw_delta();
-    timing.mark = GetTime();
+    timing.mark = read_clock().now;
     const bool still = timing.held || timing.zero_once;
     timing.zero_once = false;
     timing.last = still ? 0.0f : clamped(raw);
@@ -157,6 +182,12 @@ WindowState window_state() {
     return w;
 }
 
+void set_clock_provider(rmp::Callback<ClockReading &> reading,
+                        rmp::Callback<double> wait) {
+    clock_host.reading = std::move(reading);
+    clock_host.wait = std::move(wait);
+}
+
 void set_pause_unfocused(bool pause) { pacing.pause_unfocused = pause; }
 
 bool pause_unfocused() { return pacing.pause_unfocused; }
@@ -189,7 +220,7 @@ void frame_skipped(const double seconds) {
     // are as long as the step says, however long the machine took.
     // And only with a window: without one raylib's clock stands at 0, and
     // WaitTime() would wait for ever.
-    if (timing.fixed <= 0 && seconds > 0 && IsWindowReady()) WaitTime(seconds);
+    if (timing.fixed <= 0 && seconds > 0 && read_clock().window) wait_for(seconds);
 }
 
 void frame_drawn() {

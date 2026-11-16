@@ -42,6 +42,7 @@
 #include <system_error>
 #include <variant>
 #include <vector>
+#include <random>
 
 #if !RMP_PRODUCTION_BUILD
 
@@ -114,11 +115,23 @@ struct Watcher {
     }
 };
 
+// A name no other process running these tests has: Mull runs four copies of
+// one binary at once, and two that shared a folder emptied and rewrote each
+// other's files.
+std::string process_tag() {
+    static const std::string TAG = [] {
+        std::random_device device;
+        return std::to_string(device()) + "-" + std::to_string(device());
+    }();
+    return TAG;
+}
+
 class Folder {
 public:
     Folder() {
         std::error_code error;
-        _path = std::filesystem::temp_directory_path(error) / "rmp-watch-prop";
+        _path = std::filesystem::temp_directory_path(error) /
+            ("rmp-watch-prop-" + process_tag());
         std::filesystem::remove_all(_path, error);
         std::filesystem::create_directories(_path, error);
         _root = (_path / "").string();

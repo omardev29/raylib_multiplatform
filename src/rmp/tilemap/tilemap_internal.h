@@ -110,6 +110,12 @@ struct Layer {
     std::vector<PlacedTile> placed;
     // LDtk's IntGrid, one per cell: painted with the value called `solid`.
     std::vector<bool> solid_cells;
+    // LDtk: the cells the reader wrote a tile or a solid IntGrid value to.
+    // `gids` and `solid_cells` hold every cell the level says it has, and a
+    // level may say sixteen million and paint none; index_map() asks only
+    // these (`sparse`), so a level costs what it stores (#28, #36).
+    bool sparse = false;
+    std::vector<std::size_t> marked;
 
     // Built once the map is read (index_map()), and never changed after: a
     // map's tiles do not change while it is loaded.

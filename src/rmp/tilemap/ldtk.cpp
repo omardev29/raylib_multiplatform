@@ -309,6 +309,7 @@ void read_tiles(const cJSON *tiles, const Tileset &set, Layer *layer) {
             static_cast<std::size_t>(column);
         layer->gids[at] = placed.gid;
         if (set.solid[static_cast<std::size_t>(id)]) layer->solid_cells[at] = true;
+        layer->marked.push_back(at);
     }
 }
 
@@ -455,6 +456,7 @@ void read_layer(const cJSON *layer, Project *project, MapData *data) {
         static_cast<std::size_t>(out.width) * static_cast<std::size_t>(out.height);
     out.gids.assign(cells, 0);
     out.solid_cells.assign(cells, false);
+    out.sparse = true;
 
     if (type == "IntGrid") {
         const std::vector<bool> solid =
@@ -467,6 +469,7 @@ void read_layer(const cJSON *layer, Project *project, MapData *data) {
             if (v > 0 && static_cast<std::size_t>(v) < solid.size() &&
                 solid[static_cast<std::size_t>(v)]) {
                 out.solid_cells[at] = true;
+                out.marked.push_back(at);
             }
             ++at;
         }

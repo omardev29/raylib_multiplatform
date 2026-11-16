@@ -12,7 +12,25 @@
 # line: an edit above one moves it, and the line here goes with it.
 kind     cxx
 sources  src/rmp/save/value.cpp
-tests    unit_test -sf=*save_test.cpp
+# Without the two timing cases ("... in a moment"): their 3 s ceiling is a
+# build's without sanitizers, and four Mull workers at once on a loaded
+# runner went past it -- a mutant counted killed by the clock, and an
+# equivalent one "killed now" from one weekly run to the next.
+tests    unit_test -sf=*save_test.cpp -tce=*in?a?moment*
 tests    property_test -sf=*value_prop.cpp,*save_prop.cpp
 floor    100
 equivalent cxx_remove_void_call:src/rmp/save/value.cpp:414:42 the variant that runs removes ~Value() of the moved-from parameter, not the push (seen in the binary): nothing left to free
+# Omar's rules-approved, 2026-11-15. The same as the one above: removing the
+# extend() call itself fails 14 and 5 of save_test's cases (planted by hand),
+# so what survives is the removed ~Step() of the temporary extend() moved from.
+equivalent cxx_remove_void_call:src/rmp/save/value.cpp:292:5 the variant that survives removes ~Step() of the moved-from temporary, not extend() (removing extend() fails 14 cases): nothing left to free
+equivalent cxx_remove_void_call:src/rmp/save/value.cpp:298:5 the variant that survives removes ~Step() of the moved-from temporary, not extend() (removing extend() fails 5 cases): nothing left to free
+# The clamps at their boundary: a number equal to INT_MAX or INT_MIN converts
+# to that same int, so returning it before the cast and after are one answer.
+equivalent cxx_ge_to_gt:src/rmp/save/value.cpp:145:17 a number equal to INT_MAX casts to INT_MAX, which is what the clamp returns
+equivalent cxx_le_to_lt:src/rmp/save/value.cpp:146:17 a number equal to INT_MIN casts to INT_MIN, which is what the clamp returns
+# Speed, not answers (Omar's rules-approved, 2026-11-16): a hash of 42 for
+# every key puts them all in one slot, and linear probing still finds each;
+# a rehash at a table exactly full enough builds the same index again.
+equivalent cxx_replace_scalar_call:src/rmp/save/value.cpp:77:52 every key hashed to 42 is found by linear probing all the same, only slower
+equivalent cxx_lt_to_le:src/rmp/save/value.cpp:120:23 a rehash when the table already has slots_for() slots builds the same index

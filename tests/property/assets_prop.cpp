@@ -61,6 +61,7 @@
 #include <system_error>
 #include <utility>
 #include <vector>
+#include <random>
 
 namespace {
 
@@ -75,13 +76,24 @@ rres::Key cheap(std::string_view password, const rres::Salt &salt) {
 }
 
 // A folder of this process's own under the temporary directory, gone with it.
+// A name no other process running these tests has: Mull runs four copies of
+// one binary at once, and two that shared a folder emptied and rewrote each
+// other's files.
+std::string process_tag() {
+    static const std::string TAG = [] {
+        std::random_device device;
+        return std::to_string(device()) + "-" + std::to_string(device());
+    }();
+    return TAG;
+}
+
 class Folder {
 public:
     explicit Folder(std::string_view name) {
         std::error_code error;
         _path = std::filesystem::temp_directory_path(error) /
-            (std::string("rmp-prop-assets-") + std::string(name) + "-" +
-             std::to_string(reinterpret_cast<std::uintptr_t>(this)));
+            (std::string("rmp-prop-assets-") + std::string(name) + "-" + process_tag() +
+             "-" + std::to_string(reinterpret_cast<std::uintptr_t>(this)));
         std::filesystem::remove_all(_path, error);
         std::filesystem::create_directories(_path, error);
     }

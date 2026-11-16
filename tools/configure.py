@@ -403,15 +403,35 @@ UPX_REFUSED = {
     "web":   "it is .wasm, and the browser fetches it gzipped anyway",
 }
 
+# Packed only when named, never by a group or the default, and said when it is
+# (Omar, 2026-11-15). UPX 5.2.0's riscv64 stub dies with SIGTRAP on every
+# kernel before 6.3 -- found on a RISE board (Linux 5.10), and reproduced on
+# x86-64 with qemu-riscv64 under a seccomp filter that answers
+# memfd_create(MFD_EXEC) with EINVAL, as those kernels do. Its own upxfd_create
+# (src/stub/src/riscv64-linux.elf-fold.S) returns that error as a file
+# descriptor and stops on its ebreak; amd64's and arm64's try again without the
+# flag. A patched stub is not ours to ship: UPX's licence exception covers only
+# the unmodified one, and a game is not GPL. A game whose players run 6.3 or
+# later may still want the 59 %, so naming it is allowed, with a warning.
+UPX_BY_NAME_ONLY = {
+    "linux-riscv64-glibc": "UPX 5.2.0's riscv64 stub dies with SIGTRAP on every Linux "
+                           "kernel before 6.3 -- most RISC-V boards' -- because "
+                           "memfd_create(MFD_EXEC) is EINVAL there and it never tries "
+                           "again without the flag",
+}
+
 UPX_GROUPS: dict[str, list[str]] = {
     # `all` here is NOT every target: it is every target that can be compressed
     # at all. Windows is in it, but not in the default — see the .toml. Each
     # family group is derived from TARGETS rather than written out: written
     # out, "linux" left linux-arm64-glibc-drm behind.
-    "all":     list(UPX_TARGETS),
-    "linux":   [t for t in UPX_TARGETS if TARGETS[t][0] == "linux"],
-    "windows": [t for t in UPX_TARGETS if TARGETS[t][0] == "windows"],
-    "bsd":     [t for t in UPX_TARGETS if TARGETS[t][0] == "bsd"],
+    # A target packed by name only is in none of them.
+    "all":     [t for t in UPX_TARGETS if t not in UPX_BY_NAME_ONLY],
+    "linux":   [t for t in UPX_TARGETS
+                if TARGETS[t][0] == "linux" and t not in UPX_BY_NAME_ONLY],
+    "windows": [t for t in UPX_TARGETS
+                if TARGETS[t][0] == "windows" and t not in UPX_BY_NAME_ONLY],
+    "bsd":     [t for t in UPX_TARGETS if TARGETS[t][0] == "bsd" and t not in UPX_BY_NAME_ONLY],
 }
 
 
@@ -514,7 +534,7 @@ DEFAULTS: dict = {
     "windows": {"backend": "glfw"},
     # Exactly the targets whose packed binary CI starts -- see the .toml.
     "upx": {"enabled": ["linux-x64-glibc", "linux-arm64-glibc", "linux-x64-musl",
-                        "linux-x64-glibc-drm", "linux-riscv64-glibc"], "disabled": [],
+                        "linux-x64-glibc-drm"], "disabled": [],
             "max_size_mb": 600},
     "linux": {"backend": "glfw", "wayland": False, "glibc": "2.28"},
     "dialogue": {"build": "auto"},
@@ -532,7 +552,7 @@ DEFAULTS: dict = {
                                       "locale=en,orientation=portrait"}},
     # Generates the push and pull_request triggers of .github/workflows/ci.yml:
     # sync_ci_triggers() below.
-    "ci": {"on_push": True},
+    "ci": {"on_push": True, "riscv64": "rise"},
 }
 
 EXAMPLE_IDS = {"com.example.raytest", "com.raylib.raymob"}
@@ -891,6 +911,14 @@ def validate_upx(cfg: dict) -> None:
             known = ", ".join(sorted(set(UPX_GROUPS) | set(UPX_TARGETS)))
             raise ConfigError(
                 f"[upx] {where}: unknown target or group {n!r}.\nKnown: {known}")
+
+    # Named, and not taken away again: packed, and said.
+    for n in UPX_BY_NAME_ONLY:
+        if n in cfg["upx"]["enabled"] and n not in cfg["upx"]["disabled"]:
+            warn(f"[upx] enabled names {n}: {UPX_BY_NAME_ONLY[n]}. Its players need "
+                 "Linux 6.3 or later; on an older kernel the game dies before its first "
+                 "frame. With [ci] riscv64 = \"rise\" the board's job fails on its boot "
+                 "and the cross build ships instead.")
 
     # bool first: in Python `True` is an int, and `max_size_mb = true` in the
     # TOML would otherwise sail through as 1 MB and skip every binary you have.
@@ -1489,8 +1517,11 @@ def validate_deploy(cfg: dict) -> None:
             ("deploy.itch", missing))
 
 
+RISCV64_RUNNERS = ("rise", "cloud-v", "cross")
+
+
 def validate_ci(cfg: dict) -> None:
-    """[ci] on_push."""
+    """[ci] on_push and [ci] riscv64."""
     # [ci] on_push writes the triggers of ci.yml (sync_ci_triggers), and a
     # string there would be truthy: "false" would keep every push running.
     if not isinstance(cfg["ci"]["on_push"], bool):
@@ -1498,6 +1529,25 @@ def validate_ci(cfg: dict) -> None:
             f"[ci] on_push = {cfg['ci']['on_push']!r} is a switch: true or false.\n"
             "true runs CI on every push to main and on every pull request; false only "
             "on a tag v* and by hand, with gh workflow run ci.yml.")
+    # [ci] riscv64 picks the runner of the linux-riscv64-glibc job. "rise" runs
+    # it natively on a RISE RISC-V board, "cloud-v" on a Cloud-V board (for a
+    # private repository, which RISE's open-source offer does not cover), each
+    # falling back to the cross build when the board fails; "cross" runs only
+    # the cross build. A repository without the provider's GitHub App gets no
+    # board at all, and its job would wait in the queue until GitHub gives up
+    # on it -- so a game starts on "cross".
+    riscv = cfg["ci"]["riscv64"]
+    if not isinstance(riscv, str) or riscv not in RISCV64_RUNNERS:
+        raise ConfigError(
+            f"[ci] riscv64 = {riscv!r} is not a runner. It is \"rise\", \"cloud-v\" or "
+            "\"cross\".\n"
+            "\"rise\" builds and starts linux-riscv64-glibc on a RISE RISC-V runner, free "
+            "for open source (https://riscv-runners.riseproject.dev/); \"cloud-v\" on a "
+            "Cloud-V board, for a private repository (https://cloud-v.co/github-riscv-runner). "
+            "Install the provider's GitHub App first; either falls back to the cross build "
+            "under QEMU when its board fails. \"cross\" builds it only the cross way, on "
+            "GitHub's own amd64 runners.",
+            ("ci", "riscv64"))
 
 
 def validate_input(cfg: dict) -> None:
@@ -2261,19 +2311,29 @@ def gen_dev_linker(cfg: dict) -> None:
     write(REPO / "cmake" / "generated" / "dev_linker.cmake", "\n".join(lines) + "\n")
 
 
+BIDI_CONTROLS = frozenset("\u202a\u202b\u202c\u202d\u202e\u2066\u2067\u2068\u2069"
+                          "\u200e\u200f\u061c")
+
+
 def _c_string(value: str) -> str:
     """A C string literal holding exactly `value`, as UTF-8. A control
     character is three octal digits, always: raw, a newline ended the literal
     in the middle of its line, and `\\0` or `\\x` would run into a digit
     that follows them. A `?` after a `?` is `\\?`: `??/` is a trigraph -- a
     backslash, in a C compiled with them, and gcc's -Wtrigraphs (-Wall) under
-    -Werror an error where they are off. `[window] title = "??/"` was both."""
+    -Werror an error where they are off. `[window] title = "??/"` was both.
+    A bidirectional control (U+202A-U+202E, U+2066-U+2069, and the marks
+    U+200E, U+200F and U+061C) is its UTF-8 bytes in octal: raw, one unpaired
+    is gcc's -Wbidi-chars, an error under -Werror (the nightly properties'
+    `title = "\\u202a"`). Every other letter is written as it is, readable."""
     out = []
     for i, c in enumerate(value):
         if c in '"\\' or (c == "?" and i > 0 and value[i - 1] == "?"):
             out.append("\\" + c)
         elif ord(c) < 0x20 or ord(c) == 0x7F:
             out.append(f"\\{ord(c):03o}")
+        elif c in BIDI_CONTROLS:
+            out.append("".join(f"\\{b:03o}" for b in c.encode("utf-8")))
         else:
             out.append(c)
     return '"' + "".join(out) + '"'
@@ -3514,6 +3574,7 @@ def answer(args: argparse.Namespace, cfg: dict, targets: list[str]) -> int | Non
         return 0
     if args.print_ci:
         print(f"on_push={str(cfg['ci']['on_push']).lower()}")
+        print(f"riscv64={cfg['ci']['riscv64']}")
         return 0
     if args.print_stamp:
         print(compute_stamp())

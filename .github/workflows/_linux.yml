@@ -34,6 +34,17 @@ on:
         description: 'JSON array of enabled target ids (from [targets] in the config)'
         required: true
         type: string
+      riscv64:
+        description: >-
+          [ci] riscv64: "rise" builds linux-riscv64-glibc natively on a RISE
+          RISC-V runner, "cloud-v" on a Cloud-V board, each with the cross
+          build as its fallback; "cross" builds it only the cross way.
+        type: string
+        default: cross
+      riscv64_image:
+        description: The riscv64 build image the native job builds in, by digest.
+        type: string
+        default: ''
 
 permissions:
   contents: read
@@ -621,12 +632,169 @@ jobs:
           fi
           echo "PASS: the archive's binary booted and rendered on Alpine"
 
+  # linux-riscv64-glibc, NATIVELY, on a RISC-V board: real hardware, one board
+  # per job, from the provider [ci] riscv64 names --
+  #   "rise"     a RISE runner (`ubuntu-24.04-riscv`), lent free to open
+  #              source by the RISE project (https://riscv-runners.riseproject.dev/)
+  #              through its GitHub App: the framework's own;
+  #   "cloud-v"  a Cloud-V Milk-V Pioneer (`[self-hosted, milkv-pioneer]`, 64
+  #              cores) through Cloud-V's GitHub App
+  #              (https://cloud-v.co/github-riscv-runner): the native way for a
+  #              private repository, a game's, which RISE's offer does not cover.
+  # The steps run on the board and enter the riscv64 build image
+  # (ghcr.io/omardev29/raylib-build-riscv64, by digest) with `docker run`
+  # for everything that builds, packs or starts the game, with no network: the
+  # image is Ubuntu 24.04 riscv64 at the build image's apt snapshot, so its gcc
+  # 13 and glibc are the cross toolchain's and both paths make the same binary
+  # -- one size line, one glibc floor. A board with no Docker fails the first
+  # step and says so, and the fallback ships.
+  #
+  # THE FALLBACK. The board is the provider's generosity, not ours to count
+  # on, so this job may fail without failing the run (continue-on-error), and
+  # `riscv64` below runs whenever it did not succeed: the cross build in the
+  # amd64 image, started under QEMU, which ships instead and says on the run's
+  # summary that it did. A job no board is free for waits in the queue; if none
+  # ever comes, GitHub ends it after 24 hours and the fallback runs then.
+  # What the native run proves and QEMU cannot: the binary on a RISC-V
+  # machine's own caches, timing and Mesa, and an archive with its resource
+  # pack, because the packer runs here.
+  riscv64-native:
+    if: >-
+      inputs.full && inputs.riscv64 != 'cross'
+      && contains(fromJSON(inputs.targets), 'linux-riscv64-glibc')
+    runs-on: ${{ inputs.riscv64 == 'cloud-v' && fromJSON('["self-hosted", "milkv-pioneer"]') || 'ubuntu-24.04-riscv' }}
+    continue-on-error: true
+    timeout-minutes: 90
+    # What the fallback reads. Not needs.riscv64-native.result: under a
+    # job-level continue-on-error GitHub reports a failed job as "success" to
+    # the jobs that need it, and the fallback was skipped on the first board
+    # run that failed. Only the last step below sets this, so a job that
+    # failed anywhere, was cancelled or never got a board leaves it empty.
+    outputs:
+      shipped: ${{ steps.shipped.outputs.shipped }}
+    permissions:
+      contents: read
+      packages: read
+    env:
+      PIN: ${{ inputs.riscv64_image }}
+      RUNNER: ${{ inputs.riscv64 }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: The machine, and the image
+        run: |
+          set -euo pipefail
+          echo "[ci] riscv64 = \"$RUNNER\""
+          uname -a
+          test "$(uname -m)" = riscv64 || { echo "FAIL: not a RISC-V runner: $(uname -m)"; exit 1; }
+          command -v docker > /dev/null \
+            || { echo "FAIL: this board has no Docker, and every step runs in the riscv64 build image"; exit 1; }
+          case "$PIN" in
+            ghcr.io/omardev29/raylib-build-riscv64@sha256:*) ;;
+            *) echo "FAIL: the riscv64 image is not pinned by digest: [$PIN]"; exit 1 ;;
+          esac
+          docker pull -q "${{ inputs.riscv64_image }}"
+          docker run --rm --init --network none "${{ inputs.riscv64_image }}" cat /etc/raylib-build-riscv64.json
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      # Configured and built in the image, the way the cross job builds, minus
+      # the toolchain file: this IS a riscv64 machine -- so rres_pack runs here
+      # and the archive ships resources.rres, as x64's does.
+      - name: Build
+        run: |
+          set -euo pipefail
+          docker run --rm --init --network none -v "$PWD:/work" -w /work "${{ inputs.riscv64_image }}" bash -euo pipefail -c '
+            cmake -B build/release -G Ninja -DCMAKE_BUILD_TYPE=Release -DPRODUCTION_BUILD=ON
+            cmake --build build/release
+            cmake --build build/release --target pack_resources'
+
+      # The same floor as the cross build's, for the same reason: Ubuntu 24.04's
+      # riscv64 glibc, whose one symbol past 2.37 is __isoc23_strtol.
+      - name: The glibc it needs, the hardening, a RISC-V ELF
+        run: |
+          set -euo pipefail
+          docker run --rm --init --network none -v "$PWD:/work" -w /work "${{ inputs.riscv64_image }}" bash -euo pipefail -c '
+            bash tools/glibc_check.sh "build/release/${{ inputs.project_name }}" 2.38
+            CACHE=build/release/CMakeCache.txt
+            grep -q "^RMP_RELEASE_PIE:BOOL=" "$CACHE" || { echo "FAIL: $CACHE says nothing of RMP_RELEASE_PIE"; exit 1; }
+            PIE=""
+            if grep -q "^RMP_RELEASE_PIE:BOOL=ON" "$CACHE"; then PIE=--pie; fi
+            python3 tools/binary_check.py elf ${PIE:+"$PIE"} "build/release/${{ inputs.project_name }}"
+            MACHINE=$(od -An -tx1 -j18 -N2 "build/release/${{ inputs.project_name }}" | tr -d " \n")
+            [ "$MACHINE" = "f300" ] || { echo "FAIL: not RISC-V (e_machine=$MACHINE)"; exit 1; }'
+
+      # Packed like x64's: the binary, UPX where [upx] asks, and the resource
+      # pack -- rres_pack was built for this machine, so it runs here.
+      - name: Package
+        run: |
+          set -euo pipefail
+          docker run --rm --init --network none -v "$PWD:/work" -w /work "${{ inputs.riscv64_image }}" bash -euo pipefail -c '
+            mkdir -p package/resources
+            if [ -f cmake/generated/LICENSES.txt ]; then cp cmake/generated/LICENSES.txt package/; fi
+            cp "build/release/${{ inputs.project_name }}" package/
+            bash tools/upx_pack.sh linux-riscv64-glibc "package/${{ inputs.project_name }}"
+            sh tools/ship_resources.sh package
+            cd package && zip -r -q ../linux-riscv64-glibc-build.zip .'
+
+      - name: Within its size budget
+        run: |
+          set -euo pipefail
+          docker run --rm --init --network none -v "$PWD:/work" -w /work "${{ inputs.riscv64_image }}" \
+            python3 tools/size_check.py linux-riscv64-glibc "build/release/${{ inputs.project_name }}" "package/${{ inputs.project_name }}"
+
+      # THE ARCHIVE, unzipped and started from a folder with no resources/ in
+      # it, on the board: Xvfb and Mesa's llvmpipe from the image, the binary
+      # that ships (packed, if [upx] packs it), the same markers as every other
+      # boot, and its exit status read.
+      - name: On RISC-V hardware, the archive starts from any folder
+        timeout-minutes: 10
+        run: |
+          set -euo pipefail
+          docker run --rm --init --network none -v "$PWD:/work:ro" -w /work "${{ inputs.riscv64_image }}" bash -euo pipefail -c '
+            SRC_RMP=$PWD/src/rmp   # a game in plain C has none; asked before the cd
+            SHIP=$(mktemp -d); ELSEWHERE=$(mktemp -d)
+            unzip -q linux-riscv64-glibc-build.zip -d "$SHIP"
+            OUT="$ELSEWHERE/out.txt"
+            cd "$ELSEWHERE"
+            if RAY_TEST_MAX_FRAMES=10 LIBGL_ALWAYS_SOFTWARE=1 xvfb-run -a -s "-screen 0 1280x720x24" \
+              timeout 300 "$SHIP/${{ inputs.project_name }}" > "$OUT" 2>&1 < /dev/null; then RC=0; else RC=$?; fi
+            tail -20 "$OUT"
+            test "$RC" -ne 124 || { echo "FAIL: it did not finish within 300 s"; exit 1; }
+            test "$RC" -eq 0 || { echo "FAIL: it exited with status $RC"; exit 1; }
+            grep -q "RAY_TEST_BOOT_OK assets_failed=0 " "$OUT" \
+              || { echo "FAIL: started from another folder, the game did not find its resources"; exit 1; }
+            grep -q "RAY_TEST_RENDER_OK" "$OUT" || { echo "FAIL: it drew nothing"; exit 1; }
+            grep -q "RAY_TEST_DONE_FRAMES" "$OUT" || { echo "FAIL: it died before the end"; exit 1; }
+            if [ -d "$SRC_RMP" ] && ! grep -q "RAY_TEST_REPORTS=0$" "$OUT"; then
+              grep -E "WARNING|RAY_TEST_REPORTS" "$OUT" || true
+              echo "FAIL: the framework reported a mistake in the game, or printed no RAY_TEST_REPORTS line"; exit 1
+            fi
+            echo "PASS: the archive booted and rendered on RISC-V hardware"'
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: linux-riscv64-glibc-build
+          path: linux-riscv64-glibc-build.zip
+          retention-days: 7
+
+      - name: Shipped
+        id: shipped
+        run: echo "shipped=true" >> "$GITHUB_OUTPUT"
+
   riscv64:
     # Cross-compiled inside the amd64 container: the image ships the riscv64
-    # X11/GL multiarch libraries. There is no riscv64 runner, so the archive
-    # it ships is started under QEMU user-mode emulation, in the same image --
-    # see "The archive starts from any folder, under QEMU".
-    if: inputs.full && contains(fromJSON(inputs.targets), 'linux-riscv64-glibc')
+    # X11/GL multiarch libraries. The archive it ships is started under QEMU
+    # user-mode emulation, in the same image -- see "The archive starts from
+    # any folder, under QEMU". It is the whole riscv64 job when [ci] riscv64 =
+    # "cross", and the FALLBACK of the native job above when that did not
+    # succeed: failed, timed out, or never given a board.
+    needs: riscv64-native
+    if: >-
+      !cancelled() && inputs.full
+      && contains(fromJSON(inputs.targets), 'linux-riscv64-glibc')
+      && (inputs.riscv64 == 'cross' || needs.riscv64-native.outputs.shipped != 'true')
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
@@ -642,6 +810,21 @@ jobs:
     steps:
       - name: Build image manifest
         run: cat /etc/raylib-build-image.json
+
+      # Said where it is read: a fallback that ships in silence would hide the
+      # day a board found a bug QEMU cannot.
+      - name: Why the cross build
+        env:
+          RUNNER: ${{ inputs.riscv64 }}
+        run: |
+          if [ "$RUNNER" != cross ]; then
+            MSG="The native riscv64-native job on $RUNNER did not ship its archive (it failed, was cancelled, or no board ran it), so the cross build under QEMU ships instead. Read the riscv64-native job's log: a failure in its build, size or boot steps is the code's, one before them is the board's."
+            echo "::warning title=linux-riscv64-glibc fell back to the cross build::$MSG"
+            echo "### linux-riscv64-glibc: cross build (fallback)" >> "$GITHUB_STEP_SUMMARY"
+            echo "$MSG" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "[ci] riscv64 = \"$RUNNER\": the cross build is the riscv64 job."
+          fi
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 

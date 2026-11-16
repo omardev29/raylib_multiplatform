@@ -64,6 +64,14 @@ class BudgetFileTest(unittest.TestCase):
                                     rf"^tools/header_budget\.txt:{at + 1}: {re.escape(name)} "):
             hc.parse_budget("\n".join(lines))
 
+    def test_a_form_feed_in_a_comment_ends_no_line(self):
+        """The nightly Hypothesis run's "# \\f0 0": one comment line, and
+        no budget -- splitlines() made "0 0" a line of its own."""
+        self.assertEqual(hc.parse_budget("# \f0 0"), {})
+        self.assertEqual(hc.parse_budget("# a\u2028rmp/x.h 3\nrmp/y.h 4\n"), {"rmp/y.h": 4})
+        with self.assertRaisesRegex(hc.BudgetError, r"^tools/header_budget\.txt:2: "):
+            hc.parse_budget("# a\u2028b\nrmp/x.h three\n")
+
     @given(LINES)
     def test_any_text_is_a_budget_or_names_its_line(self, text):
         try:
@@ -71,7 +79,7 @@ class BudgetFileTest(unittest.TestCase):
         except hc.BudgetError as e:
             m = re.match(r"tools/header_budget\.txt:(\d+): ", str(e))
             self.assertIsNotNone(m, str(e))
-            line = text.splitlines()[int(m.group(1)) - 1].strip()
+            line = text.split("\n")[int(m.group(1)) - 1].strip()
             self.assertTrue(line and not line.startswith("#"), f"{e} names a line of nothing")
             return
         for name, lines in budget.items():

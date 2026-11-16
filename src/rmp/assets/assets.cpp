@@ -57,7 +57,10 @@ struct {
 } // namespace
 
 void note_gpu_load(const std::string_view name) {
-    if (early.window) return;
+    // A load with no name loads nothing, so it needs no window either; kept,
+    // it was the "first" load window_opened() named as '' -- and, in a unit
+    // run whose order put one first, what every later early load was said as.
+    if (early.window || name.empty()) return;
     if (!early.first) early.first = std::string(name);
     ++early.count;
 }

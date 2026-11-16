@@ -198,6 +198,38 @@ if grep -qE 'raylib-run-alpine:latest' $WORKFLOWS; then
     fails=$((fails + 1)); checks=$((checks + 1))
 fi
 
+echo "== riscv64 build image pin (the RISE job) =="
+# The image the linux-riscv64-glibc job builds in on a RISE RISC-V runner:
+# raylib-build-riscv64, built ON RISE in the image repository from riscv64/.
+# The same rules again: one digest across the workflows, the declared one, and
+# never :latest.
+RISCV_DIGESTS=()
+# shellcheck disable=SC2086
+while IFS= read -r _digest; do
+    RISCV_DIGESTS+=("$_digest")
+done < <(grep -hoE 'raylib-build-riscv64@sha256:[0-9a-f]{64}' $WORKFLOWS \
+          | sed 's/.*@//' | sort -u)
+if [ ${#RISCV_DIGESTS[@]} -eq 0 ]; then
+    echo "  DRIFT riscv64 image           no digest-pinned raylib-build-riscv64 in .github/workflows/"
+    fails=$((fails + 1)); checks=$((checks + 1))
+elif [ ${#RISCV_DIGESTS[@]} -gt 1 ]; then
+    echo "  DRIFT riscv64 image           workflows disagree: ${RISCV_DIGESTS[*]}"
+    fails=$((fails + 1)); checks=$((checks + 1))
+else
+    check "riscv64 image digest" build_riscv64_digest "${RISCV_DIGESTS[0]}"
+    case "${RISCV_DIGESTS[0]#sha256:}" in
+        *[!0]*) ;;
+        *) printf '  note  %-26s %s\n' "riscv64 image digest" \
+               "not published yet: the RISE job fails, and the cross build ships, until it is pinned" ;;
+    esac
+fi
+
+# shellcheck disable=SC2086
+if grep -qE 'raylib-build-riscv64:latest' $WORKFLOWS; then
+    echo "  DRIFT riscv64 image           a :latest reference is present (use the digest)"
+    fails=$((fails + 1)); checks=$((checks + 1))
+fi
+
 # --- the check that actually matters, when we can make it ------------------
 if [ -r "$IMAGE_MANIFEST" ]; then
     echo "== Running build image ($IMAGE_MANIFEST) =="
