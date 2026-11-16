@@ -292,6 +292,16 @@ std::string translated(std::string_view key, std::string_view context,
 
 } // namespace
 
+namespace {
+constexpr std::string_view BOM = "\xEF\xBB\xBF";
+
+void drop_bom(std::string &text) {
+    for (std::size_t at = text.find(BOM); at != std::string::npos;
+         at = text.find(BOM, at))
+        text.erase(at, BOM.size());
+}
+} // namespace
+
 std::vector<std::vector<std::string>> parse_tsv(std::string_view text) {
     std::vector<std::vector<std::string>> rows;
     // A UTF-8 byte order mark, which a spreadsheet may write first.
@@ -307,6 +317,10 @@ std::vector<std::vector<std::string>> parse_tsv(std::string_view text) {
         for (const char c : text.substr(start, end - start)) {
             if (c != '\r') line += c;
         }
+        // Nor a U+FEFF: a byte order mark is no text, and the one at the start
+        // of a file is taken away above -- a cell that began with one read
+        // back without it once it was the first of a file (fuzz lang_tsv).
+        drop_bom(line);
         start = end + 1;
         if (line.empty() || line.front() == '#') continue;
         std::vector<std::string> cells(1);
@@ -336,9 +350,11 @@ std::vector<std::vector<std::string>> parse_tsv(std::string_view text) {
 }
 
 std::string escape_cell(std::string_view cell) {
+    std::string kept(cell);
+    drop_bom(kept); // read back without it anyway: written without it
     std::string out;
-    out.reserve(cell.size());
-    for (const char c : cell) {
+    out.reserve(kept.size());
+    for (const char c : kept) {
         if (c == '\t') {
             out += "\\t";
         } else if (c == '\n') {

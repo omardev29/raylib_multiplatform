@@ -268,7 +268,8 @@ def unescape(cell: str) -> str:
 
 
 def escape(cell: str) -> str:
-    return cell.replace("\\", "\\\\").replace("\t", "\\t").replace("\n", "\\n").replace("\r", "")
+    return (cell.replace("\ufeff", "").replace("\\", "\\\\").replace("\t", "\\t")
+            .replace("\n", "\\n").replace("\r", ""))
 
 
 def parse_tsv(text: str) -> list[list[str]]:
@@ -278,7 +279,8 @@ def parse_tsv(text: str) -> list[list[str]]:
     rows = []
     for line in text.split("\n"):
         # No carriage return survives into a cell, as text.cpp reads it.
-        line = line.replace("\r", "")
+        # Nor a U+FEFF anywhere: a byte order mark is no text (text.cpp too).
+        line = line.replace("\r", "").replace("\ufeff", "")
         if not line or line.startswith("#"):
             continue
         rows.append([unescape(c) for c in line.split("\t")])

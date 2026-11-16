@@ -219,6 +219,17 @@ class SameTsvAsTheFrameworkTest(unittest.TestCase):
         for cell in rows[0]:
             self.assertEqual(text_tool.parse_tsv(text_tool.write_tsv([[cell]])), [[cell]])
 
+    def test_a_byte_order_mark_inside_a_line_is_dropped(self):
+        # As text.cpp reads it (fuzz lang_tsv): a U+FEFF anywhere in a line
+        # never reaches a cell, and none is written.
+        rows = text_tool.parse_tsv("\ufeffkey\tco\t\ufeffkey\tJa\ufeff\n")
+        self.assertEqual(rows, [["key", "co", "key", "Ja"]])
+        self.assertEqual(text_tool.write_tsv([["\ufeffkey"]]), "key\n")
+        for cell in ("key", "\ufeffkey", "a\ufeff"):
+            with self.subTest(cell=cell):
+                self.assertEqual(text_tool.parse_tsv(text_tool.write_tsv([[cell]])),
+                                 [[cell.replace("\ufeff", "")]])
+
     def test_the_plural_counts_are_the_frameworks(self):
         source = (REPO / "src/rmp/text/text.cpp").read_text()
         for code, n in (("en", 2), ("ja", 1), ("ru", 4), ("fr", 2), ("pl", 4)):
