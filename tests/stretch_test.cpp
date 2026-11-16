@@ -307,7 +307,7 @@ TEST_SUITE("app: stretch: the letterbox's clip") {
         const std::optional<rmp::scenes::detail::WorldClip> clip =
             world_clip(Stretch::LETTERBOX, screen);
         REQUIRE(clip.has_value());
-        CHECK(clip->y + clip->height == 7299);
+        if (clip) CHECK(clip->y + clip->height == 7299);
     }
 
     TEST_CASE("the extremes: a 4096 square, a bar under a pixel, one pixel") {
