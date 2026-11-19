@@ -815,6 +815,35 @@ TEST_CASE_FIXTURE(Fixture, "they agree with objects of wildly different sizes") 
     CHECK(pairs_of(world, true) == pairs_of(world, false));
 }
 
+// Many big objects over the same cells, and enough small ones to make the cell
+// small: what the nightly's behaviors property built with a volley of bullets.
+void crowd(World &world) {
+    Rng rng;
+    for (int i = 0; i < 300; ++i) {
+        world.spawn({ .position = { rng.range(-2000, 2000), rng.range(-2000, 2000) },
+                      .shape = rmp::rect({ 1, 1 }) });
+    }
+    for (int i = 0; i < 100; ++i) {
+        world.spawn({ .position = { rng.range(-50, 50), rng.range(-50, 50) },
+                      .shape = rmp::rect({ 2000, 2000 }) });
+    }
+}
+
+TEST_CASE_FIXTURE(Fixture, "the broad phase never hands over more pairs than there are") {
+    // 100 objects sharing many cells gave 111 570 candidates for 79 800 pairs,
+    // sorted every frame; the nightly's property sat an hour in that sort.
+    World world;
+    crowd(world);
+    const std::size_t n = rmp::objects::detail::live_objects(world).size();
+    CHECK(rmp::objects::detail::candidates_for_tests(world) <= n * (n - 1) / 2);
+}
+
+TEST_CASE_FIXTURE(Fixture, "they agree where many big objects share many cells") {
+    World world;
+    crowd(world);
+    CHECK(pairs_of(world, true) == pairs_of(world, false));
+}
+
 TEST_CASE_FIXTURE(Fixture,
                   "and they agree with fast movers, where the swept boxes join in") {
     World world;

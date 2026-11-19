@@ -549,6 +549,7 @@ struct {
     Index index;
     std::vector<Pair> pairs;
     std::vector<int> candidates;
+    std::size_t handed_over = 0; // the pairs candidate_pairs() last gave, for a test
 } broad;
 
 std::optional<CellSpan> span_of(float left, float top, float right, float bottom,
@@ -669,43 +670,64 @@ void candidate_pairs(const std::vector<Entry> &entries, const Grid &grid,
                      std::vector<Pair> *out) {
     out->clear();
     const int n = static_cast<int>(entries.size());
+    const int cells = grid.cell_count();
 
-    if (grid.empty()) {
+    // What the cells would hand over, each cell's every pair. Many objects
+    // sharing many cells -- a volley of bullets whose sweeps cross the whole
+    // grid -- made that the number of pairs TIMES the cells they share: 164
+    // objects gave 20 million candidates a frame, for 13 366 pairs there are,
+    // and the nightly's property sat an hour in one sort. Past every pair, the
+    // grid is no optimisation, and the loop it is one of costs less.
+    std::int64_t in_cells = 0;
+    if (!grid.empty()) {
+        for (int c = 0; c < cells; ++c) {
+            const std::int64_t k = grid.starts[static_cast<std::size_t>(c) + 1] -
+                grid.starts[static_cast<std::size_t>(c)];
+            in_cells += k * (k - 1) / 2;
+        }
+    }
+    const std::int64_t every_pair = std::int64_t{ n } * (n - 1) / 2;
+
+    if (grid.empty() || in_cells > every_pair) {
         // No grid: either nothing to do, or a world the cells could not
-        // describe. Every pair, which is correct and is what the grid is an
-        // optimisation of.
+        // describe -- or one they describe at a greater cost than this. Every
+        // pair, which is correct and is what the grid is an optimisation of,
+        // and already in the order the grid's are sorted into below.
         for (int i = 0; i < n; ++i) {
             for (int j = i + 1; j < n; ++j) out->push_back(Pair{ i, j });
         }
-    } else {
-        const int cells = grid.cell_count();
-        for (int c = 0; c < cells; ++c) {
-            const auto from =
-                static_cast<std::size_t>(grid.starts[static_cast<std::size_t>(c)]);
-            const auto to =
-                static_cast<std::size_t>(grid.starts[static_cast<std::size_t>(c) + 1]);
-            for (std::size_t i = from; i < to; ++i) {
-                for (std::size_t j = i + 1; j < to; ++j) {
-                    const int a =
-                        grid.items[i] < grid.items[j] ? grid.items[i] : grid.items[j];
-                    const int b =
-                        grid.items[i] < grid.items[j] ? grid.items[j] : grid.items[i];
-                    out->push_back(Pair{ a, b });
-                }
+        broad.handed_over = out->size();
+        return;
+    }
+    for (int c = 0; c < cells; ++c) {
+        const int cx = grid.min_x + c % grid.cols;
+        const int cy = grid.min_y + c / grid.cols;
+        const auto from =
+            static_cast<std::size_t>(grid.starts[static_cast<std::size_t>(c)]);
+        const auto to =
+            static_cast<std::size_t>(grid.starts[static_cast<std::size_t>(c) + 1]);
+        for (std::size_t i = from; i < to; ++i) {
+            for (std::size_t j = i + 1; j < to; ++j) {
+                const int a = std::min(grid.items[i], grid.items[j]);
+                const int b = std::max(grid.items[i], grid.items[j]);
+                // An object spanning several cells meets the same neighbour
+                // in each of them. The pair is handed over once, by the first
+                // cell the two share: the corner of their spans' overlap.
+                const CellSpan &sa = grid.spans[static_cast<std::size_t>(a)];
+                const CellSpan &sb = grid.spans[static_cast<std::size_t>(b)];
+                if (cx != std::max(sa.x0, sb.x0) || cy != std::max(sa.y0, sb.y0))
+                    continue;
+                out->push_back(Pair{ a, b });
             }
         }
-        // An object spanning several cells meets the same neighbour in each of
-        // them. Sorting and collapsing is cheaper than a hash set and keeps the
-        // order deterministic, which matters: the differential test compares
-        // this against the O(n^2) loop, and a set ordered by pointer would make
-        // the comparison depend on the allocator.
-        std::ranges::sort(*out, [](const Pair &x, const Pair &y) {
-            return x.a != y.a ? x.a < y.a : x.b < y.b;
-        });
-        const auto dup = std::ranges::unique(
-            *out, [](const Pair &x, const Pair &y) { return x.a == y.a && x.b == y.b; });
-        out->erase(dup.begin(), dup.end());
     }
+    // Sorted, so the order is the loop's whatever the cells: the differential
+    // test compares this against the O(n^2) loop, the callbacks run in this
+    // order, and an order made by the cells would move with the cell size.
+    std::ranges::sort(*out, [](const Pair &x, const Pair &y) {
+        return x.a != y.a ? x.a < y.a : x.b < y.b;
+    });
+    broad.handed_over = out->size();
 }
 
 // What one touching pair amounts to. Detection produces these and changes
@@ -1027,6 +1049,11 @@ void collide(Scene &scene) {
             if (finite(after)) o.velocity = after;
         }
     }
+}
+
+std::size_t candidates_for_tests(const Scene &scene) {
+    (void)detect(scene, true);
+    return broad.handed_over;
 }
 
 int touching_pairs_for_tests(const Scene &scene, bool use_grid, Object **out, int max) {
