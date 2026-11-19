@@ -36,4 +36,10 @@ tests    tests/rmp_test.py::ConsoleSudoTest tests/rmp_test.py::TerminalRestoreTe
 tests    tests/rmp_test.py::PackageTest tests/rmp_test.py::InstallTest
 tests    tests/rmp_test.py::ConsoleInCiTest tests/rmp_test.py::RiseOnPrivateRepoTest
 tests    tests/rmp_test.py::DeployTest
+# Building and running for Windows from Linux, and Gradle's offline flags
+# (#32, #48): their tests call rmp.py's functions in-process and pass in
+# mutmut's copy, and no class of this file reached the functions before --
+# 155 mutants nobody ran. Measured 2026-11-16, mutmut 3.8.0: 4840 mutants,
+# 2826 detected without them (58.39 %), 2943 with them (60.81 %).
+tests    tests/rmp_test.py::WindowsFromLinuxTest tests/rmp_test.py::GradleOfflineTest
 floor    60
