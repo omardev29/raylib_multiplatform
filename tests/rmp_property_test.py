@@ -91,8 +91,14 @@ ARGV = st.one_of(
 CODES = st.sampled_from([0, 0, 0, 0, 0, 1, 2, 127, 128])
 # A game's exit status: its own, or a signal's (negative, as subprocess says).
 GAME_CODES = st.sampled_from([0, 0, 1, 3, 139, -11, -9, 255])
-# What a program prints: text, without the NUL no tool rmp reads ever writes.
-SHORT = st.text(alphabet=st.characters(exclude_characters="\0"), max_size=40)
+# What a program prints: text, without the NUL no tool rmp reads ever writes,
+# and without a lone surrogate: subprocess.run(text=True) decodes strictly,
+# so a byte that is not UTF-8 raises there and never comes back as one. Drawn
+# with them, `git rev-parse` "printed" '\ud800' and Path.resolve() could not
+# encode a folder name no git can have answered (nightly Hypothesis, the run
+# of this branch, test_rmp_update).
+SHORT = st.text(alphabet=st.characters(exclude_characters="\0", exclude_categories=("Cs",)),
+                max_size=40)
 JSON_VALUES = st.recursive(
     st.none() | st.booleans() | st.integers() | st.text(max_size=8),
     lambda inner: st.lists(inner, max_size=3) | st.dictionaries(st.text(max_size=8), inner,
