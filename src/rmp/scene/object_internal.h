@@ -132,6 +132,10 @@ void reset_pointer_for_tests();
 // hand-written case would ever find it.
 int touching_pairs_for_tests(const Scene &scene, bool use_grid, Object **out, int max);
 
+// How many pairs the broad phase gathered -- and sorted -- in one pass over the
+// scene: never more than every pair there is, however the objects share cells.
+std::size_t candidates_for_tests(const Scene &scene);
+
 // The hits a ray finds, nearest first, walking the grid -- which is what
 // Scene::raycast_all() does -- or testing every object the index holds: the
 // raycast's own differential, as touching_pairs_for_tests is the pass's. The
