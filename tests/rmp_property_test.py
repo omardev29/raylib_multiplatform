@@ -4,8 +4,10 @@ answer from the programs it starts.
 `rmp` is the one command, and the first thing a newcomer types: its promise
 (the docstring) is an exit code -- 0 done, 1 refused, 2 a wrong command line,
 130 interrupted, and the game's own when it started one -- and a sentence,
-never a traceback (R7 of the deep campaign). These run main() as the program
-does, on a machine made up for each example:
+never a traceback (R7 of the deep campaign) -- but for a program that prints
+bytes that are not UTF-8, which raises UnicodeDecodeError out of subprocess
+and is left a traceback (Omar, 2026-11-20; CLAUDE.md). These run main() as
+the program does, on a machine made up for each example:
 
   - a framework and a game in a temporary folder, or no project at all;
   - a home folder, a /dev and an environment of that folder's own: RMP_DRM,
@@ -93,7 +95,8 @@ CODES = st.sampled_from([0, 0, 0, 0, 0, 1, 2, 127, 128])
 GAME_CODES = st.sampled_from([0, 0, 1, 3, 139, -11, -9, 255])
 # What a program prints: text, without the NUL no tool rmp reads ever writes,
 # and without a lone surrogate: subprocess.run(text=True) decodes strictly,
-# so a byte that is not UTF-8 raises there and never comes back as one. Drawn
+# so a byte that is not UTF-8 raises there and never comes back as one (that
+# raise is left a traceback: Omar, 2026-11-20, CLAUDE.md). Drawn
 # with them, `git rev-parse` "printed" '\ud800' and Path.resolve() could not
 # encode a folder name no git can have answered (nightly Hypothesis, the run
 # of this branch, test_rmp_update).

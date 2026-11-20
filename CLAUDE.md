@@ -589,6 +589,13 @@ here so that nobody "fixes" one back.
   they act on the framework that ships the `rmp` being run and are never
   handed to a game's copy, which refuses `install` and `update` -- a game
   keeps the framework it was made with.
+- **`rmp` dies with a traceback when a program it starts prints bytes that
+  are not UTF-8** (Omar, 2026-11-20): the one exception to "a sentence, never
+  a traceback" (R7). `subprocess.run(text=True)` decodes strictly, so a git
+  answering with a folder name that is not UTF-8 raises `UnicodeDecodeError`,
+  and nobody reads that output with `surrogateescape` to spare it. The
+  properties of `tests/rmp_property_test.py` draw a program's output as text a
+  strict decode can give, and never this case.
 - **Never put secrets in the TOML** — no keystores, no tokens, no passwords.
   Variables yes, secrets no. The PAT can write repo variables but not secrets.
 - **Commits are plain and in Omar's name.** No `Co-Authored-By`, no extra
