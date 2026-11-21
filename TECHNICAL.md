@@ -289,23 +289,18 @@ for the game sources (GCC/Clang) — handy for inspecting codegen.
 
 ## Editor / clangd (LSP)
 
-The committed `.clangd` points clangd at the **host** compile database
-(`build/debug/compile_commands.json`), so the project resolves with **no Android NDK**. Because no
-Android target is forced, `__ANDROID__` is not defined, `<raymob.h>` is never processed, and no
-NDK headers are needed. Configure once (`cmake --preset debug`) so the database exists.
+The committed `.clangd` is read by every editor that runs clangd (VS Code, LazyVim, Zed...). It
+points clangd at the debug build's compile database, `build/debug/compile_commands.json`, which
+`rmp build` writes: build once, then restart clangd. It is the desktop build on every machine, so no
+Android NDK and no Xcode are needed; the code for other platforms sits behind `#if`, greyed out.
 
-Android intellisense is **opt-in** (it defines `__ANDROID__`, so `<raymob.h>` and the NDK headers
-get indexed). It requires the NDK:
-
-```bash
-./generate_android_commands.sh   # writes raymob/.cxx/compile_commands/compile_commands.json
-./update_clangd.sh               # rewrites .clangd to use that Android database
-```
-
-`git checkout -- .clangd` restores the host default. (`generate_android_commands.ps1` /
-`update_clangd.ps1` are the Windows equivalents.)
-
----
+- **The game's code** is checked as the compiler would, with warnings as warnings (`-Werror` is
+  left out).
+- **The framework and what it vendors** (`include/rmp/`, `src/rmp/`, `thirdparty/`, `raymob/`,
+  `ios/`) give completion, hover and go-to-declaration, and clangd reports nothing in them and does
+  not index their sources: they are built and checked by the framework's own CI.
+- A Visual Studio newer than the clangd that reads it, a gcc or MinGW flag clang does not know:
+  neither is an error in the editor.
 
 ## Compile-time definitions
 

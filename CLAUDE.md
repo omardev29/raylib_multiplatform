@@ -371,6 +371,14 @@ here so that nobody "fixes" one back.
   `.devcontainer/devcontainer.json` is the pinned image plus a noVNC desktop,
   copied into every game by `rmp new`; `versions_check.sh` holds its digest to
   the workflows'.
+- **clangd checks the game's code and trusts the framework's** (Omar,
+  2026-11-21). One `.clangd`, copied into every game, reads the desktop debug
+  build's database (`build/debug`) on every machine -- no NDK, no Android
+  database, no script that rewrites it. In `include/rmp/`, `src/rmp/`,
+  `thirdparty/`, `raymob/` and `ios/` it gives completion, hover and
+  declarations and reports nothing, runs no clang-tidy and indexes no source;
+  the game's files are diagnosed as the compiler would, warnings as warnings.
+  `ClangdConfigTest` holds the line between the two.
 - **A map draws what the camera shows, and nothing is baked** (Omar,
   2026-10-31). `Scene` hands `Tilemap::draw(area)` its camera's view: LDtk's
   tiles through 16x16-cell chunks, a Tiled layer through its range of cells;

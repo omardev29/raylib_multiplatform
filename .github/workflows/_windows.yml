@@ -417,6 +417,22 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 
+      # Visual Studio's own clang, first on PATH. Its STL names the clang it
+      # was made for: the image of 2026-11-16 brought MSVC 14.52, whose
+      # yvals_core.h stops at "STL1000: Unexpected compiler version, expected
+      # Clang 22 or newer" under the LLVM 20 in C:\Program Files\LLVM. The
+      # "C++ Clang tools" component ships the clang that STL is tested with.
+      - name: Visual Studio's clang
+        run: |
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $vs = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Llvm.Clang -property installationPath
+          if (-not $vs) { Write-Host "FAIL: no Visual Studio here has its C++ Clang tools"; exit 1 }
+          $bin = Join-Path $vs "VC\Tools\Llvm\x64\bin"
+          if (-not (Test-Path (Join-Path $bin "clang++.exe"))) { Write-Host "FAIL: no clang++.exe in $bin"; exit 1 }
+          Write-Host "the runner's LLVM:"; & clang --version
+          Write-Host "Visual Studio's:"; & (Join-Path $bin "clang.exe") --version
+          $bin | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
       # Exit codes are read by hand in both steps: a compiler's stderr through
       # a pipe must not end the step before its log is whole.
       - name: Debug, with [dev] compiler = "clang"

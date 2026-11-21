@@ -1,22 +1,63 @@
-# clangd configuration — DEFAULT (host / desktop).
+# clangd's settings, for every editor that runs it (VS Code, LazyVim, Zed...).
 #
-# This makes clangd use the compile commands produced by a normal host build
-# (build/debug/compile_commands.json, from the debug preset), so the project
-# resolves WITHOUT the Android NDK. With no Android target forced, __ANDROID__
-# is not defined, <raymob.h> is never pulled in, and no NDK headers are needed.
+# What it reads: the compile commands of the debug build,
+# build/debug/compile_commands.json, which `rmp build` (or any command that
+# configures the debug preset) writes. Before the first one, clangd has no
+# flags and cannot find rmp/... at all: build once, then restart clangd.
 #
-#   Prereq: configure once so the compile database exists:  cmake --preset debug
-#
-# Want Android intellisense instead? That is OPT-IN and requires the NDK:
-#   ./generate_android_commands.sh   (or .ps1)  -> writes raymob/.cxx/...
-#   ./update_clangd.sh               (or .ps1)  -> rewrites this file for Android
-# To come back to this host config:  git checkout -- .clangd
+# The desktop build is the one clangd reads, on every machine: no Android NDK,
+# no Xcode. The code for Android, iOS and the web sits behind #if and is
+# greyed out, never an error.
 
 CompileFlags:
   CompilationDatabase: build/debug
+  Add:
+    # A Visual Studio newer than the clangd reading it: its STL stops at
+    # "STL1000: Unexpected compiler version, expected Clang 22 or newer" in
+    # every file that includes it. clangd only reads the code, so the
+    # versions need not match.
+    - "-D_ALLOW_COMPILER_AND_STL_VERSION_MISMATCH"
+    # A gcc or MinGW build's warning flags that clang does not know.
+    - "-Wno-unknown-warning-option"
   Remove:
+    # A warning is a warning in the editor: the framework builds with
+    # -Werror, and a game may.
+    - "-Werror"
+    - "-Werror=*"
+    # gcc's, which clang refuses.
     - "-fmodules-ts"
     - "-fmodule-mapper=*"
     - "-fdeps-format=*"
     - "-fno-fat-lto-objects"
     - "-flto=*"
+    - "-fconcepts-diagnostics-depth=*"
+Diagnostics:
+  Suppress:
+    # A flag of another compiler, said at the top of every file.
+    - drv_unknown_argument
+    - drv_unknown_argument_with_suggestion
+    - drv_unsupported_opt
+    - drv_unsupported_opt_for_target
+
+---
+
+# The framework and what it vendors: completion, hover and go-to-declaration
+# into them work, and clangd reports nothing in them and indexes none of their
+# sources. They are built and checked by the framework's own CI; what clangd
+# says about the game's code is all a game needs.
+If:
+  PathMatch:
+    - include/rmp/.*
+    - src/rmp/.*
+    - thirdparty/.*
+    - raymob/.*
+    - ios/.*
+    - tests/smoke_test\.h
+Diagnostics:
+  Suppress: "*"
+  ClangTidy:
+    Remove: "*"
+  UnusedIncludes: None
+  MissingIncludes: None
+Index:
+  Background: Skip
