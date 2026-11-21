@@ -4138,6 +4138,14 @@ class InstallTest(InstallFixture):
              "still needs: the X11 development headers.\nInstall them, as root, with:\n"
              "  zypper install libX11-devel libXrandr-devel libXi-devel libXcursor-devel "
              "libXinerama-devel Mesa-libGL-devel\n"),
+            ({"apk": yes, "doas": yes, "pkg-config": no},
+             "still needs: CMake, Ninja, a C++ compiler, the X11 development headers.\n"
+             "Install them with:\n  doas apk add cmake samurai build-base libx11-dev "
+             "libxrandr-dev libxi-dev libxcursor-dev libxinerama-dev mesa-dev linux-headers\n"),
+            ({"apk": yes, "cmake": yes, "samu": yes, "c++": yes, "pkg-config": no},
+             "still needs: the X11 development headers.\nInstall them, as root, with:\n"
+             "  apk add libx11-dev libxrandr-dev libxi-dev libxcursor-dev libxinerama-dev "
+             "mesa-dev linux-headers\n"),
             ({"uname": "#!/bin/sh\necho FreeBSD\n", "pkg-config": no, "cmake": yes},
              "still needs: Ninja, a C++ compiler, the X11 development headers.\nInstall them, "
              "as root, with:\n  pkg install ninja libX11 libXrandr libXi libXcursor "
@@ -4192,6 +4200,11 @@ class InstallTest(InstallFixture):
                                       "ps": ps("tty12   ")},
              {}, note + "To build a game, this machine still needs: the DRM/KMS development "
              "headers.\nInstall them with:\n  doas pacman -S --needed libdrm mesa libglvnd\n"),
+            ("Alpine on a console", {"apk": yes, "doas": yes, "pkg-config": no,
+                                     "cmake": yes, "samu": yes, "g++": yes},
+             {"XDG_SESSION_TYPE": "tty"},
+             note + "To build a game, this machine still needs: the DRM/KMS development "
+             "headers.\nInstall them with:\n  doas apk add libdrm-dev mesa-dev linux-headers\n"),
             ("RMP_DRM=1 on a desktop", {"zypper": yes, "pkg-config": no, "cmake": yes,
                                         "ninja": yes, "g++": yes},
              {"RMP_DRM": "1", "DISPLAY": ":0"},

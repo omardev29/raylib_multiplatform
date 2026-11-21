@@ -16,7 +16,7 @@ struct Settings {
     float sensitivity = 0.35f;
     int quality = 1;
     int language = 0;
-    std::string player; // "Player" until the player says otherwise: see on_ready()
+    std::string player; // "Player" until the player says otherwise: see _ready()
 };
 
 // What the two dropdowns offer: a std::array the dropdown takes as a span, so

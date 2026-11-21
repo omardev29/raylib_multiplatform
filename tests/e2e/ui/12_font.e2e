@@ -1,0 +1,44 @@
+# examples/ui/12_font, played: the title, the options and the credits, every
+# word in Hack Bold -- with the keyboard and the gamepad, each screen a scene
+# of its own, and the font kept from one to the next. See
+# tests/e2e/script.h for the grammar.
+
+# The title: the font is set in its _ready(), before its first frame.
+12 shot title
+12 expect scene TitleScene
+
+# Down to Options, Enter: OptionsScene from the next frame.
+13 tap KEY_DOWN
+15 tap KEY_ENTER
+17 expect scene OptionsScene
+
+# Every control there in the font: hints off, the text a step faster, and
+# the dropdown opened and walked to Wide awake.
+18 tap KEY_ENTER
+20 tap KEY_DOWN
+22 tap KEY_RIGHT
+24 tap KEY_DOWN
+26 tap KEY_ENTER
+28 tap KEY_DOWN
+30 tap KEY_ENTER
+42 shot options
+
+# Escape is "ui_cancel": back to the title, and the options kept.
+43 tap KEY_ESCAPE
+45 expect scene TitleScene
+
+# Down twice to Credits.
+46 tap KEY_DOWN
+48 tap KEY_DOWN
+50 tap KEY_ENTER
+52 expect scene CreditsScene
+63 shot credits
+
+# The gamepad's B is "ui_cancel" too.
+64 tap GAMEPAD_BUTTON_RIGHT_FACE_RIGHT
+66 expect scene TitleScene
+
+# New game says, at the bottom, that there is none yet.
+67 tap KEY_ENTER
+80 shot no_game_yet
+80 end

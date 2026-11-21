@@ -6,7 +6,7 @@
 
 #include <string>
 
-void inventory_grid() {
+void inventory_grid(const rmp::Texture &icon) {
     rmp::ui::panel({ .box = { .grow_x = true, .grow_y = true } }, [&] {
         rmp::ui::text("Inventory");
 

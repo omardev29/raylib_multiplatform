@@ -20,133 +20,133 @@
 
 #include <rmp/app.h>
 #include <rmp/assets.h>
+#include <rmp/scene.h>
 #include <rmp/ui.h>
 
 #include <string>
 
-// An rmp::Texture, not a Texture2D. The handle OWNS the texture; a raw
-// Texture2D copied out of the temporary would have been unloaded on the same
-// line, before the next statement ran.
-static rmp::Texture portrait;
-static float health = 0.72f;
-static float mana = 0.35f;
+class LayoutScene : public rmp::Scene {
+public:
+    void _ready() override {
+        // Resize the window and watch everything follow.
+        _portrait = rmp::assets::load_texture("rabbit.png");
+    }
 
-static void on_ready() {
-    SetConfigFlags(FLAG_WINDOW_RESIZABLE); // resize it and watch everything follow
-    InitWindow(RMP_WINDOW_WIDTH, RMP_WINDOW_HEIGHT, RMP_WINDOW_TITLE);
-    portrait = rmp::assets::load_texture("rabbit.png");
-}
+    void _update(float delta) override {
+        // Bars that move, so the layout is doing something rather than sitting
+        // still -- and so it is obvious the numbers are read fresh every frame.
+        _health -= delta * 0.05f;
+        if (_health < 0) _health = 1.0f;
+        _mana += delta * 0.08f;
+        if (_mana > 1) _mana = 0.0f;
+    }
 
-// -----------------------------------------------------------------------
-// row and column: the two directions
-// -----------------------------------------------------------------------
-static void character_card() {
-    // panel = a column with a background and padding. It is what you put a
-    // dialog, a card or a tooltip inside.
-    rmp::ui::panel([&] {
-        // row lays out left to right.
-        rmp::ui::row({ .gap = 16 }, [&] {
-            rmp::ui::image(portrait, { .width = 72, .height = 72 });
+    void _draw() override {
+        // begin() is a centred column. placement moves the whole thing: this one
+        // hugs the top-left corner, like a HUD would.
+        rmp::ui::begin({ .placement = rmp::ui::Align::TOP_LEFT, .gap = 14 });
 
-            // column lays out top to bottom. items decides where children sit
-            // across the other axis — here, hard against the left instead of
-            // centred, which is what makes a card look like a card.
-            rmp::ui::column({ .gap = 6, .items = rmp::ui::Align::CENTER_LEFT }, [&] {
-                rmp::ui::text("Rabbit", { .color = rmp::ui::ColorRole::PRIMARY });
-                rmp::ui::progress(health, { .width = 180 });
-                rmp::ui::progress(mana, { .width = 180, .height = 8, .fill = SKYBLUE });
-                rmp::ui::text("Level 7",
-                              { .color = rmp::ui::ColorRole::MUTED, .size = 14 });
+        toolbar();
+        character_card();
+        banner();
+        empty_slot();
+
+        if (rmp::ui::button("Done")) rmp::app::quit();
+
+        rmp::ui::end();
+    }
+
+private:
+    // An rmp::Texture, not a Texture2D. The handle OWNS the texture; a raw
+    // Texture2D copied out of the temporary would have been unloaded on the
+    // same line, before the next statement ran.
+    rmp::Texture _portrait;
+    float _health = 0.72f;
+    float _mana = 0.35f;
+
+    // -------------------------------------------------------------------
+    // row and column: the two directions
+    // -------------------------------------------------------------------
+    void character_card() {
+        // panel = a column with a background and padding. It is what you put
+        // a dialog, a card or a tooltip inside.
+        rmp::ui::panel([&] {
+            // row lays out left to right.
+            rmp::ui::row({ .gap = 16 }, [&] {
+                rmp::ui::image(_portrait, { .width = 72, .height = 72 });
+
+                // column lays out top to bottom. items decides where children
+                // sit across the other axis -- here, hard against the left
+                // instead of centred, which is what makes a card look like a
+                // card.
+                rmp::ui::column({ .gap = 6, .items = rmp::ui::Align::CENTER_LEFT }, [&] {
+                    rmp::ui::text("Rabbit", { .color = rmp::ui::ColorRole::PRIMARY });
+                    rmp::ui::progress(_health, { .width = 180 });
+                    rmp::ui::progress(_mana,
+                                      { .width = 180, .height = 8, .fill = SKYBLUE });
+                    rmp::ui::text("Level 7",
+                                  { .color = rmp::ui::ColorRole::MUTED, .size = 14 });
+                });
             });
         });
-    });
-}
+    }
 
-// -----------------------------------------------------------------------
-// spacer: how you push things apart
-// -----------------------------------------------------------------------
-static void toolbar() {
-    // grow_x makes the row take the full width it is offered; without it the
-    // row would shrink to fit its contents and the spacer would have nothing
-    // to eat.
-    rmp::ui::row({ .grow_x = true }, [&] {
-        rmp::ui::text("Inventory");
-        rmp::ui::spacer(); // <- takes everything left over
-        rmp::ui::text("24 / 40", { .color = rmp::ui::ColorRole::MUTED });
-    });
+    // -------------------------------------------------------------------
+    // spacer: how you push things apart
+    // -------------------------------------------------------------------
+    static void toolbar() {
+        // grow_x makes the row take the full width it is offered; without it
+        // the row would shrink to fit its contents and the spacer would have
+        // nothing to eat.
+        rmp::ui::row({ .grow_x = true }, [&] {
+            rmp::ui::text("Inventory");
+            rmp::ui::spacer(); // <- takes everything left over
+            rmp::ui::text("24 / 40", { .color = rmp::ui::ColorRole::MUTED });
+        });
 
-    // spacer(n) is the other one: a fixed gap, when you want breathing room in
-    // one specific place rather than changing the container's gap.
-    rmp::ui::spacer(8);
-}
+        // spacer(n) is the other one: a fixed gap, when you want breathing
+        // room in one specific place rather than changing the container's gap.
+        rmp::ui::spacer(8);
+    }
 
-// -----------------------------------------------------------------------
-// stack and layer: things on top of each other
-// -----------------------------------------------------------------------
-static void banner() {
-    rmp::ui::panel({ .box = { .width = 260, .height = 90 } }, [&] {
-        // Every child of a stack has to be a layer(). That is not ceremony:
-        // it is what says "these are meant to overlap" instead of "these are
-        // ordinary children in a column". Later layers draw on top.
-        rmp::ui::stack([&] {
-            rmp::ui::layer([&] {
-                rmp::ui::image(
-                    portrait,
-                    { .grow = true, .tint = CLITERAL(Color){ 255, 255, 255, 60 } });
-            });
-            rmp::ui::layer([&] {
-                rmp::ui::text("PAUSED", { .color = rmp::ui::ColorRole::DANGER });
+    // -------------------------------------------------------------------
+    // stack and layer: things on top of each other
+    // -------------------------------------------------------------------
+    void banner() {
+        rmp::ui::panel({ .box = { .width = 260, .height = 90 } }, [&] {
+            // Every child of a stack has to be a layer(). That is not
+            // ceremony: it is what says "these are meant to overlap" instead
+            // of "these are ordinary children in a column". Later layers draw
+            // on top.
+            rmp::ui::stack([&] {
+                rmp::ui::layer([&] {
+                    rmp::ui::image(
+                        _portrait,
+                        { .grow = true, .tint = CLITERAL(Color){ 255, 255, 255, 60 } });
+                });
+                rmp::ui::layer([&] {
+                    rmp::ui::text("PAUSED", { .color = rmp::ui::ColorRole::DANGER });
+                });
             });
         });
-    });
-}
+    }
 
-// -----------------------------------------------------------------------
-// center: fill what you were given, put the contents in the middle
-// -----------------------------------------------------------------------
-static void empty_slot() {
-    rmp::ui::panel({ .box = { .width = 260, .height = 70 },
-                     .border = rmp::ui::current_theme().border },
-                   [&] {
-                       rmp::ui::center([&] {
-                           rmp::ui::text("nothing here",
-                                         { .color = rmp::ui::ColorRole::MUTED });
+    // -------------------------------------------------------------------
+    // center: fill what you were given, put the contents in the middle
+    // -------------------------------------------------------------------
+    static void empty_slot() {
+        rmp::ui::panel({ .box = { .width = 260, .height = 70 },
+                         .border = rmp::ui::current_theme().border },
+                       [&] {
+                           rmp::ui::center([&] {
+                               rmp::ui::text("nothing here",
+                                             { .color = rmp::ui::ColorRole::MUTED });
+                           });
                        });
-                   });
-}
+    }
+};
 
-static void on_frame(float delta) {
-    // Bars that move, so the layout is doing something rather than sitting
-    // still — and so it is obvious the numbers are read fresh every frame.
-    health -= delta * 0.05f;
-    if (health < 0) health = 1.0f;
-    mana += delta * 0.08f;
-    if (mana > 1) mana = 0.0f;
-
-    BeginDrawing();
-    ClearBackground(rmp::ui::current_theme().background);
-
-    // begin() is a centred column. placement moves the whole thing: this one
-    // hugs the top-left corner, like a HUD would.
-    rmp::ui::begin({ .placement = rmp::ui::Align::TOP_LEFT, .gap = 14 });
-
-    toolbar();
-    character_card();
-    banner();
-    empty_slot();
-
-    if (rmp::ui::button("Done")) rmp::app::quit();
-
-    rmp::ui::end();
-    EndDrawing();
-}
-
-static void on_exit() {
-    portrait = {}; // released here, while the GL context still exists
-    CloseWindow();
-}
-
-RMP_ENTRY_POINT(on_ready, on_frame, on_exit);
+RMP_GAME(LayoutScene);
 
 // ---------------------------------------------------------------------------
 // The Sizing model, in three lines

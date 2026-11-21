@@ -34,96 +34,89 @@
 
 #include <rmp/app.h>
 #include <rmp/assets.h>
+#include <rmp/scene.h>
 #include <rmp/ui.h>
 
 #include <clay.h> // the escape hatch: not included for you on purpose
 
-// The owning handle. Clay wants a Texture2D* that stays valid for the frame,
-// so on_frame() copies the raylib struct out for exactly that long.
-static rmp::Texture logo;
+class ClayScene : public rmp::Scene {
+public:
+    void _ready() override { _logo = rmp::assets::load_texture("rabbit.png"); }
 
-static void on_ready() {
-    InitWindow(RMP_WINDOW_WIDTH, RMP_WINDOW_HEIGHT, RMP_WINDOW_TITLE);
-    logo = rmp::assets::load_texture("rabbit.png");
-}
+    void _draw() override {
+        // A copy of the raylib struct, alive for this frame. The handle below
+        // is the owner; this is what Clay is allowed to point at.
+        Texture2D logo_tex = _logo;
 
-static void on_frame(float) {
-    // A copy of the raylib struct, alive for this frame. The handle above is
-    // the owner; this is what Clay is allowed to point at.
-    Texture2D logo_tex = logo;
+        rmp::ui::begin();
 
-    BeginDrawing();
-    ClearBackground(rmp::ui::current_theme().background);
+        // --- the normal API ---------------------------------------------------
+        rmp::ui::text("Inventory");
 
-    rmp::ui::begin();
-
-    // --- the normal API ---------------------------------------------------
-    rmp::ui::text("Inventory");
-
-    // --- and Clay, in the same frame --------------------------------------
-    //
-    // A horizontal strip of slots, which rmp::ui has no primitive for yet.
-    // CLAY_AUTO_ID is the version without an explicit id; CLAY(CLAY_ID("x"),
-    // ...) is the one to use when you want to ask Clay about the element later
-    // with Clay_PointerOver or Clay_GetElementData.
-    //
-    // It is shaped like a tab, which rmp::ui cannot do either: each corner has
-    // its own radius, and the border is on one side only.
-    CLAY_AUTO_ID(
-        { .layout = { .sizing = { .width = CLAY_SIZING_FIT(0),
-                                  .height = CLAY_SIZING_FIT(0) },
-                      .padding = CLAY_PADDING_ALL(10),
-                      .childGap = 10,
-                      .layoutDirection = CLAY_LEFT_TO_RIGHT },
-          .backgroundColor = { 30, 30, 38, 255 },
-          .cornerRadius = { .topLeft = 18,
-                            .topRight = 18,
-                            .bottomLeft = 0,
-                            .bottomRight = 0 },
-          .border = { .color = { 88, 120, 245, 255 }, .width = { .bottom = 3 } } }) {
-        for (int i = 0; i < 4; ++i) {
-            // CLAY_IDI gives each slot in a loop its own identity without
-            // building a string per element.
-            CLAY(CLAY_IDI("slot", i),
-                 { .layout = { .sizing = { .width = CLAY_SIZING_FIXED(64),
-                                           .height = CLAY_SIZING_FIXED(64) } },
-                   .backgroundColor = { 44, 44, 56, 255 },
-                   .cornerRadius = CLAY_CORNER_RADIUS(6) }) {
-                // Images: point imageData at a Texture2D you own and keep
-                // alive for the frame. Our renderer draws it stretched to the
-                // element's box, untinted. A tint is a Color* in userData; a
-                // backgroundColor is NOT a tint -- Clay draws it as a rectangle
-                // after the image, which paints a flat square over it.
-                if (i == 0) {
-                    CLAY_AUTO_ID(
-                        { .layout = { .sizing = { .width = CLAY_SIZING_GROW(0),
-                                                  .height = CLAY_SIZING_GROW(0) } },
-                          .image = { .imageData = &logo_tex } }) {}
+        // --- and Clay, in the same frame --------------------------------------
+        //
+        // A horizontal strip of slots, which rmp::ui has no primitive for yet.
+        // CLAY_AUTO_ID is the version without an explicit id; CLAY(CLAY_ID("x"),
+        // ...) is the one to use when you want to ask Clay about the element later
+        // with Clay_PointerOver or Clay_GetElementData.
+        //
+        // It is shaped like a tab, which rmp::ui cannot do either: each corner has
+        // its own radius, and the border is on one side only.
+        CLAY_AUTO_ID(
+            { .layout = { .sizing = { .width = CLAY_SIZING_FIT(0),
+                                      .height = CLAY_SIZING_FIT(0) },
+                          .padding = CLAY_PADDING_ALL(10),
+                          .childGap = 10,
+                          .layoutDirection = CLAY_LEFT_TO_RIGHT },
+              .backgroundColor = { 30, 30, 38, 255 },
+              .cornerRadius = { .topLeft = 18,
+                                .topRight = 18,
+                                .bottomLeft = 0,
+                                .bottomRight = 0 },
+              .border = { .color = { 88, 120, 245, 255 }, .width = { .bottom = 3 } } }) {
+            for (int i = 0; i < 4; ++i) {
+                // CLAY_IDI gives each slot in a loop its own identity without
+                // building a string per element.
+                CLAY(CLAY_IDI("slot", i),
+                     { .layout = { .sizing = { .width = CLAY_SIZING_FIXED(64),
+                                               .height = CLAY_SIZING_FIXED(64) } },
+                       .backgroundColor = { 44, 44, 56, 255 },
+                       .cornerRadius = CLAY_CORNER_RADIUS(6) }) {
+                    // Images: point imageData at a Texture2D you own and keep
+                    // alive for the frame. Our renderer draws it stretched to the
+                    // element's box, untinted. A tint is a Color* in userData; a
+                    // backgroundColor is NOT a tint -- Clay draws it as a rectangle
+                    // after the image, which paints a flat square over it.
+                    if (i == 0) {
+                        CLAY_AUTO_ID(
+                            { .layout = { .sizing = { .width = CLAY_SIZING_GROW(0),
+                                                      .height = CLAY_SIZING_GROW(0) } },
+                              .image = { .imageData = &logo_tex } }) {}
+                    }
                 }
             }
         }
+
+        // Hover, straight from Clay. Note it reads the PREVIOUS frame's geometry,
+        // exactly like rmp::ui::button() does — the layout for this frame does not
+        // exist until end().
+        if (Clay_PointerOver(CLAY_IDI("slot", 0))) {
+            rmp::ui::text("slot 1", { .color = rmp::ui::ColorRole::PRIMARY });
+        }
+
+        // Back to the normal API, still the same frame.
+        if (rmp::ui::button("Close")) rmp::app::quit();
+
+        rmp::ui::end();
     }
 
-    // Hover, straight from Clay. Note it reads the PREVIOUS frame's geometry,
-    // exactly like rmp::ui::button() does — the layout for this frame does not
-    // exist until end().
-    if (Clay_PointerOver(CLAY_IDI("slot", 0))) {
-        rmp::ui::text("slot 1", { .color = rmp::ui::ColorRole::PRIMARY });
-    }
+private:
+    // The owning handle. Clay wants a Texture2D* that stays valid for the
+    // frame, so _draw() copies the raylib struct out for exactly that long.
+    rmp::Texture _logo;
+};
 
-    // Back to the normal API, still the same frame.
-    if (rmp::ui::button("Close")) rmp::app::quit();
-
-    rmp::ui::end();
-    EndDrawing();
-}
-
-static void on_exit() {
-    logo = {}; // released here, while the GL context still exists
-    CloseWindow();
-}
-
-RMP_ENTRY_POINT(on_ready, on_frame, on_exit);
+RMP_GAME(ClayScene);
 
 // ---------------------------------------------------------------------------
 // What our renderer understands

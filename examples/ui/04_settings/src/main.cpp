@@ -27,6 +27,7 @@
 #include <rmp/app.h>
 #include <rmp/audio.h>
 #include <rmp/save.h>
+#include <rmp/scene.h>
 #include <rmp/ui.h>
 
 #include "settings.h"
@@ -34,12 +35,9 @@
 #include <algorithm>
 #include <string>
 
-static Settings cfg;
-static Settings saved; // what was on disk, to know if anything changed
-static bool dirty = false;
-static bool damaged = false; // the saved settings were edited or cut short
+namespace {
 
-static void apply(const Settings &s) {
+void apply(const Settings &s) {
     // Where you would actually act on it. Called only when something changed,
     // which is why the controls return a bool at all.
 #if !defined(PLATFORM_WEB) && !defined(__EMSCRIPTEN__)
@@ -63,14 +61,15 @@ static void apply(const Settings &s) {
 // What is on disk, over what the struct says. Every field reads with its
 // current value as the default, so the first run -- no save yet -- and a save
 // from an older version missing a field both simply keep the defaults. There
-// is no `if` around the read for the same reason.
-static void load(Settings &s) {
+// is no `if` around the read for the same reason. True when the file was
+// there but edited or cut short.
+bool load(Settings &s) {
     rmp::Value v;
     // When the read fails, `v` stays empty and every field keeps its default
     // -- that is the whole of "the first run". Only a damaged file is worth
     // telling the player about; a missing one is simply the first time.
     const rmp::save::Result read = rmp::save::read("settings", v);
-    damaged = read.status == rmp::save::Status::MODIFIED ||
+    const bool damaged = read.status == rmp::save::Status::MODIFIED ||
         read.status == rmp::save::Status::TRUNCATED;
     s.fullscreen = v["fullscreen"].as_bool(s.fullscreen);
     s.vsync = v["vsync"].as_bool(s.vsync);
@@ -84,10 +83,11 @@ static void load(Settings &s) {
     s.language = std::clamp(v["language"].as_int(s.language), 0,
                             static_cast<int>(LANGUAGE.size()) - 1);
     s.player = std::string(v["player"].as_string(s.player));
+    return damaged;
 }
 
 // True when it reached the disk.
-static bool store(const Settings &s) {
+bool store(const Settings &s) {
     rmp::Value v;
     v["fullscreen"] = s.fullscreen;
     v["vsync"] = s.vsync;
@@ -100,139 +100,145 @@ static bool store(const Settings &s) {
     return rmp::save::write("settings", v);
 }
 
-static void on_ready() {
-    SetConfigFlags(FLAG_WINDOW_RESIZABLE);
-    InitWindow(RMP_WINDOW_WIDTH, RMP_WINDOW_HEIGHT, RMP_WINDOW_TITLE);
-    // The controls start where the game does -- [window] vsync and [audio] in
-    // the .toml -- and then whatever the player saved last time wins.
-    cfg.vsync = RMP_WINDOW_VSYNC != 0;
-    // Here and not in the struct: a std::string with something in it, in a
-    // static, would be built before main(), where nothing can catch a throw.
-    cfg.player = "Player";
-    cfg.master = rmp::audio::volume(rmp::audio::Bus::MASTER);
-    cfg.music = rmp::audio::volume(rmp::audio::Bus::MUSIC);
-    load(cfg);
-    apply(cfg);
-    saved = cfg;
+} // namespace
 
-    // The first control of a screen has the focus without asking, so Enter and
-    // the A button work the moment it appears. Asking for it by name does one
-    // thing more: the ring shows from the start, before the player has touched
-    // a key. Name another control to start somewhere else.
-    rmp::ui::focus("Fullscreen");
-}
+class SettingsScene : public rmp::Scene {
+public:
+    void _ready() override {
+        // The controls start where the game does -- [window] vsync and [audio] in
+        // the .toml -- and then whatever the player saved last time wins.
+        _cfg.vsync = RMP_WINDOW_VSYNC != 0;
+        _cfg.player = "Player";
+        _cfg.master = rmp::audio::volume(rmp::audio::Bus::MASTER);
+        _cfg.music = rmp::audio::volume(rmp::audio::Bus::MUSIC);
+        _damaged = load(_cfg);
+        apply(_cfg);
+        _saved = _cfg;
 
-static void on_frame(float /*delta*/) {
-    BeginDrawing();
-    ClearBackground(rmp::ui::current_theme().background);
+        // The first control of a screen has the focus without asking, so Enter and
+        // the A button work the moment it appears. Asking for it by name does one
+        // thing more: the ring shows from the start, before the player has touched
+        // a key. Name another control to start somewhere else.
+        rmp::ui::focus("Fullscreen");
+    }
 
-    rmp::ui::begin();
-    rmp::ui::panel({ .box = { .width = 760 } }, [&] {
-        rmp::ui::text("Settings");
+    void _draw() override {
+        rmp::ui::begin();
+        rmp::ui::panel({ .box = { .width = 760 } }, [&] {
+            rmp::ui::text("Settings");
 
-        // Two columns, so that the whole screen fits the window it opens in --
-        // [window] in the .toml, 800x450. In one column Apply was below the
-        // bottom edge, where a mouse could not reach it. Focus still goes
-        // down the first column and then the second: it follows the order the
-        // controls are written in, not where they land.
-        rmp::ui::row(
-            { .gap = 24, .items = rmp::ui::Align::TOP_CENTER, .grow_x = true }, [&] {
-                rmp::ui::column({ .grow_x = true }, [&] {
-                    // --- toggles ----------------------------------------------
-                    if (rmp::ui::checkbox("Fullscreen", cfg.fullscreen)) dirty = true;
+            // Two columns, so that the whole screen fits the window it opens in --
+            // [window] in the .toml, 800x450. In one column Apply was below the
+            // bottom edge, where a mouse could not reach it. Focus still goes
+            // down the first column and then the second: it follows the order the
+            // controls are written in, not where they land.
+            rmp::ui::row(
+                { .gap = 24, .items = rmp::ui::Align::TOP_CENTER, .grow_x = true }, [&] {
+                    rmp::ui::column({ .grow_x = true }, [&] {
+                        // --- toggles ----------------------------------------------
+                        if (rmp::ui::checkbox("Fullscreen", _cfg.fullscreen))
+                            _dirty = true;
 #if !defined(PLATFORM_WEB) && !defined(__EMSCRIPTEN__)
-                    // Not on the web, where there is no such switch at all. That
-                    // is not the same as the Subtitles box below: a control that
-                    // is unavailable RIGHT NOW is disabled, one that cannot exist
-                    // here is not shown.
-                    if (rmp::ui::checkbox("VSync", cfg.vsync)) dirty = true;
+                        // Not on the web, where there is no such switch at all. That
+                        // is not the same as the Subtitles box below: a control that
+                        // is unavailable RIGHT NOW is disabled, one that cannot exist
+                        // here is not shown.
+                        if (rmp::ui::checkbox("VSync", _cfg.vsync)) _dirty = true;
 #endif
 
-                    // A control that is not available right now is disabled, not
-                    // missing. A menu whose items appear and disappear is a menu
-                    // nobody can learn.
-                    rmp::ui::checkbox("Subtitles", cfg.subtitles, { .enabled = false });
+                        // A control that is not available right now is disabled, not
+                        // missing. A menu whose items appear and disappear is a menu
+                        // nobody can learn.
+                        rmp::ui::checkbox("Subtitles", _cfg.subtitles,
+                                          { .enabled = false });
 
-                    // --- sliders ----------------------------------------------
-                    // Continuous: drag it anywhere, or hold left/right on a
-                    // controller.
-                    if (rmp::ui::slider("Master volume", cfg.master, 0.0f, 1.0f))
-                        dirty = true;
-                    if (rmp::ui::slider("Music", cfg.music, 0.0f, 1.0f)) dirty = true;
+                        // --- sliders ----------------------------------------------
+                        // Continuous: drag it anywhere, or hold left/right on a
+                        // controller.
+                        if (rmp::ui::slider("Master volume", _cfg.master, 0.0f, 1.0f))
+                            _dirty = true;
+                        if (rmp::ui::slider("Music", _cfg.music, 0.0f, 1.0f))
+                            _dirty = true;
 
-                    // step snaps to multiples, which is what you want for a value
-                    // the player will want to describe to someone else ("I play on
-                    // 40").
-                    if (rmp::ui::slider("Sensitivity", cfg.sensitivity, 0.0f, 1.0f,
-                                        { .step = 0.05f }))
-                        dirty = true;
-                });
-
-                rmp::ui::column({ .grow_x = true }, [&] {
-                    // --- pick one of a list -----------------------------------
-                    // The dropdown owns nothing but the open/closed flag, and that
-                    // is ours, not yours: the int is an index into the list you
-                    // passed.
-                    if (rmp::ui::dropdown("Quality", cfg.quality, QUALITY)) dirty = true;
-                    if (rmp::ui::dropdown("Language", cfg.language, LANGUAGE))
-                        dirty = true;
-
-                    // --- typing -----------------------------------------------
-                    // Edits your std::string, up to 20 characters as the player
-                    // counts them.
-                    if (rmp::ui::text_input(
-                            "Name", cfg.player,
-                            { .placeholder = "your name", .max_length = 20 })) {
-                        dirty = true;
-                    }
-
-                    // --- actions ----------------------------------------------
-                    rmp::ui::row({ .grow_x = true }, [&] {
-                        if (rmp::ui::button("Revert", { .enabled = dirty })) {
-                            cfg = saved;
-                            dirty = false;
-                        }
-                        rmp::ui::spacer();
-                        if (rmp::ui::button("Apply",
-                                            { .style = rmp::ui::Variant::PRIMARY,
-                                              .enabled = dirty })) {
-                            apply(cfg);
-                            // A word at the bottom of the screen, gone by
-                            // itself in three seconds: nothing to close, and
-                            // nothing in this layout moves to make room.
-                            if (store(cfg)) {
-                                saved = cfg;
-                                dirty = false;
-                                rmp::ui::notify("Saved");
-                            } else {
-                                // Still unsaved, so Apply stays lit: try again.
-                                rmp::ui::notify("Not saved: the disk refused it",
-                                                { .color = rmp::ui::ColorRole::DANGER });
-                            }
-                        }
+                        // step snaps to multiples, which is what you want for a value
+                        // the player will want to describe to someone else ("I play on
+                        // 40").
+                        if (rmp::ui::slider("Sensitivity", _cfg.sensitivity, 0.0f, 1.0f,
+                                            { .step = 0.05f }))
+                            _dirty = true;
                     });
 
-                    if (dirty) {
-                        rmp::ui::text(
-                            "unsaved changes",
-                            { .color = rmp::ui::ColorRole::DANGER, .size = 14 });
-                    }
-                    if (damaged) {
-                        rmp::ui::text(
-                            "the saved settings were damaged; these are the defaults",
-                            { .color = rmp::ui::ColorRole::MUTED, .size = 14 });
-                    }
+                    rmp::ui::column({ .grow_x = true }, [&] {
+                        // --- pick one of a list -----------------------------------
+                        // The dropdown owns nothing but the open/closed flag, and that
+                        // is ours, not yours: the int is an index into the list you
+                        // passed.
+                        if (rmp::ui::dropdown("Quality", _cfg.quality, QUALITY))
+                            _dirty = true;
+                        if (rmp::ui::dropdown("Language", _cfg.language, LANGUAGE))
+                            _dirty = true;
+
+                        // --- typing -----------------------------------------------
+                        // Edits your std::string, up to 20 characters as the player
+                        // counts them.
+                        if (rmp::ui::text_input(
+                                "Name", _cfg.player,
+                                { .placeholder = "your name", .max_length = 20 })) {
+                            _dirty = true;
+                        }
+
+                        // --- actions ----------------------------------------------
+                        rmp::ui::row({ .grow_x = true }, [&] {
+                            if (rmp::ui::button("Revert", { .enabled = _dirty })) {
+                                _cfg = _saved;
+                                _dirty = false;
+                            }
+                            rmp::ui::spacer();
+                            if (rmp::ui::button("Apply",
+                                                { .style = rmp::ui::Variant::PRIMARY,
+                                                  .enabled = _dirty })) {
+                                apply(_cfg);
+                                // A word at the bottom of the screen, gone by
+                                // itself in three seconds: nothing to close, and
+                                // nothing in this layout moves to make room.
+                                if (store(_cfg)) {
+                                    _saved = _cfg;
+                                    _dirty = false;
+                                    rmp::ui::notify("Saved");
+                                } else {
+                                    // Still unsaved, so Apply stays lit: try again.
+                                    rmp::ui::notify(
+                                        "Not _saved: the disk refused it",
+                                        { .color = rmp::ui::ColorRole::DANGER });
+                                }
+                            }
+                        });
+
+                        if (_dirty) {
+                            rmp::ui::text(
+                                "unsaved changes",
+                                { .color = rmp::ui::ColorRole::DANGER, .size = 14 });
+                        }
+                        if (_damaged) {
+                            rmp::ui::text(
+                                "the _saved settings were _damaged; these are the "
+                                "defaults",
+                                { .color = rmp::ui::ColorRole::MUTED, .size = 14 });
+                        }
+                    });
                 });
-            });
-    });
-    rmp::ui::end();
+        });
+        rmp::ui::end();
+    }
 
-    EndDrawing();
-}
+private:
+    Settings _cfg;
+    Settings _saved; // what was on disk, to know if anything changed
+    bool _dirty = false;
+    bool _damaged = false; // the saved settings were edited or cut short
+};
 
-static void on_exit() { CloseWindow(); }
-
-RMP_ENTRY_POINT(on_ready, on_frame, on_exit);
+RMP_GAME(SettingsScene);
 
 // ---------------------------------------------------------------------------
 // Focus, keyboard and gamepad — which you did not have to write
