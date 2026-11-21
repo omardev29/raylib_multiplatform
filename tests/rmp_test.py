@@ -2666,6 +2666,71 @@ def rmp_tracked_files():
     return [p for p in got.stdout.split("\0") if p]
 
 
+class ClangdConfigTest(unittest.TestCase):
+    """.clangd keeps clangd quiet in the framework's code and nowhere else: a
+    game's own files are diagnosed, include/rmp/, src/rmp/ and what is
+    vendored are not (Omar, 2026-11-21)."""
+
+    TEXT = (REPO / ".clangd").read_text(encoding="utf-8")
+
+    def quiet_patterns(self):
+        """The PathMatch regexes of the fragment that suppresses everything."""
+        for fragment in self.TEXT.split("\n---\n"):
+            if re.search(r'^\s+Suppress:\s*"\*"', fragment, re.M):
+                block = re.search(r"PathMatch:\n((?:\s+- .+\n)+)", fragment)
+                self.assertIsNotNone(block, "the quiet fragment names no PathMatch")
+                return [re.compile(line.strip()[2:]) for line in block.group(1).splitlines()]
+        self.fail(".clangd has no fragment that suppresses every diagnostic")
+
+    def quiet(self, path):
+        return any(p.fullmatch(path) for p in self.quiet_patterns())
+
+    def test_every_quiet_pattern_names_a_tracked_file(self):
+        files = rmp_tracked_files()
+        for pattern in self.quiet_patterns():
+            with self.subTest(pattern=pattern.pattern):
+                self.assertTrue(any(pattern.fullmatch(f) for f in files),
+                                f"{pattern.pattern} matches nothing the repository tracks")
+
+    def test_the_framework_is_quiet(self):
+        for path in ("include/rmp/ui.h", "src/rmp/scene/collision.cpp", "src/rmp/internal.h",
+                     "thirdparty/raylib/src/rcore.c", "raymob/app/src/main/cpp/main.c",
+                     "tests/smoke_test.h"):
+            with self.subTest(path=path):
+                self.assertTrue(self.quiet(path))
+
+    def test_the_games_code_is_diagnosed(self):
+        # What `rmp new` gives a game to write in, and the framework's own
+        # examples and tests, which nobody vendors.
+        for path in ("src/main.cpp", "src/scenes/main_menu.cpp", "src/scenes/main_menu.h",
+                     "src/objects/player.cpp", "include/player.h", "tests/game/game_test.cpp",
+                     "examples/games/01_pong/src/main.cpp", "tests/collision_test.cpp",
+                     "src/rmpx/x.cpp", "my_include/rmp/x.h"):
+            with self.subTest(path=path):
+                self.assertFalse(self.quiet(path))
+
+    def test_the_quiet_fragment_indexes_nothing_and_tidies_nothing(self):
+        fragment = next(f for f in self.TEXT.split("\n---\n") if "PathMatch" in f)
+        for line in ('ClangTidy:\n    Remove: "*"', "Background: Skip",
+                     "UnusedIncludes: None", "MissingIncludes: None"):
+            with self.subTest(line=line):
+                self.assertIn(line, fragment)
+
+    def test_the_editor_tolerates_what_the_compiler_does_not_decide(self):
+        # A Visual Studio STL newer than clangd, and -Werror: neither is an
+        # error in the editor.
+        self.assertIn("-D_ALLOW_COMPILER_AND_STL_VERSION_MISMATCH", self.TEXT)
+        self.assertRegex(self.TEXT, r'Remove:\n(?:\s+(?:#.*|- .+)\n)*\s+- "-Werror"\n')
+
+    def test_no_script_rewrites_it(self):
+        # The Android database and the scripts that pointed clangd at it are
+        # gone: one .clangd, the desktop build's.
+        for name in ("generate_android_commands.sh", "generate_android_commands.ps1",
+                     "update_clangd.sh", "update_clangd.ps1"):
+            with self.subTest(name=name):
+                self.assertFalse((REPO / name).exists())
+
+
 class LauncherTest(unittest.TestCase):
     """The three launchers find a Python 3.11+ and hand it every argument."""
 

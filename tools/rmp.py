@@ -1808,8 +1808,6 @@ INCLUDE = (
     "cmake/sanitizer_hooks.c", "cmake/sanitize_ignore.txt", "cmake/tcc.cmake",
     "cmake/tcc_fixup.c", "cmake/windows_clang_cl.cmake", "cmake/windows_cross.cmake",
     "cmake/toolchain-riscv64-linux.cmake", "cmake/web/",
-    "generate_android_commands.ps1", "generate_android_commands.sh",
-    "update_clangd.ps1", "update_clangd.sh",
     "include/", "ios/ANGLE-LICENSE.txt", "ios/README.md",
     "package.json", "package-lock.json", "raymob/", "resources/", "src/",
     "tests/smoke_test.h", "tests/game/", "thirdparty/",
