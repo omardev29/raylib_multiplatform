@@ -8,66 +8,21 @@
 // hover states, what happens when the window is resized -- is decided for you,
 // and each of those decisions can be overridden individually when you need it.
 //
-// One screen per file under src/screens/; this file only says which one is on.
+// One scene per screen under src/scenes/; this file only says which comes first.
 // Run it: `rmp example 01_menu`.
 // ---------------------------------------------------------------------------
 
 #include <rmp/app.h>
-#include <rmp/input.h>
-#include <rmp/ui.h>
 
-#include "screens.h"
+#include "scenes/screens.h"
 
-static void on_ready() {
-    SetConfigFlags(FLAG_WINDOW_RESIZABLE); // BEFORE InitWindow, or it is ignored
-    InitWindow(RMP_WINDOW_WIDTH, RMP_WINDOW_HEIGHT, RMP_WINDOW_TITLE);
-    // A menu fills whatever window it is given. The examples' .toml letterboxes
-    // the game's area to the design's shape ([window] stretch); NONE gives the
-    // interface the whole window, resized or not. See scenes/02_stretch.
-    rmp::app::set_stretch(rmp::app::Stretch::NONE);
-}
-
-static void on_frame(float) {
-    if (game.screen == Screen::PLAYING) {
-        game.score += 1;
-        // "ui_cancel" is one of the actions that come defined: Escape, or the
-        // gamepad's right face button. Through rmp::input rather than
-        // IsKeyPressed(KEY_ESCAPE), so a controller can go back too.
-        if (rmp::input::just_pressed("ui_cancel")) game.screen = Screen::MENU;
-    }
-
-    BeginDrawing();
-    ClearBackground(rmp::ui::current_theme().background);
-
-    // The UI draws in end(), so the whole pair belongs between BeginDrawing()
-    // and EndDrawing() -- and after whatever you want it to sit on top of.
-    switch (game.screen) {
-        case Screen::MENU:
-            main_menu();
-            break;
-        case Screen::OPTIONS:
-            options_menu();
-            break;
-        case Screen::CONFIRM:
-            confirm_quit();
-            break;
-        case Screen::PLAYING:
-            hud();
-            break;
-    }
-
-    EndDrawing();
-}
-
-static void on_exit() { CloseWindow(); }
-
-RMP_ENTRY_POINT(on_ready, on_frame, on_exit);
+RMP_GAME(MainMenuScene);
 
 // ---------------------------------------------------------------------------
 // Things worth knowing, none of which you need on day one
 // ---------------------------------------------------------------------------
 //
-// THEME. Plain data. Copy, change, set back — usually once, in on_ready():
+// THEME. Plain data. Copy, change, set back — usually once, in a _ready():
 //
 //     auto t = rmp::ui::current_theme();
 //     t.primary       = GOLD;

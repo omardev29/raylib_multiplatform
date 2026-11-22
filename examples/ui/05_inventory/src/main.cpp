@@ -19,51 +19,53 @@
 #include <rmp/app.h>
 #include <rmp/assets.h>
 #include <rmp/input.h>
+#include <rmp/scene.h>
 #include <rmp/ui.h>
 
 #include "inventory.h"
 
-static void on_ready() {
-    SetConfigFlags(FLAG_WINDOW_RESIZABLE); // the whole point: resize it
-    InitWindow(RMP_WINDOW_WIDTH, RMP_WINDOW_HEIGHT, RMP_WINDOW_TITLE);
-    icon = rmp::assets::load_texture("rabbit.png");
-    // What a click means to the game, by name.
-    rmp::input::action("use", MOUSE_BUTTON_LEFT);
-}
-
-static void on_frame(float) {
-    // The UI is reading the pointer, so the game must not act on the same
-    // click: picking an item must not also swing the sword. An action asked
-    // for by name already knows -- it is quiet while the UI wants the pointer
-    // -- so there is no `if (!rmp::ui::wants_pointer())` to remember here.
-    if (rmp::input::just_pressed("use")) {
-        TraceLog(LOG_INFO, "GAME: click in the world");
+class InventoryScene : public rmp::Scene {
+public:
+    void _ready() override {
+        // The whole point: resize the window.
+        _icon = rmp::assets::load_texture("rabbit.png");
+        // What a click means to the game, by name.
+        rmp::input::action("use", MOUSE_BUTTON_LEFT);
     }
 
-    BeginDrawing();
-    ClearBackground(rmp::ui::current_theme().background);
+    void _update(float) override {
+        // The UI is reading the pointer, so the game must not act on the same
+        // click: picking an item must not also swing the sword. An action asked
+        // for by name already knows -- it is quiet while the UI wants the
+        // pointer -- so there is no `if (!rmp::ui::wants_pointer())` to
+        // remember here.
+        if (rmp::input::just_pressed("use")) {
+            TraceLog(LOG_INFO, "GAME: click in the world");
+        }
+    }
 
-    // grow: the frame is the whole window, so the row below can fill it.
-    // Without it begin() is a column that fits its content -- the right thing
-    // for a menu -- and a growing row would fill that column and no more.
-    rmp::ui::begin({ .grow = true });
-    rmp::ui::row({ .gap = 12, .grow_x = true, .grow_y = true }, [&] {
-        inventory_grid();
-        item_list();
-    });
-    rmp::ui::end();
+    void _draw() override {
+        // grow: the frame is the whole window, so the row below can fill it.
+        // Without it begin() is a column that fits its content -- the right
+        // thing for a menu -- and a growing row would fill that column and no
+        // more.
+        rmp::ui::begin({ .grow = true });
+        rmp::ui::row({ .gap = 12, .grow_x = true, .grow_y = true }, [&] {
+            inventory_grid(_icon);
+            item_list();
+        });
+        rmp::ui::end();
+    }
 
-    EndDrawing();
-}
+private:
+    // An rmp::Texture and not a Texture2D: the handle owns the texture, and the
+    // scene owns the handle, so it goes when the scene does -- before the
+    // window closes. Copying it into a raw Texture2D would have destroyed the
+    // only owner on the same line.
+    rmp::Texture _icon;
+};
 
-static void on_exit() {
-    // Let go of the texture while the window -- and its GL context -- is still
-    // there. A handle held in a global would otherwise release after main().
-    icon = {};
-    CloseWindow();
-}
-
-RMP_ENTRY_POINT(on_ready, on_frame, on_exit);
+RMP_GAME(InventoryScene);
 
 // ---------------------------------------------------------------------------
 // Notes

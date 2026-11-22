@@ -86,7 +86,7 @@ main() {
         OpenBSD) manager=pkg_add ;;
         NetBSD) manager=pkgin ;;
         *)
-            for m in apt-get dnf pacman zypper; do
+            for m in apt-get dnf pacman zypper apk; do
                 if have "$m"; then
                     manager=$m
                     break
@@ -128,6 +128,14 @@ main() {
             zypper:x11) say libX11-devel libXrandr-devel libXi-devel libXcursor-devel \
                 libXinerama-devel Mesa-libGL-devel ;;
             zypper:drm) say libdrm-devel libgbm-devel Mesa-libEGL-devel Mesa-libGLESv2-devel ;;
+            # Alpine: samurai is its ninja, build-base its compiler and make,
+            # and GLFW reads the kernel's input headers.
+            apk:python | apk:python-new) say python3 ;;
+            apk:ninja) say samurai ;;
+            apk:cxx) say build-base ;;
+            apk:x11) say libx11-dev libxrandr-dev libxi-dev libxcursor-dev libxinerama-dev \
+                mesa-dev linux-headers ;;
+            apk:drm) say libdrm-dev mesa-dev linux-headers ;;
             brew:python | brew:python-new) say python ;;
             pkg:python | pkg:python-new) say python311 ;;
             pkg:x11) say libX11 libXrandr libXi libXcursor libXinerama libglvnd mesa-libs ;;
@@ -143,6 +151,7 @@ main() {
             dnf) say "${root}dnf install" ;;
             pacman) say "${root}pacman -S --needed" ;;
             zypper) say "${root}zypper install" ;;
+            apk) say "${root}apk add" ;;
             brew) say "brew install" ;;
             pkg) say "${root}pkg install" ;;
             pkg_add) say "${root}pkg_add" ;;

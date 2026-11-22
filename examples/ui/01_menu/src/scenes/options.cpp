@@ -5,7 +5,7 @@
 
 #include <string>
 
-void options_menu() {
+void OptionsScene::_draw() {
     rmp::ui::begin();
 
     rmp::ui::text("Options");
@@ -23,7 +23,7 @@ void options_menu() {
     // Disabled controls still lay out, and still look deliberate.
     rmp::ui::button("Cloud saves", { .enabled = false });
 
-    if (rmp::ui::button("Back")) game.screen = Screen::MENU;
+    if (rmp::ui::button("Back")) change<MainMenuScene>();
 
     rmp::ui::end();
 }

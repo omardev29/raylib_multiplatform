@@ -4,7 +4,7 @@
 #include <rmp/app.h>
 #include <rmp/ui.h>
 
-void confirm_quit() {
+void ConfirmScene::_draw() {
     rmp::ui::begin();
 
     rmp::ui::text("Really quit?");
@@ -12,7 +12,7 @@ void confirm_quit() {
                   { .color = rmp::ui::ColorRole::MUTED });
 
     // rmp::app::quit(), never std::exit(): this lets the frame finish and
-    // then runs on_exit() and CloseWindow() on the way out. On Android it also
+    // then ends the scenes and closes the window on the way out. On Android it also
     // finishes the Activity, so the app does not leave a dead task behind.
     //
     // On iOS it does nothing at all, on purpose -- Apple rejects apps that
@@ -26,7 +26,7 @@ void confirm_quit() {
     // labels inside ONE frame are told apart automatically; an explicit id is
     // for when the UI is conditional -- as it is here -- and you want an
     // element's hover state to stay its own across screen changes.
-    if (rmp::ui::button("Cancel", { .id = "confirm.cancel" })) game.screen = Screen::MENU;
+    if (rmp::ui::button("Cancel", { .id = "confirm.cancel" })) change<MainMenuScene>();
 
     rmp::ui::end();
 }

@@ -3,16 +3,16 @@
 
 #include <rmp/ui.h>
 
-void main_menu() {
+void MainMenuScene::_draw() {
     // A centred column, sized and spaced by the theme, scaled to the window.
     // Three ifs and you have a menu.
     rmp::ui::begin();
 
     rmp::ui::text("MY GAME");
 
-    if (rmp::ui::button("Play")) game.screen = Screen::PLAYING;
-    if (rmp::ui::button("Options")) game.screen = Screen::OPTIONS;
-    if (rmp::ui::button("Quit")) game.screen = Screen::CONFIRM;
+    if (rmp::ui::button("Play")) change<PlayingScene>();
+    if (rmp::ui::button("Options")) change<OptionsScene>();
+    if (rmp::ui::button("Quit")) change<ConfirmScene>();
 
     rmp::ui::end();
 }

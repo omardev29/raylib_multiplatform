@@ -24,9 +24,12 @@ builds them, **boots them, and checks they actually put pixels on screen**.
   <img src=".github/img/style.png" width="49%" alt="The light theme, variants and sizes">
 </p>
 <p align="center">
-  <img src=".github/img/inventory.png" width="32%" alt="An inventory grid with tooltips and a scrolling list">
-  <img src=".github/img/overlay.png" width="32%" alt="A dialog over the game, dimmed behind it">
-  <img src=".github/img/tetris.png" width="32%" alt="A Tetris, one of the example games">
+  <img src=".github/img/inventory.png" width="49%" alt="An inventory grid with tooltips and a scrolling list">
+  <img src=".github/img/overlay.png" width="49%" alt="A dialog over the game, dimmed behind it">
+</p>
+<p align="center">
+  <img src=".github/img/font.png" width="49%" alt="A title screen in a font of its own, Hack Bold">
+  <img src=".github/img/tetris.png" width="49%" alt="A Tetris, one of the example games">
 </p>
 
 Every picture on this page is a frame the CI draws and compares pixel for pixel on every commit:

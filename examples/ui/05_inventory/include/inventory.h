@@ -28,11 +28,7 @@ inline std::array<Item, ITEM_COUNT> items{ {
 } };
 inline int selected = 0;
 
-// An rmp::Texture and not a Texture2D: the handle owns the texture, and it is
-// released in on_exit() before the window closes. Copying it into a raw
-// Texture2D would have destroyed the only owner on the same line.
-inline rmp::Texture icon;
-
-// One panel per file under src/panels/.
-void inventory_grid();
+// One panel per file under src/panels/. The grid draws each item with `icon`,
+// which the scene owns.
+void inventory_grid(const rmp::Texture &icon);
 void item_list();
